@@ -18,24 +18,75 @@
         }
 
         body { background: var(--bg-dark); color: var(--text-main); font-family: system-ui, sans-serif; margin: 0; padding: 0; }
-        header { background: var(--panel-bg); border-bottom: 1px solid var(--border-color); padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
+        header { background: var(--panel-bg); border-bottom: 1px solid var(--border-color); padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
         .canvas-container { padding: 20px; display: flex; justify-content: center; overflow-x: auto; }
-        
+
         /* SVG Spatial Styles */
         svg { background: #12181a; border: 1px solid var(--border-color); border-radius: 8px; }
         .block-bg { fill: var(--panel-bg); stroke: var(--border-color); stroke-width: 1; }
         .block-label { fill: var(--text-muted); font-size: 11px; font-weight: bold; font-family: monospace; }
-        
+
         .bed-unit { cursor: pointer; transition: transform 0.1s ease; }
         .bed-unit:hover { transform: scale(1.1); }
         .bed-rect { fill: #0f1416; stroke-width: 2; rx: 3; }
         .bed-text { fill: var(--text-main); font-size: 9px; font-weight: bold; text-anchor: middle; font-family: monospace; }
-        
+
         .status-green { stroke: var(--status-green); }
         .status-red { stroke: var(--status-red); }
         .status-orange { stroke: var(--status-orange); }
         .status-purple { stroke: var(--status-purple); }
         .status-gray { stroke: var(--status-gray); opacity: 0.5; }
+
+        /* connection pill + panel */
+        .conn-pill{
+            display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600;
+            background:rgba(255,255,255,0.06); border:1px solid var(--border-color); color:var(--text-main);
+            padding:6px 12px; border-radius:20px; cursor:pointer;
+        }
+        .conn-pill:hover{background:rgba(255,255,255,0.12);}
+        .conn-dot{width:8px;height:8px;border-radius:50%; background:var(--text-muted); flex:none;}
+        .conn-dot.live{background:var(--status-green); box-shadow:0 0 0 3px rgba(67,160,71,0.25);}
+        .conn-dot.error{background:var(--status-red);}
+        .conn-panel{
+            max-height:0; overflow:hidden; background:#141b1d; border-bottom:1px solid var(--border-color);
+            transition:max-height .2s ease;
+        }
+        .conn-panel.open{max-height:120px;}
+        .conn-panel-inner{padding:14px 24px 16px;}
+        .conn-row{display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;}
+        .conn-row label{font-size:11.5px; color:var(--text-muted);}
+        #conn-url-input{
+            flex:1; min-width:280px; font-size:12px; padding:7px 10px; border-radius:16px;
+            border:1px solid var(--border-color); background:rgba(255,255,255,0.05); color:var(--text-main); font-family: monospace;
+        }
+        #conn-url-input::placeholder{color:var(--text-muted);}
+        .conn-status{font-size:11.5px; color:var(--text-muted);}
+        .btn{
+            font-size:11.5px; font-weight:600; padding:6px 14px; border-radius:16px; border:1px solid var(--border-color);
+            background:rgba(255,255,255,0.05); color:var(--text-main); cursor:pointer;
+        }
+        .btn:hover{background:rgba(255,255,255,0.12);}
+        .btn-primary{background:var(--status-green); border-color:var(--status-green); color:#08110a;}
+        .btn-primary:hover{filter:brightness(1.08);}
+
+        .legend { display:flex; gap:16px; flex-wrap:wrap; padding:10px 24px; font-size:11px; color:var(--text-muted); background:var(--panel-bg); border-bottom:1px solid var(--border-color); }
+        .legend span.sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+
+        /* bed detail side panel */
+        #bed-panel {
+            position: fixed; top: 0; right: -340px; width: 320px; height: 100%; background: var(--panel-bg);
+            border-left: 1px solid var(--border-color); padding: 20px; box-sizing: border-box; transition: right .2s ease;
+            z-index: 50; overflow-y: auto;
+        }
+        #bed-panel.open { right: 0; }
+        #bed-panel h2 { margin: 0 0 4px; font-size: 16px; font-family: monospace; }
+        #bed-panel .sub { color: var(--text-muted); font-size: 11px; margin-bottom: 16px; }
+        #bed-panel .row { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border-color); font-size:12.5px; }
+        #bed-panel .row .k { color: var(--text-muted); }
+        #bed-panel .close { position:absolute; top:14px; right:16px; cursor:pointer; color:var(--text-muted); font-size:18px; background:none; border:none; }
+        #bed-panel .exception { margin-top:14px; padding:10px; border-radius:6px; background:rgba(229,57,53,0.12); border:1px solid var(--status-red); font-size:12px; }
+        #bed-panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 40; display:none; }
+        #bed-panel-backdrop.open { display:block; }
     </style>
 </head>
 <body>
@@ -43,10 +94,38 @@
     <header>
         <div>
             <h1 style="font-size: 16px; margin: 0;">NGAPORI RANCH AAB — MASTER DISPATCH BOARD</h1>
-            <span style="font-size: 11px; color: var(--text-muted);">SOP Alignment: 231 Active Field Units (220 Annual Beds + 11 Perennial Rows)</span>
+            <span style="font-size: 11px; color: var(--text-muted);" id="sop-line">SOP Alignment: 231 Active Field Units (220 Annual Beds + 11 Perennial Rows)</span>
         </div>
-        <div style="font-size: 12px; font-weight: bold;">UNASSIGNED TASKS: <span style="color: #ffd54f;">6</span></div>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button class="conn-pill" id="conn-pill" title="Click to manage the live connection">
+                <span class="conn-dot" id="conn-dot"></span><span id="conn-label">Demo data</span>
+            </button>
+            <div style="font-size: 12px; font-weight: bold;" id="stat-line">UNASSIGNED TASKS: <span style="color: #ffd54f;">6</span></div>
+        </div>
     </header>
+
+    <div class="conn-panel" id="conn-panel">
+        <div class="conn-panel-inner">
+            <div class="conn-row">
+                <label for="conn-url-input">Apps Script Web App URL (ends in <span style="font-family:monospace;">/exec</span>)</label>
+                <input id="conn-url-input" type="text" placeholder="https://script.google.com/macros/s/…/exec" />
+            </div>
+            <div class="conn-row" style="gap:8px;">
+                <button class="btn btn-primary" id="conn-connect-btn">Connect</button>
+                <button class="btn" id="conn-refresh-btn">Refresh now</button>
+                <button class="btn" id="conn-disconnect-btn">Use demo data instead</button>
+                <span class="conn-status" id="conn-status"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="legend" id="legend">
+        <span><span class="sw" style="background:var(--status-green);"></span>Planted / Growing</span>
+        <span><span class="sw" style="background:var(--status-orange);"></span>Prep / Cleanup / Harvested</span>
+        <span><span class="sw" style="background:var(--status-purple);"></span>Harvestable</span>
+        <span><span class="sw" style="background:var(--status-red);"></span>Open exception</span>
+        <span><span class="sw" style="background:var(--status-gray); opacity:.6;"></span>Rest</span>
+    </div>
 
     <div class="canvas-container">
         <!-- Interactive 231 Spatial Canvas -->
@@ -74,6 +153,12 @@
         </svg>
     </div>
 
+    <div id="bed-panel-backdrop"></div>
+    <div id="bed-panel">
+        <button class="close" id="bed-panel-close">&times;</button>
+        <div id="bed-panel-body"></div>
+    </div>
+
     <script>
         const bedsLayer = document.getElementById('beds-layer');
 
@@ -84,48 +169,293 @@
             { prefix: 'B4', startX: 600 }
         ];
 
-        // Render Annual Blocks 1-4 (55 beds each = 220 beds)
-        blockConfigs.forEach(block => {
-            for (let i = 1; i <= 55; i++) {
-                const col = (i - 1) % 5;
-                const row = Math.floor((i - 1) / 5);
-                
-                const x = block.startX + (col * 32);
-                const y = 50 + (row * 50);
-                
-                let statusClass = 'status-green';
-                if (i % 7 === 0) statusClass = 'status-red';
-                else if (i % 3 === 0) statusClass = 'status-orange';
-                else if (i % 11 === 0) statusClass = 'status-purple';
+        /* ==================================================================
+           LIVE CONNECTION — same Apps Script deployment & wire format used by
+           Dashboard_VPOS.html / ManagerApp.html / WorkerApp.html: a text/plain
+           POST of {action, payload} to the web app's /exec URL, avoiding a
+           CORS preflight. Shares the same localStorage key as Dashboard_VPOS.html
+           so a URL saved there is picked up here automatically.
+           ================================================================== */
+        const CONN_KEY = 'vpos_apps_script_url';
+        const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwUFXoHDFSUArQCIqkh2De8-fwPfWSG9LRvtagJPzmJdFaBx_95av5V57NzYs1J1IZLnA/exec';
 
-                renderBed(x, y, `${block.prefix}-${i.toString().padStart(2, '0')}`, i, statusClass, 30, 44);
+        let LIVE_MODE = false;
+        let APPS_SCRIPT_URL = localStorage.getItem(CONN_KEY) || DEFAULT_APPS_SCRIPT_URL;
+        let DATA = null;          // { bed_master, cohort_master, exception_log, ... } once live
+        let bedIndex = {};        // Bed_ID -> bed_master row
+        let openExceptionsByBed = {}; // Bed_ID -> [exception rows]
+
+        function callApi_(url, action, payload){
+            return new Promise((resolve, reject)=>{
+                if(!url){ reject(new Error('No Apps Script URL configured')); return; }
+                const controller = new AbortController();
+                const timer = setTimeout(()=>{ controller.abort(); reject(new Error('Timed out reaching the Apps Script Web App')); }, 15000);
+                fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action, payload: payload || {} }),
+                    signal: controller.signal
+                }).then(res => res.json()).then(data => { clearTimeout(timer); resolve(data); })
+                  .catch(err => { clearTimeout(timer); reject(new Error(err && err.name === 'AbortError' ? 'Timed out reaching the Apps Script Web App' : 'Could not reach that URL')); });
+            });
+        }
+
+        function setConnUI(status, label){
+            const dot = document.getElementById('conn-dot');
+            const lbl = document.getElementById('conn-label');
+            dot.className = 'conn-dot' + (status==='live' ? ' live' : status==='error' ? ' error' : '');
+            lbl.textContent = label;
+        }
+
+        async function connectLive(url, {silent} = {}){
+            if(!silent){ document.getElementById('conn-status').textContent = 'Connecting…'; }
+            try {
+                const res = await callApi_(url, 'get-manager-today-view');
+                if(!res.success) throw new Error(res.error || 'Server returned an error');
+                DATA = res.data;
+                LIVE_MODE = true;
+                APPS_SCRIPT_URL = url;
+                localStorage.setItem(CONN_KEY, url);
+                const stamp = res.data.generated_at ? new Date(res.data.generated_at) : new Date();
+                setConnUI('live', 'Live · synced ' + stamp.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}));
+                document.getElementById('conn-status').textContent = 'Connected.';
+                buildIndexes();
+                renderBoard();
+                return true;
+            } catch(err){
+                setConnUI('error', 'Connection failed');
+                document.getElementById('conn-status').textContent = err.message;
+                return false;
             }
-        });
+        }
 
-        // Render Zone 5 (11 Perennial Rows)
-        for (let i = 1; i <= 11; i++) {
-            const col = (i - 1) % 2;
-            const row = Math.floor((i - 1) / 2);
-            
-            const x = 790 + (col * 90);
-            const y = 50 + (row * 46);
-            
-            renderBed(x, y, `Z5-${i.toString().padStart(2, '0')}`, `Z5-${i}`, 'status-green', 80, 36);
+        function disconnectLive(){
+            LIVE_MODE = false;
+            APPS_SCRIPT_URL = '';
+            DATA = null;
+            localStorage.removeItem(CONN_KEY);
+            setConnUI('', 'Demo data');
+            document.getElementById('conn-status').textContent = 'Back to demo data.';
+            renderBoard();
+        }
+
+        function buildIndexes(){
+            bedIndex = {};
+            (DATA.bed_master || []).forEach(b => { bedIndex[b.Bed_ID] = b; });
+
+            openExceptionsByBed = {};
+            (DATA.exception_log || []).forEach(e => {
+                const status = (e.Status || '').toString().toUpperCase();
+                if(status === 'RESOLVED') return; // only open/unresolved exceptions flag a bed red
+                if(!e.Bed_ID) return;
+                (openExceptionsByBed[e.Bed_ID] = openExceptionsByBed[e.Bed_ID] || []).push(e);
+            });
+        }
+
+        function statusClassForBed(bed, hasOpenException){
+            if(hasOpenException) return 'status-red';
+            switch((bed && bed.Current_State) || ''){
+                case 'Harvestable': return 'status-purple';
+                case 'Planted':
+                case 'Growing': return 'status-green';
+                case 'Prep':
+                case 'Cleanup':
+                case 'Harvested': return 'status-orange';
+                case 'Rest': return 'status-gray';
+                default: return 'status-gray';
+            }
+        }
+
+        /* ==================================================================
+           RENDER
+           ================================================================== */
+        function renderBoard(){
+            bedsLayer.innerHTML = '';
+            if(LIVE_MODE && DATA){
+                renderLiveBeds();
+                updateStatLineLive();
+            } else {
+                renderDemoBeds();
+                updateStatLineDemo();
+            }
+        }
+
+        function updateStatLineDemo(){
+            document.getElementById('stat-line').innerHTML = 'UNASSIGNED TASKS: <span style="color: #ffd54f;">6</span>';
+        }
+
+        function updateStatLineLive(){
+            // No direct "unassigned tasks" field is exposed by get-manager-today-view,
+            // so this shows the real, defensible number available: open exceptions
+            // across the 231 SOP-tracked units (Blocks 1-4 + Zone 5).
+            const trackedPrefixes = ['B1-','B2-','B3-','B4-','Z5-'];
+            let count = 0;
+            Object.keys(openExceptionsByBed).forEach(bedId => {
+                if(trackedPrefixes.some(p => bedId.startsWith(p))) count += openExceptionsByBed[bedId].length;
+            });
+            document.getElementById('stat-line').innerHTML = 'OPEN EXCEPTIONS: <span style="color: #ffd54f;">' + count + '</span>';
+        }
+
+        function renderLiveBeds(){
+            blockConfigs.forEach(block => {
+                for (let i = 1; i <= 55; i++) {
+                    const col = (i - 1) % 5;
+                    const row = Math.floor((i - 1) / 5);
+                    const x = block.startX + (col * 32);
+                    const y = 50 + (row * 50);
+
+                    const bedId = `${block.prefix}-${i.toString().padStart(2, '0')}`;
+                    const bed = bedIndex[bedId];
+                    const hasException = !!(openExceptionsByBed[bedId] && openExceptionsByBed[bedId].length);
+                    const statusClass = bed ? statusClassForBed(bed, hasException) : 'status-gray';
+
+                    renderBed(x, y, bedId, bedId, statusClass, 30, 44);
+                }
+            });
+
+            for (let i = 1; i <= 11; i++) {
+                const col = (i - 1) % 2;
+                const row = Math.floor((i - 1) / 2);
+                const x = 790 + (col * 90);
+                const y = 50 + (row * 46);
+
+                const bedId = `Z5-${i.toString().padStart(2, '0')}`;
+                const bed = bedIndex[bedId];
+                const hasException = !!(openExceptionsByBed[bedId] && openExceptionsByBed[bedId].length);
+                const statusClass = bed ? statusClassForBed(bed, hasException) : 'status-gray';
+
+                renderBed(x, y, bedId, bedId, statusClass, 80, 36);
+            }
+        }
+
+        // Original demo/offline rendering, kept as a fallback so this board still
+        // works standalone without a live connection. Statuses here are synthetic
+        // (index-based), not real bed data.
+        function renderDemoBeds(){
+            blockConfigs.forEach(block => {
+                for (let i = 1; i <= 55; i++) {
+                    const col = (i - 1) % 5;
+                    const row = Math.floor((i - 1) / 5);
+                    const x = block.startX + (col * 32);
+                    const y = 50 + (row * 50);
+
+                    let statusClass = 'status-green';
+                    if (i % 7 === 0) statusClass = 'status-red';
+                    else if (i % 3 === 0) statusClass = 'status-orange';
+                    else if (i % 11 === 0) statusClass = 'status-purple';
+
+                    renderBed(x, y, `${block.prefix}-${i.toString().padStart(2, '0')}`, `${block.prefix}-${i.toString().padStart(2, '0')}`, statusClass, 30, 44);
+                }
+            });
+
+            for (let i = 1; i <= 11; i++) {
+                const col = (i - 1) % 2;
+                const row = Math.floor((i - 1) / 2);
+                const x = 790 + (col * 90);
+                const y = 50 + (row * 46);
+
+                renderBed(x, y, `Z5-${i.toString().padStart(2, '0')}`, `Z5-${i.toString().padStart(2, '0')}`, 'status-green', 80, 36);
+            }
         }
 
         function renderBed(x, y, bedId, label, statusClass, width, height) {
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             g.setAttribute('class', 'bed-unit');
             g.setAttribute('transform', `translate(${x}, ${y})`);
-            
+
             g.innerHTML = `
                 <rect class="bed-rect ${statusClass}" width="${width}" height="${height}" x="0" y="0"></rect>
                 <text class="bed-text" x="${width / 2}" y="${height / 2 + 3}">${label}</text>
             `;
-            
-            g.onclick = () => alert(`Selected Unit: ${bedId}`);
+
+            g.onclick = () => openBedPanel(bedId);
             bedsLayer.appendChild(g);
         }
+
+        /* ==================================================================
+           BED DETAIL PANEL
+           ================================================================== */
+        function openBedPanel(bedId){
+            const panel = document.getElementById('bed-panel');
+            const backdrop = document.getElementById('bed-panel-backdrop');
+            const body = document.getElementById('bed-panel-body');
+
+            if(!LIVE_MODE || !DATA){
+                body.innerHTML = `
+                    <h2>${bedId}</h2>
+                    <div class="sub">Demo data — connect to a live Apps Script URL to see real bed status, crop, and exceptions.</div>
+                `;
+                panel.classList.add('open'); backdrop.classList.add('open');
+                return;
+            }
+
+            const bed = bedIndex[bedId];
+            const exceptions = openExceptionsByBed[bedId] || [];
+
+            if(!bed){
+                body.innerHTML = `<h2>${bedId}</h2><div class="sub">No BED_MASTER row found for this unit.</div>`;
+                panel.classList.add('open'); backdrop.classList.add('open');
+                return;
+            }
+
+            let html = `<h2>${bed.Bed_ID}</h2><div class="sub">${bed.Block_ID || ''} · ${bed.Zone_Type || ''}</div>`;
+            html += row('State', bed.Current_State);
+            html += row('Crop', bed.Current_Crop || '—');
+            html += row('Cohort', bed.Current_Cohort_ID || '—');
+            html += row('Last planting', bed.Last_Planting_Date || '—');
+            html += row('Expected harvest', bed.Expected_Harvest_Date || '—');
+            html += row('Irrigation zone', bed.Irrigation_Zone_ID || '—');
+
+            if(exceptions.length){
+                exceptions.forEach(e => {
+                    html += `<div class="exception"><strong>Open exception</strong><br>${e.Message || e.Exception_Type || 'Unspecified'}</div>`;
+                });
+            }
+
+            body.innerHTML = html;
+            panel.classList.add('open'); backdrop.classList.add('open');
+
+            function row(k, v){
+                return `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`;
+            }
+        }
+
+        function closeBedPanel(){
+            document.getElementById('bed-panel').classList.remove('open');
+            document.getElementById('bed-panel-backdrop').classList.remove('open');
+        }
+        document.getElementById('bed-panel-close').onclick = closeBedPanel;
+        document.getElementById('bed-panel-backdrop').onclick = closeBedPanel;
+
+        /* ==================================================================
+           CONNECTION PANEL WIRING
+           ================================================================== */
+        document.addEventListener('click', (e) => {
+            if(e.target.closest('#conn-pill')){
+                document.getElementById('conn-panel').classList.toggle('open');
+                if(APPS_SCRIPT_URL) document.getElementById('conn-url-input').value = APPS_SCRIPT_URL;
+                return;
+            }
+            if(e.target.closest('#conn-connect-btn')){
+                const url = document.getElementById('conn-url-input').value.trim();
+                if(!url){ document.getElementById('conn-status').textContent = 'Paste your /exec URL first.'; return; }
+                connectLive(url);
+                return;
+            }
+            if(e.target.closest('#conn-refresh-btn')){
+                if(!LIVE_MODE){ document.getElementById('conn-status').textContent = 'Connect first.'; return; }
+                document.getElementById('conn-status').textContent = 'Refreshing…';
+                connectLive(APPS_SCRIPT_URL);
+                return;
+            }
+            if(e.target.closest('#conn-disconnect-btn')){
+                disconnectLive();
+                return;
+            }
+        });
+
+        renderBoard();
+        if(APPS_SCRIPT_URL){ connectLive(APPS_SCRIPT_URL, {silent:true}); }
     </script>
 </body>
 </html>
