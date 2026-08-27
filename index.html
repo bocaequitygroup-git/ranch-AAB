@@ -743,6 +743,31 @@
             }
         }
 
+        // Builds a flat, grouped list of {key, label, group} from
+        // DATA.taxonomy (ActivityTaxonomy.gs, via get-manager-today-view) for
+        // the Dispatch prompt below. Returns null if this deployment predates
+        // the taxonomy addition, so dispatchTaskFromPanel_ can fall back to a
+        // free-text prompt instead of erroring out.
+        function buildActivityChoices_(){
+            const taxonomy = DATA && DATA.taxonomy;
+            if(!taxonomy || !taxonomy.canonical || !taxonomy.canonical.length) return null;
+            const labels = taxonomy.labels || {};
+            const groups = taxonomy.groups || {};
+            const choices = [];
+            Object.keys(groups).forEach(groupName => {
+                (groups[groupName] || []).forEach(key => {
+                    choices.push({ key, label: labels[key] || key, group: groupName });
+                });
+            });
+            // Any canonical activity not covered by a group (shouldn't happen
+            // given ActivityTaxonomy.gs's own layout, but don't silently drop
+            // a real activity type if groups and canonical ever drift apart).
+            taxonomy.canonical.forEach(key => {
+                if(!choices.some(c => c.key === key)) choices.push({ key, label: labels[key] || key, group: 'Other' });
+            });
+            return choices;
+        }
+
         // Calls the new 'dispatch-task' route (handleDispatchTask_, Code.gs) --
         // writes a PLANNED FIELD_LIVE_SESSION row pre-assigning a worker to this
         // bed/activity before they've actually started it. Manager/Founder only
@@ -767,8 +792,21 @@
             const workerId = prompt('Worker ID to dispatch to this bed:' + workerList);
             if(!workerId) return;
 
-            const activity = prompt('Activity Type (canonical taxonomy key -- e.g. Weeding, Harvest, PestScouting, Transplanting):');
-            if(!activity) return;
+            const choices = buildActivityChoices_();
+            let activity;
+            if(choices){
+                const listText = choices.map((c, i) => `${i + 1}. ${c.label} (${c.group})`).join('\n');
+                const idxRaw = prompt('Activity Type -- enter a number:\n\n' + listText);
+                if(!idxRaw) return;
+                const idx = parseInt(idxRaw, 10) - 1;
+                if(isNaN(idx) || !choices[idx]){ alert('Not a valid choice -- enter one of the listed numbers.'); return; }
+                activity = choices[idx].key;
+            } else {
+                // Older deployment that predates DATA.taxonomy -- fall back to
+                // asking for the raw canonical key instead of blocking dispatch.
+                activity = prompt('Activity Type (canonical taxonomy key -- e.g. Weeding, Harvest, PestScouting, Transplanting):');
+                if(!activity) return;
+            }
 
             let plannedStart = '', plannedEnd = '';
             if(confirm('Set a planned start/end window for this task? (Cancel skips scheduling -- it\'ll just be dispatched, unscheduled)')){
