@@ -1,725 +1,181 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Ngapori Ranch - SOP-Aligned AAB Dispatch Board</title>
-    <style>
-        :root {
-            --bg-dark: #0f1416;
-            --panel-bg: #1a2327;
-            --border-color: #2c3b41;
-            --text-main: #eceff1;
-            --text-muted: #78909c;
-            --status-red: #e53935;
-            --status-orange: #fb8c00;
-            --status-purple: #8e24aa;
-            --status-green: #43a047;
-            --status-gray: #37474f;
-            --status-amber: #c9a227;
-            --status-blue: #2196f3;
-        }
-
-        body { background: var(--bg-dark); color: var(--text-main); font-family: system-ui, sans-serif; margin: 0; padding: 0; }
-        header { background: var(--panel-bg); border-bottom: 1px solid var(--border-color); padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
-        .canvas-container { padding: 20px; display: flex; justify-content: center; overflow-x: auto; }
-
-        /* SVG Spatial Styles */
-        svg { background: #12181a; border: 1px solid var(--border-color); border-radius: 8px; }
-        .block-bg { fill: var(--panel-bg); stroke: var(--border-color); stroke-width: 1; }
-        .block-label { fill: var(--text-muted); font-size: 11px; font-weight: bold; font-family: monospace; }
-
-        .bed-unit { cursor: pointer; transition: transform 0.1s ease; }
-        .bed-unit:hover { transform: scale(1.1); }
-        .bed-rect { fill: #0f1416; stroke-width: 2; rx: 3; }
-        .bed-text { fill: var(--text-main); font-size: 9px; font-weight: bold; text-anchor: middle; font-family: monospace; }
-
-        .status-green { stroke: var(--status-green); }
-        .status-red { stroke: var(--status-red); }
-        .status-orange { stroke: var(--status-orange); }
-        .status-purple { stroke: var(--status-purple); }
-        .status-amber { stroke: var(--status-amber); }
-        .status-gray { stroke: var(--status-gray); opacity: 0.5; }
-
-        .bed-unit.dim { opacity: 0.15; }
-        .bed-unit.dim:hover { transform: none; }
-
-        /* connection pill + panel */
-        .conn-pill{
-            display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600;
-            background:rgba(255,255,255,0.06); border:1px solid var(--border-color); color:var(--text-main);
-            padding:6px 12px; border-radius:20px; cursor:pointer;
-        }
-        .conn-pill:hover{background:rgba(255,255,255,0.12);}
-        .conn-dot{width:8px;height:8px;border-radius:50%; background:var(--text-muted); flex:none;}
-        .conn-dot.live{background:var(--status-green); box-shadow:0 0 0 3px rgba(67,160,71,0.25);}
-        .conn-dot.error{background:var(--status-red);}
-        .conn-panel{
-            max-height:0; overflow:hidden; background:#141b1d; border-bottom:1px solid var(--border-color);
-            transition:max-height .2s ease;
-        }
-        .conn-panel.open{max-height:120px;}
-        .conn-panel-inner{padding:14px 24px 16px;}
-        .conn-row{display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;}
-        .conn-row label{font-size:11.5px; color:var(--text-muted);}
-        #conn-url-input{
-            flex:1; min-width:280px; font-size:12px; padding:7px 10px; border-radius:16px;
-            border:1px solid var(--border-color); background:rgba(255,255,255,0.05); color:var(--text-main); font-family: monospace;
-        }
-        #conn-url-input::placeholder{color:var(--text-muted);}
-        .conn-status{font-size:11.5px; color:var(--text-muted);}
-        .btn{
-            font-size:11.5px; font-weight:600; padding:6px 14px; border-radius:16px; border:1px solid var(--border-color);
-            background:rgba(255,255,255,0.05); color:var(--text-main); cursor:pointer;
-        }
-        .btn:hover{background:rgba(255,255,255,0.12);}
-        .btn-primary{background:var(--status-green); border-color:var(--status-green); color:#08110a;}
-        .btn-primary:hover{filter:brightness(1.08);}
-
-        .legend { display:flex; gap:16px; flex-wrap:wrap; padding:10px 24px; font-size:11px; color:var(--text-muted); background:var(--panel-bg); border-bottom:1px solid var(--border-color); align-items:center; }
-        .legend .legend-row-label { font-weight:600; color:var(--text-main); margin-right:2px; }
-        .legend span.sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:middle; }
-        .legend span.dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
-
-        .stat-group { display:flex; gap:16px; }
-        .stat { display:flex; flex-direction:column; align-items:center; line-height:1.1; }
-        .stat-num { font-size:16px; font-weight:800; }
-        .stat-label { font-size:9px; color:var(--text-muted); letter-spacing:.03em; }
-
-        .filter-bar { display:flex; gap:8px; flex-wrap:wrap; padding:8px 24px; background:var(--panel-bg); border-bottom:1px solid var(--border-color); }
-        .filter-btn {
-            font-size:11px; font-weight:600; padding:5px 12px; border-radius:14px; border:1px solid var(--border-color);
-            background:rgba(255,255,255,0.04); color:var(--text-muted); cursor:pointer;
-        }
-        .filter-btn:hover:not(:disabled) { background:rgba(255,255,255,0.1); color:var(--text-main); }
-        .filter-btn.active { background:var(--text-main); color:#0f1416; border-color:var(--text-main); }
-        .filter-btn:disabled { opacity:0.35; cursor:not-allowed; }
-
-        .panel-section-title { margin-top:16px; margin-bottom:6px; font-size:10.5px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
-        .queue-item { border:1px solid var(--border-color); border-left-width:3px; border-radius:5px; padding:8px 10px; margin-bottom:7px; font-size:12px; background:rgba(255,255,255,0.03); }
-        .queue-item.queue-MUST_DO { border-left-color: var(--status-red); }
-        .queue-item.queue-ATTENTION { border-left-color: var(--status-orange); }
-        .queue-item.queue-ROUTINE { border-left-color: var(--status-amber); }
-        .queue-item-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; }
-        .queue-chip { font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px; text-transform:uppercase; letter-spacing:.03em; }
-        .queue-chip.queue-chip-MUST_DO { background:rgba(229,57,53,0.18); color:#ff8a80; }
-        .queue-chip.queue-chip-ATTENTION { background:rgba(251,140,0,0.18); color:#ffcc80; }
-        .queue-chip.queue-chip-ROUTINE { background:rgba(201,162,39,0.18); color:#e8d382; }
-        .queue-cat { font-size:10.5px; color:var(--text-muted); }
-        .queue-title { font-weight:600; margin-bottom:2px; }
-        .queue-detail { color:var(--text-muted); font-size:11px; }
-        .stub-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
-        .btn-resolve { background:rgba(255,255,255,0.08); }
-
-        /* bed detail side panel */
-        #bed-panel {
-            position: fixed; top: 0; right: -340px; width: 320px; height: 100%; background: var(--panel-bg);
-            border-left: 1px solid var(--border-color); padding: 20px; box-sizing: border-box; transition: right .2s ease;
-            z-index: 50; overflow-y: auto;
-        }
-        #bed-panel.open { right: 0; }
-        #bed-panel h2 { margin: 0 0 4px; font-size: 16px; font-family: monospace; }
-        #bed-panel .sub { color: var(--text-muted); font-size: 11px; margin-bottom: 16px; }
-        #bed-panel .row { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border-color); font-size:12.5px; }
-        #bed-panel .row .k { color: var(--text-muted); }
-        #bed-panel .close { position:absolute; top:14px; right:16px; cursor:pointer; color:var(--text-muted); font-size:18px; background:none; border:none; }
-        #bed-panel .exception { margin-top:14px; padding:10px; border-radius:6px; background:rgba(229,57,53,0.12); border:1px solid var(--status-red); font-size:12px; }
-        #bed-panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 40; display:none; }
-        #bed-panel-backdrop.open { display:block; }
-    </style>
-</head>
-<body>
-
-    <header>
-        <div>
-            <h1 style="font-size: 16px; margin: 0;">NGAPORI RANCH AAB — MASTER DISPATCH BOARD</h1>
-            <span style="font-size: 11px; color: var(--text-muted);" id="sop-line">SOP Alignment: 231 Active Field Units (220 Annual Beds + 11 Perennial Rows)</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:12px;">
-            <button class="conn-pill" id="conn-pill" title="Click to manage the live connection">
-                <span class="conn-dot" id="conn-dot"></span><span id="conn-label">Demo data</span>
-            </button>
-            <div class="stat-group" id="stat-group">
-                <div class="stat"><span class="stat-num" id="stat-mustdo" style="color:var(--status-red);">—</span><span class="stat-label">MUST DO</span></div>
-                <div class="stat"><span class="stat-num" id="stat-attention" style="color:var(--status-orange);">—</span><span class="stat-label">DUE TODAY</span></div>
-                <div class="stat"><span class="stat-num" id="stat-routine" style="color:var(--status-amber);">—</span><span class="stat-label">ROUTINE</span></div>
-                <div class="stat"><span class="stat-num" id="stat-unassigned" style="color:#ffd54f;">—</span><span class="stat-label">UNASSIGNED</span></div>
-            </div>
-        </div>
-    </header>
-
-    <div class="conn-panel" id="conn-panel">
-        <div class="conn-panel-inner">
-            <div class="conn-row">
-                <label for="conn-url-input">Apps Script Web App URL (ends in <span style="font-family:monospace;">/exec</span>)</label>
-                <input id="conn-url-input" type="text" placeholder="https://script.google.com/macros/s/…/exec" />
-            </div>
-            <div class="conn-row" style="gap:8px;">
-                <button class="btn btn-primary" id="conn-connect-btn">Connect</button>
-                <button class="btn" id="conn-refresh-btn">Refresh now</button>
-                <button class="btn" id="conn-disconnect-btn">Use demo data instead</button>
-                <span class="conn-status" id="conn-status"></span>
-            </div>
-        </div>
-    </div>
-
-    <div class="legend" id="legend">
-        <span class="legend-row-label">Urgency (border):</span>
-        <span><span class="sw" style="background:var(--status-red);"></span>Must do / overdue</span>
-        <span><span class="sw" style="background:var(--status-orange);"></span>Due today</span>
-        <span><span class="sw" style="background:var(--status-amber);"></span>Routine due</span>
-        <span><span class="sw" style="background:var(--status-green);"></span>Nominal</span>
-        <span><span class="sw" style="background:var(--status-gray); opacity:.6;"></span>Rest</span>
-    </div>
-    <div class="legend" id="legend-markers">
-        <span class="legend-row-label">Markers:</span>
-        <span><span class="dot" style="background:var(--status-purple);"></span>HR — Harvest ready</span>
-        <span><span class="dot" style="background:var(--status-red);"></span>ALT — Open exception</span>
-        <span><span class="dot" style="background:var(--status-blue);"></span>IRR — Irrigation due today</span>
-    </div>
-
-    <div class="filter-bar" id="filter-bar">
-        <button class="filter-btn active" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="MUST_DO">Overdue</button>
-        <button class="filter-btn" data-filter="ATTENTION">Due Today</button>
-        <button class="filter-btn" data-filter="ROUTINE">Routine</button>
-        <button class="filter-btn" data-filter="HARVEST_READY">Harvest Ready</button>
-        <button class="filter-btn" data-filter="UNASSIGNED">Unassigned</button>
-    </div>
-
-    <div class="canvas-container">
-        <!-- Interactive 231 Spatial Canvas -->
-        <svg id="aab-canvas" width="1000" height="640" viewBox="0 0 1000 640">
-            <!-- Block Headers & Outlines -->
-            <g id="blocks-layer">
-                <rect x="20" y="40" width="180" height="580" class="block-bg" />
-                <text x="30" y="30" class="block-label">BLOCK 1: SOLANACEAE (55)</text>
-
-                <rect x="210" y="40" width="180" height="580" class="block-bg" />
-                <text x="220" y="30" class="block-label">BLOCK 2: FAST GREENS (55)</text>
-
-                <rect x="400" y="40" width="180" height="580" class="block-bg" />
-                <text x="410" y="30" class="block-label">BLOCK 3: BRASSICAS (55)</text>
-
-                <rect x="590" y="40" width="180" height="580" class="block-bg" />
-                <text x="600" y="30" class="block-label">BLOCK 4: ROOTS/STAPLES (55)</text>
-
-                <rect x="780" y="40" width="190" height="280" class="block-bg" />
-                <text x="790" y="30" class="block-label">ZONE 5: PERENNIAL (11)</text>
-            </g>
-
-            <!-- Dynamic Bed Layer -->
-            <g id="beds-layer"></g>
-        </svg>
-    </div>
-
-    <div id="bed-panel-backdrop"></div>
-    <div id="bed-panel">
-        <button class="close" id="bed-panel-close">&times;</button>
-        <div id="bed-panel-body"></div>
-    </div>
-
-    <script>
-        const bedsLayer = document.getElementById('beds-layer');
-
-        const blockConfigs = [
-            { prefix: 'B1', startX: 30 },
-            { prefix: 'B2', startX: 220 },
-            { prefix: 'B3', startX: 410 },
-            { prefix: 'B4', startX: 600 }
-        ];
-
-        /* ==================================================================
-           LIVE CONNECTION — same Apps Script deployment & wire format used by
-           Dashboard_VPOS.html / ManagerApp.html / WorkerApp.html: a text/plain
-           POST of {action, payload} to the web app's /exec URL, avoiding a
-           CORS preflight. Shares the same localStorage key as Dashboard_VPOS.html
-           so a URL saved there is picked up here automatically.
-           ================================================================== */
-        const CONN_KEY = 'vpos_apps_script_url';
-        const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwUFXoHDFSUArQCIqkh2De8-fwPfWSG9LRvtagJPzmJdFaBx_95av5V57NzYs1J1IZLnA/exec';
-
-        let LIVE_MODE = false;
-        let APPS_SCRIPT_URL = localStorage.getItem(CONN_KEY) || DEFAULT_APPS_SCRIPT_URL;
-        let DATA = null;          // { bed_master, cohort_master, exception_log, daily_queue, bed_ids_by_cohort, field_live_session, ... } once live
-        let bedIndex = {};        // Bed_ID -> bed_master row
-        let openExceptionsByBed = {}; // Bed_ID -> [exception rows]
-        let queueByBed = {};      // Bed_ID -> [daily_queue items resolved onto this bed]
-        let assignedBedIds = new Set(); // Bed_ID with an ACTIVE/PAUSED/PLANNED FIELD_LIVE_SESSION row
-        let queueCounts = { mustDo: 0, attention: 0, routine: 0 }; // straight from DATA.daily_queue.counts
-        let currentFilter = 'all';
-
-        function callApi_(url, action, payload){
-            return new Promise((resolve, reject)=>{
-                if(!url){ reject(new Error('No Apps Script URL configured')); return; }
-                const controller = new AbortController();
-                const timer = setTimeout(()=>{ controller.abort(); reject(new Error('Timed out reaching the Apps Script Web App')); }, 15000);
-                fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ action, payload: payload || {} }),
-                    signal: controller.signal
-                }).then(res => res.json()).then(data => { clearTimeout(timer); resolve(data); })
-                  .catch(err => { clearTimeout(timer); reject(new Error(err && err.name === 'AbortError' ? 'Timed out reaching the Apps Script Web App' : 'Could not reach that URL')); });
-            });
-        }
-
-        function setConnUI(status, label){
-            const dot = document.getElementById('conn-dot');
-            const lbl = document.getElementById('conn-label');
-            dot.className = 'conn-dot' + (status==='live' ? ' live' : status==='error' ? ' error' : '');
-            lbl.textContent = label;
-        }
-
-        async function connectLive(url, {silent} = {}){
-            if(!silent){ document.getElementById('conn-status').textContent = 'Connecting…'; }
-            try {
-                const res = await callApi_(url, 'get-manager-today-view');
-                if(!res.success) throw new Error(res.error || 'Server returned an error');
-                DATA = res.data;
-                LIVE_MODE = true;
-                APPS_SCRIPT_URL = url;
-                localStorage.setItem(CONN_KEY, url);
-                const stamp = res.data.generated_at ? new Date(res.data.generated_at) : new Date();
-                setConnUI('live', 'Live · synced ' + stamp.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}));
-                document.getElementById('conn-status').textContent = 'Connected.';
-                buildIndexes();
-                renderBoard();
-                return true;
-            } catch(err){
-                setConnUI('error', 'Connection failed');
-                document.getElementById('conn-status').textContent = err.message;
-                return false;
-            }
-        }
-
-        function disconnectLive(){
-            LIVE_MODE = false;
-            APPS_SCRIPT_URL = '';
-            DATA = null;
-            localStorage.removeItem(CONN_KEY);
-            setConnUI('', 'Demo data');
-            document.getElementById('conn-status').textContent = 'Back to demo data.';
-            renderBoard();
-        }
-
-        function buildIndexes(){
-            bedIndex = {};
-            (DATA.bed_master || []).forEach(b => { bedIndex[b.Bed_ID] = b; });
-
-            openExceptionsByBed = {};
-            (DATA.exception_log || []).forEach(e => {
-                const status = (e.Status || '').toString().toUpperCase();
-                if(status === 'RESOLVED') return; // only open/unresolved exceptions flag a bed red
-                if(!e.Bed_ID) return;
-                (openExceptionsByBed[e.Bed_ID] = openExceptionsByBed[e.Bed_ID] || []).push(e);
-            });
-
-            // ----------------------------------------------------------------
-            // Dispatch-board additions: resolve DATA.daily_queue items (mostly
-            // keyed by Cohort_ID) onto individual Bed_IDs via
-            // DATA.bed_ids_by_cohort, and mark which beds already have a live
-            // or planned worker session against them.
-            // ----------------------------------------------------------------
-            const bedIdsByCohort = DATA.bed_ids_by_cohort || {};
-            const queue = DATA.daily_queue || { mustDo: [], attention: [], routine: [], counts: { mustDo: 0, attention: 0, routine: 0 } };
-            queueCounts = queue.counts || { mustDo: 0, attention: 0, routine: 0 };
-
-            function resolveBedsForItem(item){
-                if(item.bedId) return [item.bedId];
-                if(item.cohortId && bedIdsByCohort[item.cohortId]) return bedIdsByCohort[item.cohortId];
-                return []; // can't resolve to a bed (e.g. Dispatch/Pack Shed items with no cohort/bed) -- excluded from the spatial board, not miscounted onto one
-            }
-
-            queueByBed = {};
-            ['mustDo', 'attention', 'routine'].forEach(bucketKey => {
-                (queue[bucketKey] || []).forEach(item => {
-                    resolveBedsForItem(item).forEach(bedId => {
-                        (queueByBed[bedId] = queueByBed[bedId] || []).push(item);
-                    });
-                });
-            });
-
-            assignedBedIds = new Set();
-            (DATA.field_live_session || []).forEach(s => {
-                const st = (s.Session_Status || '').toString().toUpperCase();
-                if(!s.Bed_ID) return;
-                // ACTIVE/PAUSED are the only statuses that exist in the live sheet
-                // today. PLANNED is included forward-compatible with a future
-                // dispatch-task write path (see notes on the Dispatch stub
-                // buttons below) -- it's a no-op today since nothing writes it yet.
-                if(st === 'ACTIVE' || st === 'PAUSED' || st === 'PLANNED') assignedBedIds.add(s.Bed_ID);
-            });
-        }
-
-        // Worst (highest-urgency) bucket among a bed's resolved queue items, or
-        // null if nothing is pending against it.
-        function worstBucketForBed_(bedId){
-            const items = queueByBed[bedId];
-            if(!items || !items.length) return null;
-            if(items.some(i => i.bucket === 'MUST_DO')) return 'MUST_DO';
-            if(items.some(i => i.bucket === 'ATTENTION')) return 'ATTENTION';
-            return 'ROUTINE';
-        }
-
-        // Outer border = urgency, not biological state. An open exception always
-        // escalates to red regardless of what the queue engine bucketed it as.
-        function urgencyClassForBed_(bedId, bed, hasOpenException){
-            const worst = worstBucketForBed_(bedId);
-            if(hasOpenException || worst === 'MUST_DO') return 'status-red';
-            if(worst === 'ATTENTION') return 'status-orange';
-            if(worst === 'ROUTINE') return 'status-amber';
-            if(bed && bed.Current_State === 'Rest') return 'status-gray';
-            if(bed) return 'status-green';
-            return 'status-gray'; // no BED_MASTER row at all for this unit
-        }
-
-        // Inner badges = biological/operational state, independent of urgency.
-        // NOTE ON SCOPE: the AAB design doc's "DRY" badge means an irrigation
-        // zone that's shut off / not running -- but the only irrigation signal
-        // currently in daily_queue (getIrrigationDueItems_, ActivityEngine.gs)
-        // fires when a zone IS active and due, not when one has gone dry. There
-        // is no "zone off when it shouldn't be" signal in the data today, so
-        // this badge is labeled IRR ("irrigation due today") rather than DRY --
-        // it would be inaccurate to imply a shutoff detection that doesn't
-        // exist. Revisit if IRRIGATION_CONTROL's Operational_Status_Flag is
-        // ever exposed to this endpoint directly.
-        function badgesForBed_(bedId, bed, hasOpenException){
-            const badges = [];
-            if(bed && bed.Current_State === 'Harvestable') badges.push({ color: 'var(--status-purple)', label: 'HR — Harvest ready' });
-            if(hasOpenException) badges.push({ color: 'var(--status-red)', label: 'ALT — Open exception' });
-            const items = queueByBed[bedId] || [];
-            if(items.some(i => i.category === 'Irrigation')) badges.push({ color: 'var(--status-blue)', label: 'IRR — Irrigation due today' });
-            return badges;
-        }
-
-        /* ==================================================================
-           RENDER
-           ================================================================== */
-        function renderBoard(){
-            bedsLayer.innerHTML = '';
-            document.querySelectorAll('#filter-bar .filter-btn').forEach(b => {
-                b.disabled = !(LIVE_MODE && DATA) && b.dataset.filter !== 'all';
-            });
-            if(LIVE_MODE && DATA){
-                renderLiveBeds();
-                updateStatLineLive();
-            } else {
-                renderDemoBeds();
-                updateStatLineDemo();
-            }
-            applyFilter();
-        }
-
-        function updateStatLineDemo(){
-            document.getElementById('stat-mustdo').textContent = '—';
-            document.getElementById('stat-attention').textContent = '—';
-            document.getElementById('stat-routine').textContent = '—';
-            document.getElementById('stat-unassigned').textContent = '—';
-        }
-
-        function updateStatLineLive(){
-            document.getElementById('stat-mustdo').textContent = queueCounts.mustDo || 0;
-            document.getElementById('stat-attention').textContent = queueCounts.attention || 0;
-            document.getElementById('stat-routine').textContent = queueCounts.routine || 0;
-
-            // Unassigned = Must Do / Attention items every one of whose resolved
-            // beds currently has no ACTIVE/PAUSED/PLANNED session against it.
-            // Items that couldn't be resolved to any bed (see resolveBedsForItem
-            // in buildIndexes) are skipped here too -- counting them either way
-            // would be a guess, not a real number.
-            const bedIdsByCohort = DATA.bed_ids_by_cohort || {};
-            const queue = DATA.daily_queue || { mustDo: [], attention: [] };
-            function itemBeds(item){
-                if(item.bedId) return [item.bedId];
-                if(item.cohortId && bedIdsByCohort[item.cohortId]) return bedIdsByCohort[item.cohortId];
-                return [];
-            }
-            let unassigned = 0;
-            (queue.mustDo || []).concat(queue.attention || []).forEach(item => {
-                const beds = itemBeds(item);
-                if(!beds.length) return;
-                if(beds.every(b => !assignedBedIds.has(b))) unassigned++;
-            });
-            document.getElementById('stat-unassigned').textContent = unassigned;
-        }
-
-        function renderLiveBeds(){
-            blockConfigs.forEach(block => {
-                for (let i = 1; i <= 55; i++) {
-                    const col = (i - 1) % 5;
-                    const row = Math.floor((i - 1) / 5);
-                    const x = block.startX + (col * 32);
-                    const y = 50 + (row * 50);
-
-                    const bedId = `${block.prefix}-${i.toString().padStart(2, '0')}`;
-                    renderLiveBed_(x, y, bedId, 30, 44);
-                }
-            });
-
-            for (let i = 1; i <= 11; i++) {
-                const col = (i - 1) % 2;
-                const row = Math.floor((i - 1) / 2);
-                const x = 790 + (col * 90);
-                const y = 50 + (row * 46);
-
-                const bedId = `Z5-${i.toString().padStart(2, '0')}`;
-                renderLiveBed_(x, y, bedId, 80, 36);
-            }
-        }
-
-        function renderLiveBed_(x, y, bedId, width, height){
-            const bed = bedIndex[bedId];
-            const hasException = !!(openExceptionsByBed[bedId] && openExceptionsByBed[bedId].length);
-            const statusClass = urgencyClassForBed_(bedId, bed, hasException);
-            const badges = badgesForBed_(bedId, bed, hasException);
-            const worst = worstBucketForBed_(bedId);
-
-            renderBed(x, y, bedId, bedId, statusClass, width, height, badges, {
-                bucket: worst || 'NONE',
-                assigned: assignedBedIds.has(bedId) ? '1' : '0',
-                harvestReady: (bed && bed.Current_State === 'Harvestable') ? '1' : '0'
-            });
-        }
-
-        // Original demo/offline rendering, kept as a fallback so this board still
-        // works standalone without a live connection. Statuses here are synthetic
-        // (index-based), not real bed data.
-        function renderDemoBeds(){
-            blockConfigs.forEach(block => {
-                for (let i = 1; i <= 55; i++) {
-                    const col = (i - 1) % 5;
-                    const row = Math.floor((i - 1) / 5);
-                    const x = block.startX + (col * 32);
-                    const y = 50 + (row * 50);
-
-                    let statusClass = 'status-green';
-                    if (i % 7 === 0) statusClass = 'status-red';
-                    else if (i % 3 === 0) statusClass = 'status-orange';
-                    else if (i % 11 === 0) statusClass = 'status-purple';
-
-                    renderBed(x, y, `${block.prefix}-${i.toString().padStart(2, '0')}`, `${block.prefix}-${i.toString().padStart(2, '0')}`, statusClass, 30, 44);
-                }
-            });
-
-            for (let i = 1; i <= 11; i++) {
-                const col = (i - 1) % 2;
-                const row = Math.floor((i - 1) / 2);
-                const x = 790 + (col * 90);
-                const y = 50 + (row * 46);
-
-                renderBed(x, y, `Z5-${i.toString().padStart(2, '0')}`, `Z5-${i.toString().padStart(2, '0')}`, 'status-green', 80, 36);
-            }
-        }
-
-        function renderBed(x, y, bedId, label, statusClass, width, height, badges, filterData) {
-            badges = badges || [];
-            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            g.setAttribute('class', 'bed-unit');
-            g.setAttribute('transform', `translate(${x}, ${y})`);
-            g.dataset.bedId = bedId;
-            if(filterData){
-                g.dataset.bucket = filterData.bucket || 'NONE';
-                g.dataset.assigned = filterData.assigned || '0';
-                g.dataset.harvestReady = filterData.harvestReady || '0';
-            }
-
-            // Up to 3 small corner dots along the right edge -- see
-            // badgesForBed_ for what each color means. Native <title> gives a
-            // hover tooltip with no extra JS.
-            let dotsSvg = '';
-            badges.slice(0, 3).forEach((b, idx) => {
-                const cx = width - 5;
-                const cy = 6 + idx * 8;
-                dotsSvg += `<circle cx="${cx}" cy="${cy}" r="2.6" fill="${b.color}"><title>${b.label}</title></circle>`;
-            });
-
-            g.innerHTML = `
-                <rect class="bed-rect ${statusClass}" width="${width}" height="${height}" x="0" y="0"></rect>
-                <text class="bed-text" x="${width / 2}" y="${height / 2 + 3}">${label}</text>
-                ${dotsSvg}
-            `;
-
-            g.onclick = () => openBedPanel(bedId);
-            bedsLayer.appendChild(g);
-        }
-
-        /* ==================================================================
-           FILTER BAR
-           ================================================================== */
-        function applyFilter(){
-            document.querySelectorAll('.bed-unit').forEach(g => {
-                let show = true;
-                switch(currentFilter){
-                    case 'MUST_DO': show = g.dataset.bucket === 'MUST_DO'; break;
-                    case 'ATTENTION': show = g.dataset.bucket === 'ATTENTION'; break;
-                    case 'ROUTINE': show = g.dataset.bucket === 'ROUTINE'; break;
-                    case 'HARVEST_READY': show = g.dataset.harvestReady === '1'; break;
-                    case 'UNASSIGNED':
-                        show = (g.dataset.bucket === 'MUST_DO' || g.dataset.bucket === 'ATTENTION') && g.dataset.assigned === '0';
-                        break;
-                    default: show = true;
-                }
-                g.classList.toggle('dim', !show);
-            });
-        }
-
-        document.getElementById('filter-bar').addEventListener('click', (e) => {
-            const btn = e.target.closest('.filter-btn');
-            if(!btn || btn.disabled) return;
-            currentFilter = btn.dataset.filter;
-            document.querySelectorAll('#filter-bar .filter-btn').forEach(b => b.classList.toggle('active', b === btn));
-            applyFilter();
-        });
-
-        /* ==================================================================
-           BED DETAIL PANEL
-           ================================================================== */
-        function openBedPanel(bedId){
-            const panel = document.getElementById('bed-panel');
-            const backdrop = document.getElementById('bed-panel-backdrop');
-            const body = document.getElementById('bed-panel-body');
-
-            if(!LIVE_MODE || !DATA){
-                body.innerHTML = `
-                    <h2>${bedId}</h2>
-                    <div class="sub">Demo data — connect to a live Apps Script URL to see real bed status, crop, and exceptions.</div>
-                `;
-                panel.classList.add('open'); backdrop.classList.add('open');
-                return;
-            }
-
-            const bed = bedIndex[bedId];
-            const exceptions = openExceptionsByBed[bedId] || [];
-
-            if(!bed){
-                body.innerHTML = `<h2>${bedId}</h2><div class="sub">No BED_MASTER row found for this unit.</div>`;
-                panel.classList.add('open'); backdrop.classList.add('open');
-                return;
-            }
-
-            let html = `<h2>${bed.Bed_ID}</h2><div class="sub">${bed.Block_ID || ''} · ${bed.Zone_Type || ''}</div>`;
-            html += row('State', bed.Current_State);
-            html += row('Crop', bed.Current_Crop || '—');
-            html += row('Cohort', bed.Current_Cohort_ID || '—');
-            html += row('Last planting', bed.Last_Planting_Date || '—');
-            html += row('Expected harvest', bed.Expected_Harvest_Date || '—');
-            html += row('Irrigation zone', bed.Irrigation_Zone_ID || '—');
-            html += row('Worker on this bed', assignedBedIds.has(bedId) ? 'Yes — session open/planned' : 'No open session');
-
-            const items = queueByBed[bedId] || [];
-            if(items.length){
-                html += `<div class="panel-section-title">Pending work (${items.length})</div>`;
-                items.forEach(item => {
-                    html += `
-                        <div class="queue-item queue-${item.bucket}">
-                            <div class="queue-item-top">
-                                <span class="queue-chip queue-chip-${item.bucket}">${bucketLabel_(item.bucket)}</span>
-                                <span class="queue-cat">${item.category || ''}</span>
-                            </div>
-                            <div class="queue-title">${item.title || ''}</div>
-                            <div class="queue-detail">${item.detail || ''}</div>
-                        </div>`;
-                });
-            }
-
-            if(exceptions.length){
-                html += `<div class="panel-section-title">Open exceptions</div>`;
-                exceptions.forEach(e => {
-                    // NOTE: EXCEPTION_LOG has no Message column (see Database.gs
-                    // schema) -- the free-text field is Notes. The previous
-                    // version of this panel read e.Message, which is always
-                    // undefined, and silently fell back to just the exception
-                    // type with no detail. Fixed to read e.Notes.
-                    html += `
-                        <div class="exception">
-                            <strong>${e.Exception_Type || 'Exception'}${e.Severity ? ' (' + e.Severity + ')' : ''}</strong><br>
-                            ${e.Notes || 'No notes recorded.'}
-                            <div style="margin-top:8px;"><button class="btn btn-resolve" data-exception-id="${e.Exception_ID}">Resolve</button></div>
-                        </div>`;
-                });
-            }
-
-            html += `
-                <div class="panel-section-title">Dispatch</div>
-                <div class="stub-actions">
-                    <button class="btn" disabled title="Not yet wired -- needs a new manager-side dispatch-task endpoint (writes a PLANNED row to FIELD_LIVE_SESSION). See project notes.">Dispatch task</button>
-                    <button class="btn" disabled title="Not yet wired -- reassign-session only covers an already-ACTIVE/PAUSED session, not a pre-assignment.">Reassign worker</button>
-                </div>`;
-
-            body.innerHTML = html;
-            panel.classList.add('open'); backdrop.classList.add('open');
-
-            body.querySelectorAll('.btn-resolve').forEach(btn => {
-                btn.onclick = () => resolveExceptionFromPanel_(btn.dataset.exceptionId, bedId);
-            });
-
-            function row(k, v){
-                return `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`;
-            }
-        }
-
-        function bucketLabel_(bucket){
-            if(bucket === 'MUST_DO') return 'Must Do';
-            if(bucket === 'ATTENTION') return 'Due Today';
-            return 'Routine';
-        }
-
-        // Reuses the EXISTING 'resolve-exception' route (handleResolveException_
-        // in Code.gs) -- same one Dashboard_VPOS.html's resolve button calls, per
-        // DashboardAPI.gs's own note. No new backend logic needed for this one;
-        // it's a real, already-gated write path (Manager/Founder only), unlike
-        // the Dispatch/Reassign stubs above.
-        async function resolveExceptionFromPanel_(exceptionId, bedId){
-            if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
-            const managerId = prompt('Manager/Founder ID to resolve this exception as:');
-            if(!managerId) return;
-            const resolutionNotes = prompt('Resolution notes (optional):') || '';
-            try {
-                const res = await callApi_(APPS_SCRIPT_URL, 'resolve-exception', { exceptionId, managerId, resolutionNotes });
-                if(!res.success) throw new Error(res.error || 'Server rejected the request.');
-                await connectLive(APPS_SCRIPT_URL, { silent: true });
-                openBedPanel(bedId);
-            } catch(err){
-                alert('Could not resolve exception: ' + err.message);
-            }
-        }
-
-        function closeBedPanel(){
-            document.getElementById('bed-panel').classList.remove('open');
-            document.getElementById('bed-panel-backdrop').classList.remove('open');
-        }
-        document.getElementById('bed-panel-close').onclick = closeBedPanel;
-        document.getElementById('bed-panel-backdrop').onclick = closeBedPanel;
-
-        /* ==================================================================
-           CONNECTION PANEL WIRING
-           ================================================================== */
-        document.addEventListener('click', (e) => {
-            if(e.target.closest('#conn-pill')){
-                document.getElementById('conn-panel').classList.toggle('open');
-                if(APPS_SCRIPT_URL) document.getElementById('conn-url-input').value = APPS_SCRIPT_URL;
-                return;
-            }
-            if(e.target.closest('#conn-connect-btn')){
-                const url = document.getElementById('conn-url-input').value.trim();
-                if(!url){ document.getElementById('conn-status').textContent = 'Paste your /exec URL first.'; return; }
-                connectLive(url);
-                return;
-            }
-            if(e.target.closest('#conn-refresh-btn')){
-                if(!LIVE_MODE){ document.getElementById('conn-status').textContent = 'Connect first.'; return; }
-                document.getElementById('conn-status').textContent = 'Refreshing…';
-                connectLive(APPS_SCRIPT_URL);
-                return;
-            }
-            if(e.target.closest('#conn-disconnect-btn')){
-                disconnectLive();
-                return;
-            }
-        });
-
-        renderBoard();
-        if(APPS_SCRIPT_URL){ connectLive(APPS_SCRIPT_URL, {silent:true}); }
-    </script>
-</body>
-</html>
+/**
+ * DashboardAPI.gs -- Founder/Manager Lifecycle Dashboard bridge
+ * (Dashboard_VPOS.html). Added 2026-08-27.
+ *
+ * PURELY ADDITIVE: this is a new file. The only change made to Code.gs
+ * was two new routeAction_ switch cases ('get-manager-today-view',
+ * 'verify-bed-activity') that call the functions below -- doGet(),
+ * doPost(), every existing case, and every existing handler are
+ * untouched. Nothing here is a new deployment; it ships as a new
+ * version of the existing "Ranch VPOS Script" deployment, so the
+ * live /exec URL does not change.
+ *
+ * TRANSPORT: Dashboard_VPOS.html talks to this project's existing
+ * doPost -> routeAction_ endpoint, the same way ManagerApp.html
+ * already does from its own separate Apps Script project -- a
+ * cross-origin fetch() POST with a text/plain body of
+ * JSON.stringify({action, payload}). text/plain keeps the request a
+ * CORS "simple request" so the browser never sends an OPTIONS
+ * preflight (Apps Script web apps don't implement one). See
+ * Dashboard_VPOS.html's callApi_()/connectLive().
+ *
+ * This intentionally does NOT touch doGet(). doGet() continues to
+ * unconditionally serve WorkerApp.html exactly as before -- no new
+ * query-param routing was added there, so there is zero risk to the
+ * Worker App's page load.
+ */
+
+// Read-only, no role gate -- same posture as get-activity-history and
+// get-scout-findings elsewhere in this project: this is a dashboard
+// snapshot, not a control action. Assembles every tab
+// Dashboard_VPOS.html's DATA object needs in one round trip.
+//
+// AAB DISPATCH-BOARD PASS (2026-08-27): added three things so
+// ranch_AAB.html can compute real due/overdue/dispatch status per bed
+// without a second round trip or reimplementing ActivityEngine.gs's
+// rules client-side:
+//   1. field_live_session -- core tab (same "let it throw loud" tier as
+//      bed_master/cohort_master below), needed to tell which beds/tasks
+//      already have an ACTIVE/PAUSED/PLANNED session against them, so
+//      the board can distinguish "due and unassigned" from "due and
+//      already being worked."
+//   2. daily_queue -- reuses getDailyManagerQueue_() (ActivityEngine.gs)
+//      as-is, no logic duplicated. NOTE ON ACCESS POSTURE: the existing
+//      'get-daily-queue' route Manager/Founder-gates this same data via
+//      handleGetDailyManagerQueue_(). Folding the raw queue into this
+//      *ungated* endpoint widens who can see it (Must-Do items include
+//      exception notes and cold-chain violations). Keeping it ungated
+//      here to match this endpoint's existing "dashboard snapshot, not
+//      a control action" posture and because Dashboard_VPOS.html and
+//      the AAB board are both manager-facing tools by construction --
+//      but if either one is ever reachable by a non-manager role, this
+//      is the line to add a role gate to. Flagging rather than
+//      deciding silently.
+//   3. bed_ids_by_cohort -- BED_MASTER doesn't carry the reverse index
+//      (queue items are keyed by Cohort_ID, most beds are keyed by
+//      Current_Cohort_ID), so this is computed once here instead of
+//      making every frontend re-derive the same grouping.
+function handleGetManagerTodayView_() {
+  var bedMasterRows = getSheetData_('BED_MASTER');
+
+  return {
+    success: true,
+    data: {
+      // Core tabs -- also read elsewhere in Code.gs, so a failure here
+      // would already be breaking other actions; let it throw loud.
+      crop_reference: getSheetData_('CROP_REFERENCE'),
+      bed_master: bedMasterRows,
+      cohort_master: getSheetData_('COHORT_MASTER'),
+      users: getSheetData_('USERS'),
+      field_activity_log: getSheetData_('FIELD_ACTIVITY_LOG'),
+      field_live_session: getSheetData_('FIELD_LIVE_SESSION'),
+      restaurant_demand: getSheetData_('RESTAURANT_DEMAND'),
+      exception_log: getSheetData_('EXCEPTION_LOG'),
+      worker_location: getSheetData_('WORKER_LOCATION'),
+
+      // Phase 2-5 lifecycle/scouting tabs -- not read anywhere else in
+      // Code.gs, so each is wrapped individually: one missing/renamed
+      // tab degrades that section to an empty array instead of taking
+      // the whole dashboard load down with it.
+      crop_lifecycle: safeGetSheetData_('CROP_LIFECYCLE'),
+      nursery_master: safeGetSheetData_('NURSERY_MASTER'),
+      crop_routine_schedule: safeGetSheetData_('CROP_ROUTINE_SCHEDULE'),
+      scout_finding: safeGetSheetData_('SCOUT_FINDING'),
+      reassignment_log: safeGetSheetData_('REASSIGNMENT_LOG'),
+      alerts: safeGetSheetData_('ALERTS'),
+
+      // Dispatch-board additions (see header comment above). Wrapped
+      // with safeGetSheetData_/try-catch the same way the Phase 2-5
+      // tabs are -- getDailyManagerQueue_ touches several sheets
+      // (COHORT_STATUS, CROP_ROUTINE_SCHEDULE, IRRIGATION_CONTROL,
+      // HARVEST_LOG, PACKING_LOG, DISPATCH_LOG) and a missing/renamed
+      // one of those shouldn't take the whole snapshot down.
+      daily_queue: safeGetDailyQueue_(),
+      bed_ids_by_cohort: buildBedIdsByCohort_(bedMasterRows),
+
+      generated_at: new Date().toISOString()
+    }
+  };
+}
+
+// See daily_queue note above -- isolates getDailyManagerQueue_'s
+// multi-sheet read from the rest of the snapshot the same way
+// safeGetSheetData_ isolates a single-sheet read.
+function safeGetDailyQueue_() {
+  try {
+    return getDailyManagerQueue_();
+  } catch (err) {
+    return { generatedAt: new Date(), counts: { mustDo: 0, attention: 0, routine: 0 }, mustDo: [], attention: [], routine: [], error: err.toString() };
+  }
+}
+
+// Bed_ID[] grouped by Current_Cohort_ID, e.g. { 'COH-0142': ['B1-31','B1-32','B1-33'] }.
+// A cohort with no Current_Cohort_ID (empty/resting bed) is skipped, not
+// bucketed under a falsy key -- avoids a junk '' key collecting every
+// unplanted bed on the ranch.
+function buildBedIdsByCohort_(bedMasterRows) {
+  var byCohort = {};
+  (bedMasterRows || []).forEach(function(b) {
+    if (!b.Current_Cohort_ID) return;
+    (byCohort[b.Current_Cohort_ID] = byCohort[b.Current_Cohort_ID] || []).push(b.Bed_ID);
+  });
+  return byCohort;
+}
+
+// getSheetData_ throws if a tab can't be read -- appropriate for the
+// core tabs every other action in this project already depends on,
+// too strict for the newer tabs only this dashboard reads. Isolates
+// that risk to just this one endpoint.
+function safeGetSheetData_(sheetName) {
+  try {
+    return getSheetData_(sheetName);
+  } catch (err) {
+    return [];
+  }
+}
+
+// Manager/Founder-gated: sets Verified_By (+ Verified_At, if that
+// column exists) on one FIELD_ACTIVITY_LOG row. This is
+// Dashboard_VPOS.html's "Verify & Lock DOB" action. The Verified_By
+// column itself already existed (see the 2026-08-24 comment at
+// Code.gs:863 / requireVerifiedByColumn_ in Database.gs) but nothing
+// in this project wrote to it until now -- get-activity-history only
+// ever read it.
+function handleVerifyBedActivity_(p) {
+  if (!isManagerRole_(p.managerId)) {
+    return { success: false, error: 'Manager or Founder role required.' };
+  }
+  if (!p.logId) return { success: false, error: 'logId is required.' };
+
+  var sheet = getSheet_('FIELD_ACTIVITY_LOG');
+  var headers = getHeaderMap_(sheet);
+  if (headers.indexOf('Verified_By') === -1) {
+    return { success: false, error: 'FIELD_ACTIVITY_LOG is missing the Verified_By column.' };
+  }
+
+  var rows = getSheetData_('FIELD_ACTIVITY_LOG');
+  var target = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].Log_ID === p.logId) { target = rows[i]; break; }
+  }
+  if (!target) return { success: false, error: 'Unknown Log_ID: ' + p.logId };
+  if (target.Verified_By) {
+    return { success: false, error: 'Log ' + p.logId + ' is already verified by ' + target.Verified_By + '.' };
+  }
+
+  sheet.getRange(target._rowIndex, headers.indexOf('Verified_By') + 1).setValue(p.managerId);
+  if (headers.indexOf('Verified_At') !== -1) {
+    sheet.getRange(target._rowIndex, headers.indexOf('Verified_At') + 1).setValue(new Date());
+  }
+
+  return { success: true, logId: p.logId, verifiedBy: p.managerId };
+}
+
+// NOTE: 'resolve-exception' is NOT duplicated here. Dashboard_VPOS.html's
+// resolve button calls the *existing* action of that name
+// (handleResolveException_, already in Code.gs) directly -- it already
+// does exactly what the dashboard needs (marks an EXCEPTION_LOG row
+// RESOLVED, Manager/Founder-gated). Reusing it means one fewer thing to
+// keep in sync. Its payload shape is { exceptionId, managerId,
+// resolutionNotes? } -- Dashboard_VPOS.html was updated to send
+// managerId (not resolvedBy) to match.
