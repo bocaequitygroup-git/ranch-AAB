@@ -15,6 +15,8 @@
             --status-purple: #8e24aa;
             --status-green: #43a047;
             --status-gray: #37474f;
+            --status-amber: #c9a227;
+            --status-blue: #2196f3;
         }
 
         body { background: var(--bg-dark); color: var(--text-main); font-family: system-ui, sans-serif; margin: 0; padding: 0; }
@@ -35,7 +37,11 @@
         .status-red { stroke: var(--status-red); }
         .status-orange { stroke: var(--status-orange); }
         .status-purple { stroke: var(--status-purple); }
+        .status-amber { stroke: var(--status-amber); }
         .status-gray { stroke: var(--status-gray); opacity: 0.5; }
+
+        .bed-unit.dim { opacity: 0.15; }
+        .bed-unit.dim:hover { transform: none; }
 
         /* connection pill + panel */
         .conn-pill{
@@ -69,8 +75,40 @@
         .btn-primary{background:var(--status-green); border-color:var(--status-green); color:#08110a;}
         .btn-primary:hover{filter:brightness(1.08);}
 
-        .legend { display:flex; gap:16px; flex-wrap:wrap; padding:10px 24px; font-size:11px; color:var(--text-muted); background:var(--panel-bg); border-bottom:1px solid var(--border-color); }
+        .legend { display:flex; gap:16px; flex-wrap:wrap; padding:10px 24px; font-size:11px; color:var(--text-muted); background:var(--panel-bg); border-bottom:1px solid var(--border-color); align-items:center; }
+        .legend .legend-row-label { font-weight:600; color:var(--text-main); margin-right:2px; }
         .legend span.sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+        .legend span.dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+
+        .stat-group { display:flex; gap:16px; }
+        .stat { display:flex; flex-direction:column; align-items:center; line-height:1.1; }
+        .stat-num { font-size:16px; font-weight:800; }
+        .stat-label { font-size:9px; color:var(--text-muted); letter-spacing:.03em; }
+
+        .filter-bar { display:flex; gap:8px; flex-wrap:wrap; padding:8px 24px; background:var(--panel-bg); border-bottom:1px solid var(--border-color); }
+        .filter-btn {
+            font-size:11px; font-weight:600; padding:5px 12px; border-radius:14px; border:1px solid var(--border-color);
+            background:rgba(255,255,255,0.04); color:var(--text-muted); cursor:pointer;
+        }
+        .filter-btn:hover:not(:disabled) { background:rgba(255,255,255,0.1); color:var(--text-main); }
+        .filter-btn.active { background:var(--text-main); color:#0f1416; border-color:var(--text-main); }
+        .filter-btn:disabled { opacity:0.35; cursor:not-allowed; }
+
+        .panel-section-title { margin-top:16px; margin-bottom:6px; font-size:10.5px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
+        .queue-item { border:1px solid var(--border-color); border-left-width:3px; border-radius:5px; padding:8px 10px; margin-bottom:7px; font-size:12px; background:rgba(255,255,255,0.03); }
+        .queue-item.queue-MUST_DO { border-left-color: var(--status-red); }
+        .queue-item.queue-ATTENTION { border-left-color: var(--status-orange); }
+        .queue-item.queue-ROUTINE { border-left-color: var(--status-amber); }
+        .queue-item-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; }
+        .queue-chip { font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px; text-transform:uppercase; letter-spacing:.03em; }
+        .queue-chip.queue-chip-MUST_DO { background:rgba(229,57,53,0.18); color:#ff8a80; }
+        .queue-chip.queue-chip-ATTENTION { background:rgba(251,140,0,0.18); color:#ffcc80; }
+        .queue-chip.queue-chip-ROUTINE { background:rgba(201,162,39,0.18); color:#e8d382; }
+        .queue-cat { font-size:10.5px; color:var(--text-muted); }
+        .queue-title { font-weight:600; margin-bottom:2px; }
+        .queue-detail { color:var(--text-muted); font-size:11px; }
+        .stub-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+        .btn-resolve { background:rgba(255,255,255,0.08); }
 
         /* bed detail side panel */
         #bed-panel {
@@ -100,7 +138,12 @@
             <button class="conn-pill" id="conn-pill" title="Click to manage the live connection">
                 <span class="conn-dot" id="conn-dot"></span><span id="conn-label">Demo data</span>
             </button>
-            <div style="font-size: 12px; font-weight: bold;" id="stat-line">UNASSIGNED TASKS: <span style="color: #ffd54f;">6</span></div>
+            <div class="stat-group" id="stat-group">
+                <div class="stat"><span class="stat-num" id="stat-mustdo" style="color:var(--status-red);">—</span><span class="stat-label">MUST DO</span></div>
+                <div class="stat"><span class="stat-num" id="stat-attention" style="color:var(--status-orange);">—</span><span class="stat-label">DUE TODAY</span></div>
+                <div class="stat"><span class="stat-num" id="stat-routine" style="color:var(--status-amber);">—</span><span class="stat-label">ROUTINE</span></div>
+                <div class="stat"><span class="stat-num" id="stat-unassigned" style="color:#ffd54f;">—</span><span class="stat-label">UNASSIGNED</span></div>
+            </div>
         </div>
     </header>
 
@@ -120,11 +163,27 @@
     </div>
 
     <div class="legend" id="legend">
-        <span><span class="sw" style="background:var(--status-green);"></span>Planted / Growing</span>
-        <span><span class="sw" style="background:var(--status-orange);"></span>Prep / Cleanup / Harvested</span>
-        <span><span class="sw" style="background:var(--status-purple);"></span>Harvestable</span>
-        <span><span class="sw" style="background:var(--status-red);"></span>Open exception</span>
+        <span class="legend-row-label">Urgency (border):</span>
+        <span><span class="sw" style="background:var(--status-red);"></span>Must do / overdue</span>
+        <span><span class="sw" style="background:var(--status-orange);"></span>Due today</span>
+        <span><span class="sw" style="background:var(--status-amber);"></span>Routine due</span>
+        <span><span class="sw" style="background:var(--status-green);"></span>Nominal</span>
         <span><span class="sw" style="background:var(--status-gray); opacity:.6;"></span>Rest</span>
+    </div>
+    <div class="legend" id="legend-markers">
+        <span class="legend-row-label">Markers:</span>
+        <span><span class="dot" style="background:var(--status-purple);"></span>HR — Harvest ready</span>
+        <span><span class="dot" style="background:var(--status-red);"></span>ALT — Open exception</span>
+        <span><span class="dot" style="background:var(--status-blue);"></span>IRR — Irrigation due today</span>
+    </div>
+
+    <div class="filter-bar" id="filter-bar">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="MUST_DO">Overdue</button>
+        <button class="filter-btn" data-filter="ATTENTION">Due Today</button>
+        <button class="filter-btn" data-filter="ROUTINE">Routine</button>
+        <button class="filter-btn" data-filter="HARVEST_READY">Harvest Ready</button>
+        <button class="filter-btn" data-filter="UNASSIGNED">Unassigned</button>
     </div>
 
     <div class="canvas-container">
@@ -181,9 +240,13 @@
 
         let LIVE_MODE = false;
         let APPS_SCRIPT_URL = localStorage.getItem(CONN_KEY) || DEFAULT_APPS_SCRIPT_URL;
-        let DATA = null;          // { bed_master, cohort_master, exception_log, ... } once live
+        let DATA = null;          // { bed_master, cohort_master, exception_log, daily_queue, bed_ids_by_cohort, field_live_session, ... } once live
         let bedIndex = {};        // Bed_ID -> bed_master row
         let openExceptionsByBed = {}; // Bed_ID -> [exception rows]
+        let queueByBed = {};      // Bed_ID -> [daily_queue items resolved onto this bed]
+        let assignedBedIds = new Set(); // Bed_ID with an ACTIVE/PAUSED/PLANNED FIELD_LIVE_SESSION row
+        let queueCounts = { mustDo: 0, attention: 0, routine: 0 }; // straight from DATA.daily_queue.counts
+        let currentFilter = 'all';
 
         function callApi_(url, action, payload){
             return new Promise((resolve, reject)=>{
@@ -250,20 +313,83 @@
                 if(!e.Bed_ID) return;
                 (openExceptionsByBed[e.Bed_ID] = openExceptionsByBed[e.Bed_ID] || []).push(e);
             });
+
+            // ----------------------------------------------------------------
+            // Dispatch-board additions: resolve DATA.daily_queue items (mostly
+            // keyed by Cohort_ID) onto individual Bed_IDs via
+            // DATA.bed_ids_by_cohort, and mark which beds already have a live
+            // or planned worker session against them.
+            // ----------------------------------------------------------------
+            const bedIdsByCohort = DATA.bed_ids_by_cohort || {};
+            const queue = DATA.daily_queue || { mustDo: [], attention: [], routine: [], counts: { mustDo: 0, attention: 0, routine: 0 } };
+            queueCounts = queue.counts || { mustDo: 0, attention: 0, routine: 0 };
+
+            function resolveBedsForItem(item){
+                if(item.bedId) return [item.bedId];
+                if(item.cohortId && bedIdsByCohort[item.cohortId]) return bedIdsByCohort[item.cohortId];
+                return []; // can't resolve to a bed (e.g. Dispatch/Pack Shed items with no cohort/bed) -- excluded from the spatial board, not miscounted onto one
+            }
+
+            queueByBed = {};
+            ['mustDo', 'attention', 'routine'].forEach(bucketKey => {
+                (queue[bucketKey] || []).forEach(item => {
+                    resolveBedsForItem(item).forEach(bedId => {
+                        (queueByBed[bedId] = queueByBed[bedId] || []).push(item);
+                    });
+                });
+            });
+
+            assignedBedIds = new Set();
+            (DATA.field_live_session || []).forEach(s => {
+                const st = (s.Session_Status || '').toString().toUpperCase();
+                if(!s.Bed_ID) return;
+                // ACTIVE/PAUSED are the only statuses that exist in the live sheet
+                // today. PLANNED is included forward-compatible with a future
+                // dispatch-task write path (see notes on the Dispatch stub
+                // buttons below) -- it's a no-op today since nothing writes it yet.
+                if(st === 'ACTIVE' || st === 'PAUSED' || st === 'PLANNED') assignedBedIds.add(s.Bed_ID);
+            });
         }
 
-        function statusClassForBed(bed, hasOpenException){
-            if(hasOpenException) return 'status-red';
-            switch((bed && bed.Current_State) || ''){
-                case 'Harvestable': return 'status-purple';
-                case 'Planted':
-                case 'Growing': return 'status-green';
-                case 'Prep':
-                case 'Cleanup':
-                case 'Harvested': return 'status-orange';
-                case 'Rest': return 'status-gray';
-                default: return 'status-gray';
-            }
+        // Worst (highest-urgency) bucket among a bed's resolved queue items, or
+        // null if nothing is pending against it.
+        function worstBucketForBed_(bedId){
+            const items = queueByBed[bedId];
+            if(!items || !items.length) return null;
+            if(items.some(i => i.bucket === 'MUST_DO')) return 'MUST_DO';
+            if(items.some(i => i.bucket === 'ATTENTION')) return 'ATTENTION';
+            return 'ROUTINE';
+        }
+
+        // Outer border = urgency, not biological state. An open exception always
+        // escalates to red regardless of what the queue engine bucketed it as.
+        function urgencyClassForBed_(bedId, bed, hasOpenException){
+            const worst = worstBucketForBed_(bedId);
+            if(hasOpenException || worst === 'MUST_DO') return 'status-red';
+            if(worst === 'ATTENTION') return 'status-orange';
+            if(worst === 'ROUTINE') return 'status-amber';
+            if(bed && bed.Current_State === 'Rest') return 'status-gray';
+            if(bed) return 'status-green';
+            return 'status-gray'; // no BED_MASTER row at all for this unit
+        }
+
+        // Inner badges = biological/operational state, independent of urgency.
+        // NOTE ON SCOPE: the AAB design doc's "DRY" badge means an irrigation
+        // zone that's shut off / not running -- but the only irrigation signal
+        // currently in daily_queue (getIrrigationDueItems_, ActivityEngine.gs)
+        // fires when a zone IS active and due, not when one has gone dry. There
+        // is no "zone off when it shouldn't be" signal in the data today, so
+        // this badge is labeled IRR ("irrigation due today") rather than DRY --
+        // it would be inaccurate to imply a shutoff detection that doesn't
+        // exist. Revisit if IRRIGATION_CONTROL's Operational_Status_Flag is
+        // ever exposed to this endpoint directly.
+        function badgesForBed_(bedId, bed, hasOpenException){
+            const badges = [];
+            if(bed && bed.Current_State === 'Harvestable') badges.push({ color: 'var(--status-purple)', label: 'HR — Harvest ready' });
+            if(hasOpenException) badges.push({ color: 'var(--status-red)', label: 'ALT — Open exception' });
+            const items = queueByBed[bedId] || [];
+            if(items.some(i => i.category === 'Irrigation')) badges.push({ color: 'var(--status-blue)', label: 'IRR — Irrigation due today' });
+            return badges;
         }
 
         /* ==================================================================
@@ -271,6 +397,9 @@
            ================================================================== */
         function renderBoard(){
             bedsLayer.innerHTML = '';
+            document.querySelectorAll('#filter-bar .filter-btn').forEach(b => {
+                b.disabled = !(LIVE_MODE && DATA) && b.dataset.filter !== 'all';
+            });
             if(LIVE_MODE && DATA){
                 renderLiveBeds();
                 updateStatLineLive();
@@ -278,22 +407,40 @@
                 renderDemoBeds();
                 updateStatLineDemo();
             }
+            applyFilter();
         }
 
         function updateStatLineDemo(){
-            document.getElementById('stat-line').innerHTML = 'UNASSIGNED TASKS: <span style="color: #ffd54f;">6</span>';
+            document.getElementById('stat-mustdo').textContent = '—';
+            document.getElementById('stat-attention').textContent = '—';
+            document.getElementById('stat-routine').textContent = '—';
+            document.getElementById('stat-unassigned').textContent = '—';
         }
 
         function updateStatLineLive(){
-            // No direct "unassigned tasks" field is exposed by get-manager-today-view,
-            // so this shows the real, defensible number available: open exceptions
-            // across the 231 SOP-tracked units (Blocks 1-4 + Zone 5).
-            const trackedPrefixes = ['B1-','B2-','B3-','B4-','Z5-'];
-            let count = 0;
-            Object.keys(openExceptionsByBed).forEach(bedId => {
-                if(trackedPrefixes.some(p => bedId.startsWith(p))) count += openExceptionsByBed[bedId].length;
+            document.getElementById('stat-mustdo').textContent = queueCounts.mustDo || 0;
+            document.getElementById('stat-attention').textContent = queueCounts.attention || 0;
+            document.getElementById('stat-routine').textContent = queueCounts.routine || 0;
+
+            // Unassigned = Must Do / Attention items every one of whose resolved
+            // beds currently has no ACTIVE/PAUSED/PLANNED session against it.
+            // Items that couldn't be resolved to any bed (see resolveBedsForItem
+            // in buildIndexes) are skipped here too -- counting them either way
+            // would be a guess, not a real number.
+            const bedIdsByCohort = DATA.bed_ids_by_cohort || {};
+            const queue = DATA.daily_queue || { mustDo: [], attention: [] };
+            function itemBeds(item){
+                if(item.bedId) return [item.bedId];
+                if(item.cohortId && bedIdsByCohort[item.cohortId]) return bedIdsByCohort[item.cohortId];
+                return [];
+            }
+            let unassigned = 0;
+            (queue.mustDo || []).concat(queue.attention || []).forEach(item => {
+                const beds = itemBeds(item);
+                if(!beds.length) return;
+                if(beds.every(b => !assignedBedIds.has(b))) unassigned++;
             });
-            document.getElementById('stat-line').innerHTML = 'OPEN EXCEPTIONS: <span style="color: #ffd54f;">' + count + '</span>';
+            document.getElementById('stat-unassigned').textContent = unassigned;
         }
 
         function renderLiveBeds(){
@@ -305,11 +452,7 @@
                     const y = 50 + (row * 50);
 
                     const bedId = `${block.prefix}-${i.toString().padStart(2, '0')}`;
-                    const bed = bedIndex[bedId];
-                    const hasException = !!(openExceptionsByBed[bedId] && openExceptionsByBed[bedId].length);
-                    const statusClass = bed ? statusClassForBed(bed, hasException) : 'status-gray';
-
-                    renderBed(x, y, bedId, bedId, statusClass, 30, 44);
+                    renderLiveBed_(x, y, bedId, 30, 44);
                 }
             });
 
@@ -320,12 +463,22 @@
                 const y = 50 + (row * 46);
 
                 const bedId = `Z5-${i.toString().padStart(2, '0')}`;
-                const bed = bedIndex[bedId];
-                const hasException = !!(openExceptionsByBed[bedId] && openExceptionsByBed[bedId].length);
-                const statusClass = bed ? statusClassForBed(bed, hasException) : 'status-gray';
-
-                renderBed(x, y, bedId, bedId, statusClass, 80, 36);
+                renderLiveBed_(x, y, bedId, 80, 36);
             }
+        }
+
+        function renderLiveBed_(x, y, bedId, width, height){
+            const bed = bedIndex[bedId];
+            const hasException = !!(openExceptionsByBed[bedId] && openExceptionsByBed[bedId].length);
+            const statusClass = urgencyClassForBed_(bedId, bed, hasException);
+            const badges = badgesForBed_(bedId, bed, hasException);
+            const worst = worstBucketForBed_(bedId);
+
+            renderBed(x, y, bedId, bedId, statusClass, width, height, badges, {
+                bucket: worst || 'NONE',
+                assigned: assignedBedIds.has(bedId) ? '1' : '0',
+                harvestReady: (bed && bed.Current_State === 'Harvestable') ? '1' : '0'
+            });
         }
 
         // Original demo/offline rendering, kept as a fallback so this board still
@@ -358,19 +511,65 @@
             }
         }
 
-        function renderBed(x, y, bedId, label, statusClass, width, height) {
+        function renderBed(x, y, bedId, label, statusClass, width, height, badges, filterData) {
+            badges = badges || [];
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             g.setAttribute('class', 'bed-unit');
             g.setAttribute('transform', `translate(${x}, ${y})`);
+            g.dataset.bedId = bedId;
+            if(filterData){
+                g.dataset.bucket = filterData.bucket || 'NONE';
+                g.dataset.assigned = filterData.assigned || '0';
+                g.dataset.harvestReady = filterData.harvestReady || '0';
+            }
+
+            // Up to 3 small corner dots along the right edge -- see
+            // badgesForBed_ for what each color means. Native <title> gives a
+            // hover tooltip with no extra JS.
+            let dotsSvg = '';
+            badges.slice(0, 3).forEach((b, idx) => {
+                const cx = width - 5;
+                const cy = 6 + idx * 8;
+                dotsSvg += `<circle cx="${cx}" cy="${cy}" r="2.6" fill="${b.color}"><title>${b.label}</title></circle>`;
+            });
 
             g.innerHTML = `
                 <rect class="bed-rect ${statusClass}" width="${width}" height="${height}" x="0" y="0"></rect>
                 <text class="bed-text" x="${width / 2}" y="${height / 2 + 3}">${label}</text>
+                ${dotsSvg}
             `;
 
             g.onclick = () => openBedPanel(bedId);
             bedsLayer.appendChild(g);
         }
+
+        /* ==================================================================
+           FILTER BAR
+           ================================================================== */
+        function applyFilter(){
+            document.querySelectorAll('.bed-unit').forEach(g => {
+                let show = true;
+                switch(currentFilter){
+                    case 'MUST_DO': show = g.dataset.bucket === 'MUST_DO'; break;
+                    case 'ATTENTION': show = g.dataset.bucket === 'ATTENTION'; break;
+                    case 'ROUTINE': show = g.dataset.bucket === 'ROUTINE'; break;
+                    case 'HARVEST_READY': show = g.dataset.harvestReady === '1'; break;
+                    case 'UNASSIGNED':
+                        show = (g.dataset.bucket === 'MUST_DO' || g.dataset.bucket === 'ATTENTION') && g.dataset.assigned === '0';
+                        break;
+                    default: show = true;
+                }
+                g.classList.toggle('dim', !show);
+            });
+        }
+
+        document.getElementById('filter-bar').addEventListener('click', (e) => {
+            const btn = e.target.closest('.filter-btn');
+            if(!btn || btn.disabled) return;
+            currentFilter = btn.dataset.filter;
+            document.querySelectorAll('#filter-bar .filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+            applyFilter();
+        });
 
         /* ==================================================================
            BED DETAIL PANEL
@@ -405,18 +604,83 @@
             html += row('Last planting', bed.Last_Planting_Date || '—');
             html += row('Expected harvest', bed.Expected_Harvest_Date || '—');
             html += row('Irrigation zone', bed.Irrigation_Zone_ID || '—');
+            html += row('Worker on this bed', assignedBedIds.has(bedId) ? 'Yes — session open/planned' : 'No open session');
 
-            if(exceptions.length){
-                exceptions.forEach(e => {
-                    html += `<div class="exception"><strong>Open exception</strong><br>${e.Message || e.Exception_Type || 'Unspecified'}</div>`;
+            const items = queueByBed[bedId] || [];
+            if(items.length){
+                html += `<div class="panel-section-title">Pending work (${items.length})</div>`;
+                items.forEach(item => {
+                    html += `
+                        <div class="queue-item queue-${item.bucket}">
+                            <div class="queue-item-top">
+                                <span class="queue-chip queue-chip-${item.bucket}">${bucketLabel_(item.bucket)}</span>
+                                <span class="queue-cat">${item.category || ''}</span>
+                            </div>
+                            <div class="queue-title">${item.title || ''}</div>
+                            <div class="queue-detail">${item.detail || ''}</div>
+                        </div>`;
                 });
             }
+
+            if(exceptions.length){
+                html += `<div class="panel-section-title">Open exceptions</div>`;
+                exceptions.forEach(e => {
+                    // NOTE: EXCEPTION_LOG has no Message column (see Database.gs
+                    // schema) -- the free-text field is Notes. The previous
+                    // version of this panel read e.Message, which is always
+                    // undefined, and silently fell back to just the exception
+                    // type with no detail. Fixed to read e.Notes.
+                    html += `
+                        <div class="exception">
+                            <strong>${e.Exception_Type || 'Exception'}${e.Severity ? ' (' + e.Severity + ')' : ''}</strong><br>
+                            ${e.Notes || 'No notes recorded.'}
+                            <div style="margin-top:8px;"><button class="btn btn-resolve" data-exception-id="${e.Exception_ID}">Resolve</button></div>
+                        </div>`;
+                });
+            }
+
+            html += `
+                <div class="panel-section-title">Dispatch</div>
+                <div class="stub-actions">
+                    <button class="btn" disabled title="Not yet wired -- needs a new manager-side dispatch-task endpoint (writes a PLANNED row to FIELD_LIVE_SESSION). See project notes.">Dispatch task</button>
+                    <button class="btn" disabled title="Not yet wired -- reassign-session only covers an already-ACTIVE/PAUSED session, not a pre-assignment.">Reassign worker</button>
+                </div>`;
 
             body.innerHTML = html;
             panel.classList.add('open'); backdrop.classList.add('open');
 
+            body.querySelectorAll('.btn-resolve').forEach(btn => {
+                btn.onclick = () => resolveExceptionFromPanel_(btn.dataset.exceptionId, bedId);
+            });
+
             function row(k, v){
                 return `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`;
+            }
+        }
+
+        function bucketLabel_(bucket){
+            if(bucket === 'MUST_DO') return 'Must Do';
+            if(bucket === 'ATTENTION') return 'Due Today';
+            return 'Routine';
+        }
+
+        // Reuses the EXISTING 'resolve-exception' route (handleResolveException_
+        // in Code.gs) -- same one Dashboard_VPOS.html's resolve button calls, per
+        // DashboardAPI.gs's own note. No new backend logic needed for this one;
+        // it's a real, already-gated write path (Manager/Founder only), unlike
+        // the Dispatch/Reassign stubs above.
+        async function resolveExceptionFromPanel_(exceptionId, bedId){
+            if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
+            const managerId = prompt('Manager/Founder ID to resolve this exception as:');
+            if(!managerId) return;
+            const resolutionNotes = prompt('Resolution notes (optional):') || '';
+            try {
+                const res = await callApi_(APPS_SCRIPT_URL, 'resolve-exception', { exceptionId, managerId, resolutionNotes });
+                if(!res.success) throw new Error(res.error || 'Server rejected the request.');
+                await connectLive(APPS_SCRIPT_URL, { silent: true });
+                openBedPanel(bedId);
+            } catch(err){
+                alert('Could not resolve exception: ' + err.message);
             }
         }
 
