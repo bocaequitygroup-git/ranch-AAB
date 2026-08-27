@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ngapori Ranch - Activity Assignment Board (AAB)</title>
+    <style>
+        :root {
+            --bg-dark: #12181b;
+            --panel-bg: #1e272c;
+            --border-color: #37474f;
+            --text-main: #eceff1;
+            --text-muted: #90a4ae;
+            
+            /* Status Colors */
+            --status-red: #e53935;
+            --status-orange: #fb8c00;
+            --status-purple: #8e24aa;
+            --status-blue: #1e88e5;
+            --status-green: #43a047;
+            --status-gray: #546e7a;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg-dark); color: var(--text-main); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+        /* Header Bar */
+        header {
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .metrics-bar { display: flex; gap: 16px; }
+        .metric-badge {
+            background: rgba(255,255,255,0.05);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            border-left: 4px solid var(--border-color);
+        }
+        .metric-badge.red { border-color: var(--status-red); }
+        .metric-badge.orange { border-color: var(--status-orange); }
+        .metric-badge.purple { border-color: var(--status-purple); }
+        .metric-badge.unassigned { border-color: #ffd54f; color: #ffd54f; }
+
+        /* Mode Switcher */
+        .controls { display: flex; gap: 12px; align-items: center; }
+        .btn {
+            background: #263238;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #37474f; }
+        .btn.active { background: #00897b; border-color: #004d40; color: #fff; }
+        .btn-publish { background: #2e7d32; border-color: #1b5e20; }
+        .btn-publish:hover { background: #388e3c; }
+
+        /* Main Workspace */
+        .workspace { flex: 1; display: flex; position: relative; overflow: hidden; }
+
+        /* SVG Map Container */
+        .map-container { flex: 1; padding: 20px; display: flex; justify-content: center; align-items: center; background: #0a0e10; }
+        svg#ranch-map { width: 100%; height: 100%; max-width: 1100px; max-height: 800px; }
+
+        /* SVG Elements */
+        .bed-group { cursor: pointer; transition: transform 0.15s ease; }
+        .bed-group:hover { transform: scale(1.03); transform-origin: center; }
+        .bed-rect { fill: var(--panel-bg); stroke-width: 3px; rx: 6px; ry: 6px; }
+        
+        /* Status Classes for SVG */
+        .status-red { stroke: var(--status-red); }
+        .status-orange { stroke: var(--status-orange); }
+        .status-purple { stroke: var(--status-purple); }
+        .status-green { stroke: var(--status-green); }
+
+        .crop-icon { font-size: 22px; dominant-baseline: central; text-anchor: middle; }
+        .stage-label { font-size: 10px; font-weight: bold; fill: var(--text-muted); text-anchor: middle; }
+        .bed-id-label { font-size: 11px; font-weight: bold; fill: var(--text-main); text-anchor: middle; }
+
+        /* Slide-over Bed Info Panel */
+        .side-panel {
+            width: 380px;
+            background: var(--panel-bg);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            gap: 16px;
+            overflow-y: auto;
+        }
+
+        .panel-section { border-bottom: 1px solid var(--border-color); padding-bottom: 12px; }
+        .panel-section h3 { font-size: 12px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; letter-spacing: 0.5px; }
+        
+        .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; }
+        .data-label { color: var(--text-muted); }
+        .data-value { font-weight: 600; text-align: right; }
+
+        .activity-card {
+            background: #263238;
+            border-left: 3px solid var(--border-color);
+            padding: 10px;
+            border-radius: 0 4px 4px 0;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        .activity-card.OVERDUE { border-left-color: var(--status-red); }
+        .activity-card.DUE { border-left-color: var(--status-orange); }
+
+        /* Form Controls */
+        select, input {
+            width: 100%;
+            background: #12181b;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div>
+            <h1 style="font-size: 18px; font-weight: 700;">NGAPORI RANCH — Activity Assignment Board</h1>
+            <p style="font-size: 12px; color: var(--text-muted);">Dispatch Window: Thursday, Aug 27, 2026</p>
+        </div>
+
+        <div class="metrics-bar">
+            <div class="metric-badge red">4 OVERDUE</div>
+            <div class="metric-badge orange">18 DUE TODAY</div>
+            <div class="metric-badge purple">7 HARVEST READY</div>
+            <div class="metric-badge unassigned">5 UNASSIGNED</div>
+        </div>
+
+        <div class="controls">
+            <button class="btn active" id="btn-mode-ops" onclick="switchMode('OPS')">Operations View</button>
+            <button class="btn" id="btn-mode-assign" onclick="switchMode('ASSIGN')">Assignment View</button>
+            <button class="btn btn-publish" onclick="publishAssignments()">Publish Morning Plan</button>
+        </div>
+    </header>
+
+    <div class="workspace">
+        <!-- SVG Interactive Ranch Map -->
+        <div class="map-container">
+            <svg id="ranch-map" viewBox="0 0 800 500">
+                <!-- Field A Header -->
+                <text x="20" y="30" fill="#90a4ae" font-size="14" font-weight="bold">FIELD A (Solanaceae)</text>
+                
+                <!-- Bed A-014 (Overdue - Red) -->
+                <g class="bed-group" transform="translate(20, 50)" onclick="selectBed('A-014')">
+                    <rect class="bed-rect status-red" width="100" height="70"></rect>
+                    <text x="50" y="25" class="crop-icon">🍅</text>
+                    <text x="50" y="45" class="bed-id-label">A-014</text>
+                    <text x="50" y="60" class="stage-label">PROD</text>
+                </g>
+
+                <!-- Bed A-015 (Due Today - Orange) -->
+                <g class="bed-group" transform="translate(130, 50)" onclick="selectBed('A-015')">
+                    <rect class="bed-rect status-orange" width="100" height="70"></rect>
+                    <text x="50" y="25" class="crop-icon">🫑</text>
+                    <text x="50" y="45" class="bed-id-label">A-015</text>
+                    <text x="50" y="60" class="stage-label">VEG</text>
+                </g>
+
+                <!-- Bed A-016 (Harvest Ready - Purple) -->
+                <g class="bed-group" transform="translate(240, 50)" onclick="selectBed('A-016')">
+                    <rect class="bed-rect status-purple" width="100" height="70"></rect>
+                    <text x="50" y="25" class="crop-icon">🍆</text>
+                    <text x="50" y="45" class="bed-id-label">A-016</text>
+                    <text x="50" y="60" class="stage-label">MATURE</text>
+                </g>
+
+                <!-- Bed A-017 (Normal - Green) -->
+                <g class="bed-group" transform="translate(350, 50)" onclick="selectBed('A-017')">
+                    <rect class="bed-rect status-green" width="100" height="70"></rect>
+                    <text x="50" y="25" class="crop-icon">🍅</text>
+                    <text x="50" y="45" class="bed-id-label">A-017</text>
+                    <text x="50" y="60" class="stage-label">PROD</text>
+                </g>
+
+                <!-- Field B Header -->
+                <text x="20" y="160" fill="#90a4ae" font-size="14" font-weight="bold">FIELD B (Leafy Greens)</text>
+
+                <!-- Bed B-001 (Due Today - Orange) -->
+                <g class="bed-group" transform="translate(20, 180)" onclick="selectBed('B-001')">
+                    <rect class="bed-rect status-orange" width="100" height="70"></rect>
+                    <text x="50" y="25" class="crop-icon">🥬</text>
+                    <text x="50" y="45" class="bed-id-label">B-001</text>
+                    <text x="50" y="60" class="stage-label">VEG</text>
+                </g>
+            </svg>
+        </div>
+
+        <!-- Slide-Over Bed Inspector Panel -->
+        <div class="side-panel" id="bed-panel">
+            <div class="panel-section">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2 id="panel-bed-id" style="font-size: 20px;">BED A-014</h2>
+                    <span id="panel-bed-status" style="color: var(--status-red); font-size: 11px; font-weight: bold; border: 1px solid var(--status-red); padding: 2px 6px; border-radius: 4px;">OVERDUE</span>
+                </div>
+                <p style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">Field A • Block 1 • Location 14</p>
+            </div>
+
+            <div class="panel-section">
+                <h3>Biological State</h3>
+                <div class="data-grid">
+                    <span class="data-label">Crop Identity:</span>
+                    <span class="data-value">Tomato (Beefsteak)</span>
+                    <span class="data-label">Current Stage:</span>
+                    <span class="data-value">Production (PROD)</span>
+                    <span class="data-label">Days in Stage:</span>
+                    <span class="data-value">14 Days</span>
+                    <span class="data-label">Est. Harvest:</span>
+                    <span class="data-value">Aug 30, 2026</span>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Required Activities (2)</h3>
+                <div class="activity-card OVERDUE">
+                    <div style="display:flex; justify-size:space-between; font-weight:bold;">
+                        <span>PestScouting</span>
+                        <span style="color: var(--status-red);">OVERDUE</span>
+                    </div>
+                    <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">Source: SYSTEM (Rule: Weekly Check)</div>
+                </div>
+
+                <div class="activity-card DUE">
+                    <div style="display:flex; justify-content:space-between; font-weight:bold;">
+                        <span>IrrigationCheck</span>
+                        <span style="color: var(--status-orange);">DUE TODAY</span>
+                    </div>
+                    <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">Source: SYSTEM (Rule: Daily Protocol)</div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Labor Assignment</h3>
+                <label style="font-size: 12px; color: var(--text-muted);">Assigned Worker (Today)</label>
+                <select id="worker-select" onchange="updateAssignment('A-014', this.value)">
+                    <option value="">-- Unassigned --</option>
+                    <option value="James" selected>James</option>
+                    <option value="Mary">Mary</option>
+                    <option value="John">John</option>
+                    <option value="David">David</option>
+                </select>
+            </div>
+
+            <div class="panel-section" style="border:none;">
+                <h3>Add Manual Activity</h3>
+                <select id="activity-taxonomy">
+                    <option value="Weeding">Weeding</option>
+                    <option value="Trellising">Trellising</option>
+                    <option value="Pruning">Pruning</option>
+                    <option value="MaturityInspection">MaturityInspection</option>
+                </select>
+                <button class="btn" style="width: 100%; margin-top: 8px;" onclick="addManualActivity()">+ Create Activity</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Prototype State Controller
+        function selectBed(bedId) {
+            document.getElementById('panel-bed-id').innerText = 'BED ' + bedId;
+            // In full implementation, this triggers REST GET /api/beds/{bedId} and populates the sidebar
+        }
+
+        function switchMode(mode) {
+            document.getElementById('btn-mode-ops').classList.remove('active');
+            document.getElementById('btn-mode-assign').classList.remove('active');
+            
+            if (mode === 'OPS') {
+                document.getElementById('btn-mode-ops').classList.add('active');
+                // Toggle map view elements for general ops
+            } else {
+                document.getElementById('btn-mode-assign').classList.add('active');
+                // Toggle layout focusing on labor queues / unassigned tasks
+            }
+        }
+
+        function publishAssignments() {
+            if (confirm("Publish today's morning plan? Assigned tasks will immediately dispatch to worker VPOS devices.")) {
+                alert("Morning Plan Published successfully. State locked to PUBLISHED.");
+            }
+        }
+
+        function updateAssignment(bedId, worker) {
+            console.log(`Activity on ${bedId} reassigned to: ${worker}`);
+            // System logs edit event if state == PUBLISHED
+        }
+
+        function addManualActivity() {
+            const taxonomy = document.getElementById('activity-taxonomy').value;
+            alert(`Activity '${taxonomy}' created for bed with Source: MANAGER.`);
+        }
+    </script>
+</body>
+</html>
