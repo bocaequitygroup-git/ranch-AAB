@@ -28,8 +28,14 @@
         .block-bg { fill: var(--panel-bg); stroke: var(--border-color); stroke-width: 1; }
         .block-label { fill: var(--text-muted); font-size: 11px; font-weight: bold; font-family: monospace; }
 
-        .bed-unit { cursor: pointer; transition: transform 0.1s ease; }
-        .bed-unit:hover { transform: scale(1.1); }
+        .bed-unit {
+            cursor: pointer;
+            transition: transform 0.1s ease;
+            transform: translate(var(--tx), var(--ty));
+            transform-box: fill-box;
+            transform-origin: center;
+        }
+        .bed-unit:hover { transform: translate(var(--tx), var(--ty)) scale(1.1); }
         .bed-rect { fill: #0f1416; stroke-width: 2; rx: 3; }
         .bed-text { fill: var(--text-main); font-size: 9px; font-weight: bold; text-anchor: middle; font-family: monospace; }
 
@@ -41,7 +47,7 @@
         .status-gray { stroke: var(--status-gray); opacity: 0.5; }
 
         .bed-unit.dim { opacity: 0.15; }
-        .bed-unit.dim:hover { transform: none; }
+        .bed-unit.dim:hover { transform: translate(var(--tx), var(--ty)); }
 
         /* connection pill + panel */
         .conn-pill{
@@ -582,7 +588,8 @@
             badges = badges || [];
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             g.setAttribute('class', 'bed-unit');
-            g.setAttribute('transform', `translate(${x}, ${y})`);
+            g.style.setProperty('--tx', x + 'px');
+            g.style.setProperty('--ty', y + 'px');
             g.dataset.bedId = bedId;
             if(filterData){
                 g.dataset.bucket = filterData.bucket || 'NONE';
