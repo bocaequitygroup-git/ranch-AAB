@@ -138,17 +138,75 @@
         #bed-panel .exception { margin-top:14px; padding:10px; border-radius:6px; background:rgba(229,57,53,0.12); border:1px solid var(--status-red); font-size:12px; }
         #bed-panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 40; display:none; }
         #bed-panel-backdrop.open { display:block; }
+
+        /* login gate */
+        #login-screen {
+            position: fixed; inset: 0; background: var(--bg-dark); z-index: 100;
+            display: flex; align-items: center; justify-content: center; padding: 20px;
+        }
+        #login-card {
+            width: 100%; max-width: 340px; background: var(--panel-bg); border: 1px solid var(--border-color);
+            border-radius: 10px; padding: 28px 26px; box-sizing: border-box;
+        }
+        #login-card h1 { font-size: 15px; margin: 0 0 2px; }
+        #login-card .sub { color: var(--text-muted); font-size: 11.5px; margin-bottom: 20px; }
+        #login-card label { display:block; font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px; }
+        #login-card input {
+            width: 100%; box-sizing: border-box; font-size: 13px; padding: 9px 11px; border-radius: 8px;
+            border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); color: var(--text-main);
+            margin-bottom: 14px;
+        }
+        #login-card .btn-primary { width: 100%; padding: 10px; font-size: 12.5px; }
+        #login-error { color: #ff8a80; font-size: 11.5px; min-height: 14px; margin-bottom: 10px; }
+        #login-advanced-toggle { color: var(--text-muted); font-size: 10.5px; text-align:center; margin-top:16px; cursor:pointer; text-decoration: underline; }
+        #login-advanced { display:none; margin-top: 12px; }
+        #login-advanced input { font-family: monospace; font-size: 11px; }
+        #login-advanced .btn { width: 100%; }
+
+        /* always-visible refresh control */
+        #refresh-btn { display:flex; align-items:center; gap:6px; }
+        #refresh-btn:disabled { opacity:.5; cursor:default; }
+        #refresh-icon { display:inline-block; }
+        #refresh-icon.spin { animation: spin 0.8s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
 
+    <!-- LOGIN GATE -- Manager/Founder only. Nothing below renders (and no
+         data is fetched) until this clears. Uses the existing 'login'
+         action (Code.gs/handleLogin_) -- the same User ID + PIN flow
+         ManagerApp.html already uses, so no new backend auth is needed. -->
+    <div id="login-screen">
+        <div id="login-card">
+            <h1>Ngapori Ranch — AAB Dispatch Board</h1>
+            <div class="sub">Manager / Founder sign-in required.</div>
+            <div id="login-error"></div>
+            <label for="login-worker-id">User ID</label>
+            <input id="login-worker-id" type="text" placeholder="e.g. USR-FOUNDER" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            <label for="login-pin">PIN</label>
+            <input id="login-pin" type="password" placeholder="****" />
+            <button class="btn btn-primary" id="login-submit-btn">Sign In</button>
+            <div id="login-advanced-toggle">Use a different server URL</div>
+            <div id="login-advanced">
+                <label for="login-url-input">Apps Script Web App URL (ends in /exec)</label>
+                <input id="login-url-input" type="text" placeholder="https://script.google.com/macros/s/…/exec" />
+                <button class="btn" id="login-url-save-btn">Save URL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-root" style="display:none;">
     <header>
         <div>
             <h1 style="font-size: 16px; margin: 0;">NGAPORI RANCH AAB — MASTER DISPATCH BOARD</h1>
             <span style="font-size: 11px; color: var(--text-muted);" id="sop-line">SOP Alignment: 231 Active Field Units (220 Annual Beds + 11 Perennial Rows)</span>
         </div>
         <div style="display:flex; align-items:center; gap:12px;">
-            <button class="conn-pill" id="manager-pill" title="Click to change who's dispatching tasks">
+            <button class="conn-pill" id="refresh-btn" title="Refresh live data now">
+                <span id="refresh-icon">⟳</span><span id="refresh-label">Refresh</span>
+            </button>
+            <button class="conn-pill" id="manager-pill" title="Click to sign out">
                 <span class="conn-dot" id="manager-dot"></span><span id="manager-label">Not signed in</span>
             </button>
             <button class="conn-pill" id="conn-pill" title="Click to manage the live connection">
@@ -236,6 +294,8 @@
         <div id="bed-panel-body"></div>
     </div>
 
+    </div><!-- /#app-root -->
+
     <script>
         const bedsLayer = document.getElementById('beds-layer');
 
@@ -257,45 +317,114 @@
         const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwUFXoHDFSUArQCIqkh2De8-fwPfWSG9LRvtagJPzmJdFaBx_95av5V57NzYs1J1IZLnA/exec';
 
         /* ==================================================================
-           MANAGER IDENTITY — cached for the browser tab's session so a
-           dispatcher isn't retyping their ID for every dispatch/reassign/
-           resolve action. sessionStorage (not localStorage) on purpose: it
-           survives a page refresh mid-shift but clears when the tab closes,
-           so a shared field tablet doesn't stay "signed in" as one manager
-           indefinitely. Click the pill (or "not signed in") to change it.
-           ================================================================== */
-        const MANAGER_KEY = 'vpos_manager_id';
-        let CURRENT_MANAGER_ID = sessionStorage.getItem(MANAGER_KEY) || '';
+           AUTH — real login gate (Manager/Founder only), replacing the old
+           "type your ID into a prompt() the first time you dispatch"
+           pattern. Uses the SAME 'login' action (User_ID + PIN, role-checked
+           server-side in handleLogin_/isManagerRole_) that ManagerApp.html
+           already authenticates with -- no new backend endpoint needed.
+           Non-Manager/Founder logins are rejected client-side (and logged
+           back out immediately so LOGIN_LOG's pairing stays intact, same
+           as ManagerApp.html's appLogin()) so a worker ID/PIN can never
+           get past the login screen.
 
-        function setManagerId_(id){
-            CURRENT_MANAGER_ID = (id || '').trim();
-            if(CURRENT_MANAGER_ID) sessionStorage.setItem(MANAGER_KEY, CURRENT_MANAGER_ID);
-            else sessionStorage.removeItem(MANAGER_KEY);
+           sessionStorage (not localStorage) on purpose: the session
+           survives a page refresh mid-shift but clears when the tab
+           closes, so a shared field tablet doesn't stay "signed in" as
+           one manager indefinitely. Once signed in, every dispatch/
+           reassign/resolve action below reads SESSION.workerId directly --
+           no more per-action prompts.
+           ================================================================== */
+        const AAB_SESSION_KEY = 'vpos_aab_session';
+        let SESSION = null; // { workerId, name, role } once authenticated
+
+        function loadCachedSession_(){
+            try {
+                const raw = sessionStorage.getItem(AAB_SESSION_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch(e){ return null; }
+        }
+
+        function saveSession_(user){
+            SESSION = user;
+            sessionStorage.setItem(AAB_SESSION_KEY, JSON.stringify(user));
+            renderManagerPill_();
+        }
+
+        function clearSession_(){
+            SESSION = null;
+            sessionStorage.removeItem(AAB_SESSION_KEY);
             renderManagerPill_();
         }
 
         function renderManagerPill_(){
             const dot = document.getElementById('manager-dot');
             const lbl = document.getElementById('manager-label');
-            if(CURRENT_MANAGER_ID){
+            if(SESSION){
                 dot.className = 'conn-dot live';
-                lbl.textContent = CURRENT_MANAGER_ID;
+                lbl.textContent = SESSION.name + ' (' + SESSION.role + ')';
             } else {
                 dot.className = 'conn-dot';
                 lbl.textContent = 'Not signed in';
             }
         }
 
-        // Every dispatch/reassign/resolve action calls this instead of
-        // prompt()-ing directly. Prompts once, caches the answer, and
-        // reuses it silently after that -- returns '' (falsy) if the
-        // person cancels, same as a cancelled prompt() did before.
-        function getManagerId_(){
-            if(CURRENT_MANAGER_ID) return CURRENT_MANAGER_ID;
-            const id = prompt('Manager/Founder ID (you\'ll only need to enter this once per session):');
-            if(!id) return '';
-            setManagerId_(id);
-            return CURRENT_MANAGER_ID;
+        // Reveals the login screen and hides the board -- used both for the
+        // initial unauthenticated state and for signing out.
+        function showLoginScreen_(){
+            document.getElementById('app-root').style.display = 'none';
+            document.getElementById('login-screen').style.display = 'flex';
+            document.getElementById('login-worker-id').focus();
+        }
+
+        function enterApp_(){
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('app-root').style.display = '';
+            renderManagerPill_();
+            renderBoard();
+            if(APPS_SCRIPT_URL){ connectLive(APPS_SCRIPT_URL); }
+        }
+
+        async function performLogin_(){
+            const workerId = document.getElementById('login-worker-id').value.trim();
+            const pin = document.getElementById('login-pin').value;
+            const errEl = document.getElementById('login-error');
+            errEl.textContent = '';
+            if(!workerId || !pin){ errEl.textContent = 'Enter your User ID and PIN.'; return; }
+
+            const btn = document.getElementById('login-submit-btn');
+            btn.disabled = true; btn.textContent = 'Signing in…';
+            try {
+                const res = await callApi_(APPS_SCRIPT_URL, 'login', { workerId, pin });
+                if(!res || !res.success){ errEl.textContent = (res && res.error) || 'Invalid credentials.'; return; }
+                if(res.user.role !== 'Manager' && res.user.role !== 'Founder'){
+                    // Valid login, wrong app -- log back out immediately so
+                    // LOGIN_LOG's login/logout pairing stays intact, and
+                    // don't let a worker ID/PIN through to the board.
+                    callApi_(APPS_SCRIPT_URL, 'logout', { workerId: res.user.workerId }).catch(function(){});
+                    errEl.textContent = 'This board is for Managers/Founders only.';
+                    return;
+                }
+                saveSession_({ workerId: res.user.workerId, name: res.user.name, role: res.user.role });
+                document.getElementById('login-pin').value = '';
+                enterApp_();
+            } catch(err){
+                errEl.textContent = 'Could not reach the server: ' + err.message;
+            } finally {
+                btn.disabled = false; btn.textContent = 'Sign In';
+            }
+        }
+
+        function signOut_(){
+            if(!confirm('Sign out of the dispatch board?')) return;
+            const loggedOutId = SESSION && SESSION.workerId;
+            clearSession_();
+            if(loggedOutId){ callApi_(APPS_SCRIPT_URL, 'logout', { workerId: loggedOutId }).catch(function(){}); }
+            DATA = null;
+            LIVE_MODE = false;
+            document.getElementById('login-worker-id').value = '';
+            document.getElementById('login-pin').value = '';
+            document.getElementById('login-error').textContent = '';
+            showLoginScreen_();
         }
 
         let LIVE_MODE = false;
@@ -408,6 +537,27 @@
             document.getElementById('conn-status').textContent = 'Back to demo data.';
             document.getElementById('queue-warning').classList.remove('show');
             renderBoard();
+        }
+
+        // Always-visible refresh control (header pill) -- unlike the old
+        // "Refresh now" button buried inside the collapsible connection
+        // panel, this is reachable from every view without opening any
+        // settings panel first. Spins the icon and disables itself for the
+        // duration of the (8-15s+) full-board reload so it's obvious a
+        // refresh is in progress rather than looking unresponsive.
+        async function refreshNow_(){
+            if(!APPS_SCRIPT_URL){ alert('No server URL configured.'); return; }
+            const btn = document.getElementById('refresh-btn');
+            const icon = document.getElementById('refresh-icon');
+            const label = document.getElementById('refresh-label');
+            btn.disabled = true;
+            icon.classList.add('spin');
+            label.textContent = 'Refreshing…';
+            const ok = await connectLive(APPS_SCRIPT_URL);
+            label.textContent = 'Refresh';
+            icon.classList.remove('spin');
+            btn.disabled = false;
+            if(!ok){ alert('Refresh failed -- see the connection status for details.'); }
         }
 
         function buildIndexes(){
@@ -798,8 +948,8 @@
         // the Dispatch/Reassign stubs above.
         async function resolveExceptionFromPanel_(exceptionId, bedId){
             if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
-            const managerId = getManagerId_();
-            if(!managerId) return;
+            const managerId = SESSION && SESSION.workerId;
+            if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
             const resolutionNotes = prompt('Resolution notes (optional):') || '';
             try {
                 const res = await callApi_(APPS_SCRIPT_URL, 'resolve-exception', { exceptionId, managerId, resolutionNotes });
@@ -845,8 +995,8 @@
         // leaving the manager to remember one.
         async function dispatchTaskFromPanel_(bedId){
             if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
-            const managerId = getManagerId_();
-            if(!managerId) return;
+            const managerId = SESSION && SESSION.workerId;
+            if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
 
             let workers = [];
             try {
@@ -910,8 +1060,8 @@
                 if(!sessionId) return;
             }
 
-            const managerId = getManagerId_();
-            if(!managerId) return;
+            const managerId = SESSION && SESSION.workerId;
+            if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
             const toWorkerId = prompt('New Worker ID:');
             if(!toWorkerId) return;
             const reason = prompt('Reason (optional):') || '';
@@ -937,10 +1087,12 @@
            CONNECTION PANEL WIRING
            ================================================================== */
         document.addEventListener('click', (e) => {
+            if(e.target.closest('#refresh-btn')){
+                refreshNow_();
+                return;
+            }
             if(e.target.closest('#manager-pill')){
-                const next = prompt('Manager/Founder ID (leave blank to sign out):', CURRENT_MANAGER_ID || '');
-                if(next === null) return; // cancelled -- leave as-is
-                setManagerId_(next);
+                signOut_();
                 return;
             }
             if(e.target.closest('#conn-pill')){
@@ -966,9 +1118,40 @@
             }
         });
 
+        /* ==================================================================
+           LOGIN SCREEN WIRING
+           ================================================================== */
+        document.getElementById('login-submit-btn').addEventListener('click', performLogin_);
+        document.getElementById('login-pin').addEventListener('keydown', (e) => { if(e.key === 'Enter') performLogin_(); });
+        document.getElementById('login-worker-id').addEventListener('keydown', (e) => { if(e.key === 'Enter') document.getElementById('login-pin').focus(); });
+        document.getElementById('login-advanced-toggle').addEventListener('click', () => {
+            const box = document.getElementById('login-advanced');
+            const open = box.style.display === 'block';
+            box.style.display = open ? 'none' : 'block';
+            if(!open) document.getElementById('login-url-input').value = APPS_SCRIPT_URL;
+        });
+        document.getElementById('login-url-save-btn').addEventListener('click', () => {
+            const url = document.getElementById('login-url-input').value.trim();
+            if(!url){ return; }
+            APPS_SCRIPT_URL = url;
+            localStorage.setItem(CONN_KEY, url);
+            document.getElementById('login-advanced-toggle').click();
+        });
+
+        /* ==================================================================
+           INIT — a cached, still-valid Manager/Founder session (this tab,
+           this browsing session) skips straight to the board and connects
+           automatically; otherwise the login screen is what's shown, and
+           nothing is fetched until sign-in succeeds.
+           ================================================================== */
         renderManagerPill_();
-        renderBoard();
-        if(APPS_SCRIPT_URL){ connectLive(APPS_SCRIPT_URL, {silent:true}); }
+        const cachedSession = loadCachedSession_();
+        if(cachedSession && (cachedSession.role === 'Manager' || cachedSession.role === 'Founder')){
+            SESSION = cachedSession;
+            enterApp_();
+        } else {
+            showLoginScreen_();
+        }
     </script>
 </body>
 </html>
