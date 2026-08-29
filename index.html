@@ -169,6 +169,39 @@
         #refresh-icon { display:inline-block; }
         #refresh-icon.spin { animation: spin 0.8s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* ==================================================================
+           IN-PANEL FORMS — chip-grid activity/worker pickers replacing
+           prompt()/confirm() chains for Dispatch, Reassign, and Resolve.
+           Tap a chip, it highlights immediately (Worker App-style single-
+           select), submit is disabled until required chips are chosen.
+           ================================================================== */
+        .hidden { display: none !important; }
+        .field-label { font-size: 10.5px; font-weight:700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; margin: 12px 0 6px; }
+        .field-label:first-child { margin-top: 4px; }
+        .chip-group-label { font-size: 10px; color: var(--text-muted); margin: 8px 0 4px; }
+        .chip-group-label:first-child { margin-top: 0; }
+        .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px; }
+        .chip {
+            font-size: 11px; font-weight: 600; padding: 6px 11px; border-radius: 14px;
+            border: 1px solid var(--border-color); background: rgba(255,255,255,0.04); color: var(--text-main);
+            cursor: pointer; line-height: 1.3;
+        }
+        .chip:hover { background: rgba(255,255,255,0.11); }
+        .chip.selected { background: var(--status-green); border-color: var(--status-green); color: #08110a; font-weight: 700; }
+        .chip-worker .chip-worker-role { opacity: .7; font-weight: 400; }
+        .inline-form { border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-top: 8px; background: rgba(255,255,255,0.02); }
+        .inline-form input[type="datetime-local"], .inline-form input[type="text"], .inline-form textarea {
+            width: 100%; box-sizing: border-box; font-size: 12.5px; padding: 8px 10px; border-radius: 6px;
+            border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); color: var(--text-main);
+            margin-top: 4px; font-family: inherit;
+        }
+        .inline-form textarea { resize: vertical; min-height: 54px; }
+        .check-row { display:flex; align-items:center; gap:7px; font-size: 12px; color: var(--text-muted); margin-top: 14px; cursor: pointer; }
+        .check-row input { width: auto; margin: 0; }
+        .inline-form-actions { display:flex; gap:8px; margin-top: 14px; }
+        .form-error { color: #ff8a80; font-size: 11.5px; margin-top: 8px; min-height: 0; }
+        .form-error:empty { display:none; }
     </style>
 </head>
 <body>
@@ -906,6 +939,15 @@
                             <strong>${e.Exception_Type || 'Exception'}${e.Severity ? ' (' + e.Severity + ')' : ''}</strong><br>
                             ${e.Notes || 'No notes recorded.'}
                             <div style="margin-top:8px;"><button class="btn btn-resolve" data-exception-id="${e.Exception_ID}">Resolve</button></div>
+                            <div class="inline-form hidden" id="resolve-form-${e.Exception_ID}">
+                                <div class="field-label">Resolution notes (optional)</div>
+                                <textarea id="resolve-notes-${e.Exception_ID}" placeholder="What was done to resolve this?"></textarea>
+                                <div class="form-error" id="resolve-error-${e.Exception_ID}"></div>
+                                <div class="inline-form-actions">
+                                    <button class="btn btn-primary" data-resolve-submit="${e.Exception_ID}">Confirm resolve</button>
+                                    <button class="btn" data-resolve-cancel="${e.Exception_ID}">Cancel</button>
+                                </div>
+                            </div>
                         </div>`;
                 });
             }
@@ -918,17 +960,33 @@
                 <div class="stub-actions">
                     <button class="btn btn-primary" id="dispatch-task-btn">Dispatch task</button>
                     <button class="btn" id="reassign-worker-btn"${openSessionsHere.length ? '' : ' disabled'} title="${openSessionsHere.length ? 'Reassign the worker on an existing session for this bed' : 'No active, paused, or planned session on this bed yet -- use Dispatch task first.'}">Reassign worker</button>
-                </div>`;
+                </div>
+                <div id="bed-actions-slot"></div>`;
 
             body.innerHTML = html;
             panel.classList.add('open'); backdrop.classList.add('open');
 
             body.querySelectorAll('.btn-resolve').forEach(btn => {
-                btn.onclick = () => resolveExceptionFromPanel_(btn.dataset.exceptionId, bedId);
+                const exceptionId = btn.dataset.exceptionId;
+                btn.onclick = () => {
+                    document.getElementById('resolve-form-' + exceptionId).classList.remove('hidden');
+                    btn.classList.add('hidden');
+                };
             });
-            document.getElementById('dispatch-task-btn').onclick = () => dispatchTaskFromPanel_(bedId);
+            body.querySelectorAll('[data-resolve-cancel]').forEach(btn => {
+                const exceptionId = btn.dataset.resolveCancel;
+                btn.onclick = () => {
+                    document.getElementById('resolve-form-' + exceptionId).classList.add('hidden');
+                    body.querySelector(`.btn-resolve[data-exception-id="${exceptionId}"]`).classList.remove('hidden');
+                };
+            });
+            body.querySelectorAll('[data-resolve-submit]').forEach(btn => {
+                const exceptionId = btn.dataset.resolveSubmit;
+                btn.onclick = () => resolveExceptionFromPanel_(exceptionId, bedId);
+            });
+            document.getElementById('dispatch-task-btn').onclick = () => openDispatchForm_(bedId);
             const reassignBtn = document.getElementById('reassign-worker-btn');
-            if(reassignBtn && !reassignBtn.disabled) reassignBtn.onclick = () => reassignWorkerFromPanel_(bedId);
+            if(reassignBtn && !reassignBtn.disabled) reassignBtn.onclick = () => openReassignForm_(bedId);
 
             function row(k, v){
                 return `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`;
@@ -941,31 +999,261 @@
             return 'Routine';
         }
 
-        // Reuses the EXISTING 'resolve-exception' route (handleResolveException_
-        // in Code.gs) -- same one Dashboard_VPOS.html's resolve button calls, per
-        // DashboardAPI.gs's own note. No new backend logic needed for this one;
-        // it's a real, already-gated write path (Manager/Founder only), unlike
-        // the Dispatch/Reassign stubs above.
+        // Active-worker list, fetched once per live connection and reused
+        // across every Dispatch/Reassign form opened during it (refreshed
+        // whenever connectLive() runs again, so a shift change or newly
+        // activated worker shows up after the next refresh).
+        let WORKERS_CACHE = null;
+        async function getWorkers_(){
+            if(WORKERS_CACHE) return WORKERS_CACHE;
+            try {
+                const res = await callApi_(APPS_SCRIPT_URL, 'list-workers', {});
+                WORKERS_CACHE = (res && res.success) ? (res.workers || []) : [];
+            } catch(err){ WORKERS_CACHE = []; }
+            return WORKERS_CACHE;
+        }
+
+        // Renders a set of {key,label,group} choices as tappable chips
+        // grouped under small labels (Field Prep / Planting.../ etc.) --
+        // matches how WorkerApp.html's own activity picker is grouped, just
+        // as chips instead of an optgroup dropdown so a tap is one motion
+        // and the current choice is visibly highlighted, not hidden inside
+        // a closed <select>.
+        function activityChipsHtml_(choices){
+            if(!choices || !choices.length){
+                return '<div class="sub">Activity list not loaded -- reconnect to refresh.</div>';
+            }
+            const byGroup = {};
+            const order = [];
+            choices.forEach(c => {
+                if(!byGroup[c.group]){ byGroup[c.group] = []; order.push(c.group); }
+                byGroup[c.group].push(c);
+            });
+            return order.map(group => `
+                <div class="chip-group-label">${group}</div>
+                <div class="chip-row">
+                    ${byGroup[group].map(c => `<button type="button" class="chip" data-activity="${c.key}">${c.label}</button>`).join('')}
+                </div>
+            `).join('');
+        }
+
+        function workerChipsHtml_(workers){
+            if(!workers || !workers.length){
+                return '<div class="sub">No active workers found.</div>';
+            }
+            return `<div class="chip-row">${workers.map(w =>
+                `<button type="button" class="chip chip-worker" data-worker="${w.workerId}">${w.workerId} <span class="chip-worker-role">${w.name}</span></button>`
+            ).join('')}</div>`;
+        }
+
+        // Single-select behavior for a chip container: tapping a chip
+        // highlights it and clears any other selection in the same
+        // container, then hands the chosen chip to the caller.
+        function wireSingleSelectChips_(container, onSelect){
+            container.addEventListener('click', (e) => {
+                const chip = e.target.closest('.chip');
+                if(!chip || !container.contains(chip)) return;
+                container.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+                chip.classList.add('selected');
+                onSelect(chip);
+            });
+        }
+
+        // Replaces the old dispatchTaskFromPanel_ prompt() chain (worker ID
+        // prompt -> numbered activity prompt -> confirm() + two more
+        // prompts for scheduling) with an inline chip-grid form: tap an
+        // activity, tap a worker, optionally set a schedule, submit. No
+        // dialogs interrupt the flow, and the manager ID is never asked
+        // for -- it comes from SESSION (see AUTH block above).
+        async function openDispatchForm_(bedId){
+            if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
+            const slot = document.getElementById('bed-actions-slot');
+            document.getElementById('dispatch-task-btn').disabled = true;
+            slot.innerHTML = '<div class="sub">Loading activities &amp; workers…</div>';
+
+            const choices = buildActivityChoices_();
+            const workers = await getWorkers_();
+
+            slot.innerHTML = `
+                <div class="inline-form" id="dispatch-form">
+                    <div class="field-label">Activity</div>
+                    <div class="chip-grid" id="dispatch-activity-grid">${activityChipsHtml_(choices)}</div>
+                    <div class="field-label">Assign to worker</div>
+                    <div class="chip-grid" id="dispatch-worker-grid">${workerChipsHtml_(workers)}</div>
+                    <label class="check-row"><input type="checkbox" id="dispatch-schedule-toggle"> Set a planned start/end window</label>
+                    <div id="dispatch-schedule-fields" class="hidden">
+                        <div class="field-label">Planned start</div>
+                        <input type="datetime-local" id="dispatch-planned-start">
+                        <div class="field-label">Planned end</div>
+                        <input type="datetime-local" id="dispatch-planned-end">
+                    </div>
+                    <div class="form-error" id="dispatch-form-error"></div>
+                    <div class="inline-form-actions">
+                        <button class="btn btn-primary" id="dispatch-submit-btn" disabled>Dispatch</button>
+                        <button class="btn" id="dispatch-cancel-btn">Cancel</button>
+                    </div>
+                </div>`;
+
+            let selectedActivity = '', selectedWorker = '';
+            const submitBtn = document.getElementById('dispatch-submit-btn');
+            function refreshSubmitState(){ submitBtn.disabled = !(selectedActivity && selectedWorker); }
+
+            if(choices && choices.length){
+                wireSingleSelectChips_(document.getElementById('dispatch-activity-grid'), (chip) => {
+                    selectedActivity = chip.dataset.activity;
+                    refreshSubmitState();
+                });
+            }
+            if(workers.length){
+                wireSingleSelectChips_(document.getElementById('dispatch-worker-grid'), (chip) => {
+                    selectedWorker = chip.dataset.worker;
+                    refreshSubmitState();
+                });
+            }
+
+            document.getElementById('dispatch-schedule-toggle').addEventListener('change', (e) => {
+                document.getElementById('dispatch-schedule-fields').classList.toggle('hidden', !e.target.checked);
+            });
+
+            function closeForm(){
+                slot.innerHTML = '';
+                const btn = document.getElementById('dispatch-task-btn');
+                if(btn) btn.disabled = false;
+            }
+            document.getElementById('dispatch-cancel-btn').onclick = closeForm;
+
+            submitBtn.onclick = async () => {
+                const managerId = SESSION && SESSION.workerId;
+                if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
+                const errEl = document.getElementById('dispatch-form-error');
+                errEl.textContent = '';
+                const scheduled = document.getElementById('dispatch-schedule-toggle').checked;
+                const plannedStart = scheduled ? document.getElementById('dispatch-planned-start').value : '';
+                const plannedEnd = scheduled ? document.getElementById('dispatch-planned-end').value : '';
+                if(scheduled && plannedStart && plannedEnd && new Date(plannedEnd) <= new Date(plannedStart)){
+                    errEl.textContent = 'Planned end must be after planned start.';
+                    return;
+                }
+                submitBtn.disabled = true; submitBtn.textContent = 'Dispatching…';
+                try {
+                    const res = await callApi_(APPS_SCRIPT_URL, 'dispatch-task', { managerId, bedId, workerId: selectedWorker, activity: selectedActivity, plannedStart, plannedEnd });
+                    if(!res.success) throw new Error(res.error || 'Server rejected the request.');
+                    await connectLive(APPS_SCRIPT_URL, { silent: true });
+                    openBedPanel(bedId);
+                } catch(err){
+                    errEl.textContent = 'Could not dispatch task: ' + err.message;
+                    submitBtn.disabled = false; submitBtn.textContent = 'Dispatch';
+                }
+            };
+        }
+
+        // Replaces the old reassignWorkerFromPanel_ prompt() chain the same
+        // way openDispatchForm_ replaces dispatch's. If more than one open
+        // session exists on this bed, the session itself becomes a chip
+        // choice too instead of a prompt() with a pasted Session_ID.
+        async function openReassignForm_(bedId){
+            if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
+            const sessions = findOpenSessionsForBed_(bedId);
+            if(!sessions.length){ alert('No active, paused, or planned session on this bed to reassign. Use Dispatch task first.'); return; }
+
+            const slot = document.getElementById('bed-actions-slot');
+            document.getElementById('reassign-worker-btn').disabled = true;
+            slot.innerHTML = '<div class="sub">Loading workers…</div>';
+            const workers = await getWorkers_();
+
+            const sessionChipsHtml = sessions.length > 1
+                ? `<div class="field-label">Which session</div>
+                   <div class="chip-grid" id="reassign-session-grid">
+                       <div class="chip-row">${sessions.map(s =>
+                           `<button type="button" class="chip" data-session="${s.Session_ID}">${s.Activity_Type} (${s.Session_Status}) — currently ${s.Worker_ID}</button>`
+                       ).join('')}</div>
+                   </div>`
+                : '';
+
+            slot.innerHTML = `
+                <div class="inline-form" id="reassign-form">
+                    ${sessionChipsHtml}
+                    <div class="field-label">Reassign to worker</div>
+                    <div class="chip-grid" id="reassign-worker-grid">${workerChipsHtml_(workers)}</div>
+                    <div class="field-label">Reason (optional)</div>
+                    <input type="text" id="reassign-reason" placeholder="e.g. covering a shift change">
+                    <div class="form-error" id="reassign-form-error"></div>
+                    <div class="inline-form-actions">
+                        <button class="btn btn-primary" id="reassign-submit-btn" disabled>Reassign</button>
+                        <button class="btn" id="reassign-cancel-btn">Cancel</button>
+                    </div>
+                </div>`;
+
+            let selectedSession = sessions.length === 1 ? sessions[0].Session_ID : '';
+            let selectedWorker = '';
+            const submitBtn = document.getElementById('reassign-submit-btn');
+            function refreshSubmitState(){ submitBtn.disabled = !(selectedSession && selectedWorker); }
+
+            if(sessions.length > 1){
+                wireSingleSelectChips_(document.getElementById('reassign-session-grid'), (chip) => {
+                    selectedSession = chip.dataset.session;
+                    refreshSubmitState();
+                });
+            }
+            if(workers.length){
+                wireSingleSelectChips_(document.getElementById('reassign-worker-grid'), (chip) => {
+                    selectedWorker = chip.dataset.worker;
+                    refreshSubmitState();
+                });
+            }
+
+            function closeForm(){
+                slot.innerHTML = '';
+                const btn = document.getElementById('reassign-worker-btn');
+                if(btn) btn.disabled = false;
+            }
+            document.getElementById('reassign-cancel-btn').onclick = closeForm;
+
+            submitBtn.onclick = async () => {
+                const managerId = SESSION && SESSION.workerId;
+                if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
+                const errEl = document.getElementById('reassign-form-error');
+                errEl.textContent = '';
+                const reason = document.getElementById('reassign-reason').value || '';
+                submitBtn.disabled = true; submitBtn.textContent = 'Reassigning…';
+                try {
+                    const res = await callApi_(APPS_SCRIPT_URL, 'reassign-session', { managerId, sessionId: selectedSession, toWorkerId: selectedWorker, reason });
+                    if(!res.success) throw new Error(res.error || 'Server rejected the request.');
+                    await connectLive(APPS_SCRIPT_URL, { silent: true });
+                    openBedPanel(bedId);
+                } catch(err){
+                    errEl.textContent = 'Could not reassign worker: ' + err.message;
+                    submitBtn.disabled = false; submitBtn.textContent = 'Reassign';
+                }
+            };
+        }
+
+        // Resolve now happens inline on the exception card itself (see the
+        // hidden .inline-form injected per-exception in openBedPanel above)
+        // instead of a prompt() for resolution notes.
         async function resolveExceptionFromPanel_(exceptionId, bedId){
             if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
             const managerId = SESSION && SESSION.workerId;
             if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
-            const resolutionNotes = prompt('Resolution notes (optional):') || '';
+            const errEl = document.getElementById('resolve-error-' + exceptionId);
+            const notesEl = document.getElementById('resolve-notes-' + exceptionId);
+            const resolutionNotes = notesEl ? notesEl.value : '';
+            if(errEl) errEl.textContent = '';
             try {
                 const res = await callApi_(APPS_SCRIPT_URL, 'resolve-exception', { exceptionId, managerId, resolutionNotes });
                 if(!res.success) throw new Error(res.error || 'Server rejected the request.');
                 await connectLive(APPS_SCRIPT_URL, { silent: true });
                 openBedPanel(bedId);
             } catch(err){
-                alert('Could not resolve exception: ' + err.message);
+                if(errEl) errEl.textContent = 'Could not resolve exception: ' + err.message;
             }
         }
 
         // Builds a flat, grouped list of {key, label, group} from
         // DATA.taxonomy (ActivityTaxonomy.gs, via get-manager-today-view) for
-        // the Dispatch prompt below. Returns null if this deployment predates
-        // the taxonomy addition, so dispatchTaskFromPanel_ can fall back to a
-        // free-text prompt instead of erroring out.
+        // the Dispatch chip grid above. Returns null if this deployment
+        // predates the taxonomy addition, so openDispatchForm_ falls back to
+        // a plain "not loaded" message instead of erroring out.
         function buildActivityChoices_(){
             const taxonomy = DATA && DATA.taxonomy;
             if(!taxonomy || !taxonomy.canonical || !taxonomy.canonical.length) return null;
@@ -984,96 +1272,6 @@
                 if(!choices.some(c => c.key === key)) choices.push({ key, label: labels[key] || key, group: 'Other' });
             });
             return choices;
-        }
-
-        // Calls the new 'dispatch-task' route (handleDispatchTask_, Code.gs) --
-        // writes a PLANNED FIELD_LIVE_SESSION row pre-assigning a worker to this
-        // bed/activity before they've actually started it. Manager/Founder only
-        // (enforced server-side); this just prompts for the inputs that route
-        // needs. Pulls the active-worker list from 'list-workers' (already used
-        // by ManagerApp.html) so the prompt shows real IDs/names instead of
-        // leaving the manager to remember one.
-        async function dispatchTaskFromPanel_(bedId){
-            if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
-            const managerId = SESSION && SESSION.workerId;
-            if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
-
-            let workers = [];
-            try {
-                const wres = await callApi_(APPS_SCRIPT_URL, 'list-workers', {});
-                if(wres.success) workers = wres.workers || [];
-            } catch(err){ /* fall through -- prompt still works without the list */ }
-
-            const workerList = workers.length
-                ? '\n\nActive workers:\n' + workers.map(w => `${w.workerId} — ${w.name} (${w.role})`).join('\n')
-                : '';
-            const workerId = prompt('Worker ID to dispatch to this bed:' + workerList);
-            if(!workerId) return;
-
-            const choices = buildActivityChoices_();
-            let activity;
-            if(choices){
-                const listText = choices.map((c, i) => `${i + 1}. ${c.label} (${c.group})`).join('\n');
-                const idxRaw = prompt('Activity Type -- enter a number:\n\n' + listText);
-                if(!idxRaw) return;
-                const idx = parseInt(idxRaw, 10) - 1;
-                if(isNaN(idx) || !choices[idx]){ alert('Not a valid choice -- enter one of the listed numbers.'); return; }
-                activity = choices[idx].key;
-            } else {
-                // Older deployment that predates DATA.taxonomy -- fall back to
-                // asking for the raw canonical key instead of blocking dispatch.
-                activity = prompt('Activity Type (canonical taxonomy key -- e.g. Weeding, Harvest, PestScouting, Transplanting):');
-                if(!activity) return;
-            }
-
-            let plannedStart = '', plannedEnd = '';
-            if(confirm('Set a planned start/end window for this task? (Cancel skips scheduling -- it\'ll just be dispatched, unscheduled)')){
-                plannedStart = prompt('Planned start (e.g. 2026-08-28T08:00):') || '';
-                plannedEnd = prompt('Planned end (e.g. 2026-08-28T10:00):') || '';
-            }
-
-            try {
-                const res = await callApi_(APPS_SCRIPT_URL, 'dispatch-task', { managerId, bedId, workerId, activity, plannedStart, plannedEnd });
-                if(!res.success) throw new Error(res.error || 'Server rejected the request.');
-                await connectLive(APPS_SCRIPT_URL, { silent: true });
-                openBedPanel(bedId);
-            } catch(err){
-                alert('Could not dispatch task: ' + err.message);
-            }
-        }
-
-        // Calls the existing 'reassign-session' route, now widened server-side
-        // (handleReassignSession_, Code.gs) to also accept a PLANNED session,
-        // not just ACTIVE/PAUSED -- which is what a dispatched-but-not-started
-        // task on this bed will be. If the bed has more than one open session
-        // (e.g. two different activities in play at once), asks which
-        // Session_ID to reassign rather than guessing.
-        async function reassignWorkerFromPanel_(bedId){
-            if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
-            const sessions = findOpenSessionsForBed_(bedId);
-            if(!sessions.length){ alert('No active, paused, or planned session on this bed to reassign. Use Dispatch task first.'); return; }
-
-            let sessionId = sessions[0].Session_ID;
-            if(sessions.length > 1){
-                const list = sessions.map(s => `${s.Session_ID} — ${s.Activity_Type} (${s.Session_Status}), currently ${s.Worker_ID}`).join('\n');
-                sessionId = prompt('Multiple sessions on this bed. Enter the Session_ID to reassign:\n\n' + list, sessions[0].Session_ID);
-                if(!sessionId) return;
-            }
-
-            const managerId = SESSION && SESSION.workerId;
-            if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
-            const toWorkerId = prompt('New Worker ID:');
-            if(!toWorkerId) return;
-            const reason = prompt('Reason (optional):') || '';
-
-            try {
-                const res = await callApi_(APPS_SCRIPT_URL, 'reassign-session', { managerId, sessionId, toWorkerId, reason });
-                if(!res.success) throw new Error(res.error || 'Server rejected the request.');
-                await connectLive(APPS_SCRIPT_URL, { silent: true });
-                openBedPanel(bedId);
-            } catch(err){
-                alert('Could not reassign worker: ' + err.message);
-            }
         }
 
         function closeBedPanel(){
