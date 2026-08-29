@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Ngapori Ranch - SOP-Aligned AAB Dispatch Board</title>
+    <title>Ngapori Ranch - SOP-Aligned AAB Activity Board</title>
     <style>
         :root {
             --bg-dark: #0f1416;
@@ -139,6 +139,30 @@
         #bed-panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 40; display:none; }
         #bed-panel-backdrop.open { display:block; }
 
+        /* activity log side panel -- shares the bed-panel's slide-in look
+           but on the LEFT and independent of bed-panel/backdrop's own
+           open/close state, so opening one never fights the other. */
+        #activity-log-panel {
+            position: fixed; top: 0; left: -360px; width: 340px; height: 100%; background: var(--panel-bg);
+            border-right: 1px solid var(--border-color); padding: 20px; box-sizing: border-box; transition: left .2s ease;
+            z-index: 50; overflow-y: auto;
+        }
+        #activity-log-panel.open { left: 0; }
+        #activity-log-panel h2 { margin: 0 0 4px; font-size: 16px; }
+        #activity-log-panel .sub { color: var(--text-muted); font-size: 11px; margin-bottom: 16px; }
+        #activity-log-panel .close { position:absolute; top:14px; right:16px; cursor:pointer; color:var(--text-muted); font-size:18px; background:none; border:none; }
+        #activity-log-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 40; display:none; }
+        #activity-log-backdrop.open { display:block; }
+        .log-entry { padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: 12px; }
+        .log-entry:last-child { border-bottom: none; }
+        .log-entry-top { display:flex; align-items:center; justify-content:space-between; margin-bottom: 4px; }
+        .log-entry-time { color: var(--text-muted); font-size: 10.5px; font-family: monospace; }
+        .log-badge { font-size: 9.5px; font-weight:700; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; letter-spacing: .02em; }
+        .log-badge-dispatch { background: rgba(102,187,106,0.18); color: #81c784; }
+        .log-badge-alert { background: rgba(229,57,53,0.18); color: #ef9a9a; }
+        .log-badge-other { background: rgba(255,255,255,0.08); color: var(--text-muted); }
+        .log-entry-msg { color: var(--text-main); line-height:1.4; }
+
         /* login gate */
         #login-screen {
             position: fixed; inset: 0; background: var(--bg-dark); z-index: 100;
@@ -212,7 +236,7 @@
          ManagerApp.html already uses, so no new backend auth is needed. -->
     <div id="login-screen">
         <div id="login-card">
-            <h1>Ngapori Ranch — AAB Dispatch Board</h1>
+            <h1>Ngapori Ranch — AAB Activity Board</h1>
             <div class="sub">Manager / Founder sign-in required.</div>
             <div id="login-error"></div>
             <label for="login-worker-id">User ID</label>
@@ -236,6 +260,9 @@
             <span style="font-size: 11px; color: var(--text-muted);" id="sop-line">SOP Alignment: 231 Active Field Units (220 Annual Beds + 11 Perennial Rows)</span>
         </div>
         <div style="display:flex; align-items:center; gap:12px;">
+            <button class="conn-pill" id="activity-log-btn" title="See recent dispatch/system events">
+                <span>🕘</span><span>Activity Log</span>
+            </button>
             <button class="conn-pill" id="refresh-btn" title="Refresh live data now">
                 <span id="refresh-icon">⟳</span><span id="refresh-label">Refresh</span>
             </button>
@@ -325,6 +352,14 @@
     <div id="bed-panel">
         <button class="close" id="bed-panel-close">&times;</button>
         <div id="bed-panel-body"></div>
+    </div>
+
+    <div id="activity-log-backdrop"></div>
+    <div id="activity-log-panel">
+        <button class="close" id="activity-log-close">&times;</button>
+        <h2>Activity Log</h2>
+        <div class="sub">Recent dispatch and system events (newest first).</div>
+        <div id="activity-log-body"></div>
     </div>
 
     </div><!-- /#app-root -->
@@ -956,10 +991,10 @@
             // this bed -- Dispatch task is what creates that first PLANNED row.
             const openSessionsHere = findOpenSessionsForBed_(bedId);
             html += `
-                <div class="panel-section-title">Dispatch</div>
+                <div class="panel-section-title">Actions</div>
                 <div class="stub-actions">
-                    <button class="btn btn-primary" id="dispatch-task-btn">Dispatch task</button>
-                    <button class="btn" id="reassign-worker-btn"${openSessionsHere.length ? '' : ' disabled'} title="${openSessionsHere.length ? 'Reassign the worker on an existing session for this bed' : 'No active, paused, or planned session on this bed yet -- use Dispatch task first.'}">Reassign worker</button>
+                    <button class="btn btn-primary" id="dispatch-task-btn">New Activity</button>
+                    <button class="btn" id="reassign-worker-btn"${openSessionsHere.length ? '' : ' disabled'} title="${openSessionsHere.length ? 'Reassign the worker on an existing session for this bed' : 'No active, paused, or planned session on this bed yet -- use New Activity first.'}">Reassign worker</button>
                 </div>
                 <div id="bed-actions-slot"></div>`;
 
@@ -1062,9 +1097,17 @@
         // Replaces the old dispatchTaskFromPanel_ prompt() chain (worker ID
         // prompt -> numbered activity prompt -> confirm() + two more
         // prompts for scheduling) with an inline chip-grid form: tap an
-        // activity, tap a worker, optionally set a schedule, submit. No
-        // dialogs interrupt the flow, and the manager ID is never asked
-        // for -- it comes from SESSION (see AUTH block above).
+        // activity, tap a worker, submit. No dialogs interrupt the flow,
+        // and the manager ID is never asked for -- it comes from SESSION
+        // (see AUTH block above).
+        //
+        // Dispatch starts the session immediately (Session_Status ACTIVE,
+        // real Start_Time) -- same as if the worker had scanned the bed and
+        // started it themselves -- so it shows up right away in that
+        // worker's My Active Sessions in WorkerApp.html, which only ever
+        // reads ACTIVE/PAUSED sessions. There's no "schedule for later"
+        // option here for that reason: a future-dated pre-assignment would
+        // have nothing in WorkerApp.html that ever surfaces it.
         async function openDispatchForm_(bedId){
             if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
             const slot = document.getElementById('bed-actions-slot');
@@ -1080,16 +1123,10 @@
                     <div class="chip-grid" id="dispatch-activity-grid">${activityChipsHtml_(choices)}</div>
                     <div class="field-label">Assign to worker</div>
                     <div class="chip-grid" id="dispatch-worker-grid">${workerChipsHtml_(workers)}</div>
-                    <label class="check-row"><input type="checkbox" id="dispatch-schedule-toggle"> Set a planned start/end window</label>
-                    <div id="dispatch-schedule-fields" class="hidden">
-                        <div class="field-label">Planned start</div>
-                        <input type="datetime-local" id="dispatch-planned-start">
-                        <div class="field-label">Planned end</div>
-                        <input type="datetime-local" id="dispatch-planned-end">
-                    </div>
+                    <div class="sub" style="margin-top:12px;">Starts immediately for the worker — appears in their My Active Sessions right away.</div>
                     <div class="form-error" id="dispatch-form-error"></div>
                     <div class="inline-form-actions">
-                        <button class="btn btn-primary" id="dispatch-submit-btn" disabled>Dispatch</button>
+                        <button class="btn btn-primary" id="dispatch-submit-btn" disabled>Create</button>
                         <button class="btn" id="dispatch-cancel-btn">Cancel</button>
                     </div>
                 </div>`;
@@ -1111,10 +1148,6 @@
                 });
             }
 
-            document.getElementById('dispatch-schedule-toggle').addEventListener('change', (e) => {
-                document.getElementById('dispatch-schedule-fields').classList.toggle('hidden', !e.target.checked);
-            });
-
             function closeForm(){
                 slot.innerHTML = '';
                 const btn = document.getElementById('dispatch-task-btn');
@@ -1127,22 +1160,15 @@
                 if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
                 const errEl = document.getElementById('dispatch-form-error');
                 errEl.textContent = '';
-                const scheduled = document.getElementById('dispatch-schedule-toggle').checked;
-                const plannedStart = scheduled ? document.getElementById('dispatch-planned-start').value : '';
-                const plannedEnd = scheduled ? document.getElementById('dispatch-planned-end').value : '';
-                if(scheduled && plannedStart && plannedEnd && new Date(plannedEnd) <= new Date(plannedStart)){
-                    errEl.textContent = 'Planned end must be after planned start.';
-                    return;
-                }
-                submitBtn.disabled = true; submitBtn.textContent = 'Dispatching…';
+                submitBtn.disabled = true; submitBtn.textContent = 'Creating…';
                 try {
-                    const res = await callApi_(APPS_SCRIPT_URL, 'dispatch-task', { managerId, bedId, workerId: selectedWorker, activity: selectedActivity, plannedStart, plannedEnd });
+                    const res = await callApi_(APPS_SCRIPT_URL, 'dispatch-task', { managerId, bedId, workerId: selectedWorker, activity: selectedActivity });
                     if(!res.success) throw new Error(res.error || 'Server rejected the request.');
                     await connectLive(APPS_SCRIPT_URL, { silent: true });
                     openBedPanel(bedId);
                 } catch(err){
-                    errEl.textContent = 'Could not dispatch task: ' + err.message;
-                    submitBtn.disabled = false; submitBtn.textContent = 'Dispatch';
+                    errEl.textContent = 'Could not create activity: ' + err.message;
+                    submitBtn.disabled = false; submitBtn.textContent = 'Create';
                 }
             };
         }
@@ -1154,7 +1180,7 @@
         async function openReassignForm_(bedId){
             if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
             const sessions = findOpenSessionsForBed_(bedId);
-            if(!sessions.length){ alert('No active, paused, or planned session on this bed to reassign. Use Dispatch task first.'); return; }
+            if(!sessions.length){ alert('No active, paused, or planned session on this bed to reassign. Use New Activity first.'); return; }
 
             const slot = document.getElementById('bed-actions-slot');
             document.getElementById('reassign-worker-btn').disabled = true;
@@ -1282,9 +1308,60 @@
         document.getElementById('bed-panel-backdrop').onclick = closeBedPanel;
 
         /* ==================================================================
+           ACTIVITY LOG — reads DATA.alerts (ALERTS sheet: Timestamp,
+           Alert_Type, Status, Message), already fetched by every
+           connectLive() call via get-manager-today-view but never
+           displayed anywhere until now. This is what actually answers
+           "did the dispatch go through" -- handleDispatchTask_ already
+           writes a TASK_DISPATCHED row here every time via triggerAlert(),
+           and every other backend action that calls triggerAlert() (e.g.
+           cold-chain violations) shows up the same way, for free.
+           ================================================================== */
+        function openActivityLog_(){
+            renderActivityLog_();
+            document.getElementById('activity-log-panel').classList.add('open');
+            document.getElementById('activity-log-backdrop').classList.add('open');
+        }
+        function closeActivityLog_(){
+            document.getElementById('activity-log-panel').classList.remove('open');
+            document.getElementById('activity-log-backdrop').classList.remove('open');
+        }
+        document.getElementById('activity-log-close').onclick = closeActivityLog_;
+        document.getElementById('activity-log-backdrop').onclick = closeActivityLog_;
+
+        function logBadgeClass_(alertType){
+            if(alertType === 'TASK_DISPATCHED') return 'log-badge-dispatch';
+            if(alertType && alertType.indexOf('VIOLATION') !== -1) return 'log-badge-alert';
+            return 'log-badge-other';
+        }
+
+        function renderActivityLog_(){
+            const body = document.getElementById('activity-log-body');
+            const alerts = (DATA && DATA.alerts) ? DATA.alerts.slice() : [];
+            if(!alerts.length){
+                body.innerHTML = '<div class="sub">No activity logged yet -- connect to live data, or dispatch a task, then check back here.</div>';
+                return;
+            }
+            alerts.sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+            body.innerHTML = alerts.slice(0, 100).map(a => `
+                <div class="log-entry">
+                    <div class="log-entry-top">
+                        <span class="log-badge ${logBadgeClass_(a.Alert_Type)}">${(a.Alert_Type || 'EVENT').replace(/_/g, ' ')}</span>
+                        <span class="log-entry-time">${a.Timestamp ? new Date(a.Timestamp).toLocaleString() : ''}</span>
+                    </div>
+                    <div class="log-entry-msg">${a.Message || ''}</div>
+                </div>
+            `).join('');
+        }
+
+        /* ==================================================================
            CONNECTION PANEL WIRING
            ================================================================== */
         document.addEventListener('click', (e) => {
+            if(e.target.closest('#activity-log-btn')){
+                openActivityLog_();
+                return;
+            }
             if(e.target.closest('#refresh-btn')){
                 refreshNow_();
                 return;
