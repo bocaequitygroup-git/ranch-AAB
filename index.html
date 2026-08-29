@@ -155,6 +155,8 @@
         #activity-log-backdrop.open { display:block; }
         .log-entry { padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: 12px; }
         .log-entry:last-child { border-bottom: none; }
+        .log-entry.log-entry-clickable { cursor: pointer; margin: 0 -8px; padding: 10px 8px; border-radius: 6px; }
+        .log-entry.log-entry-clickable:hover { background: rgba(255,255,255,0.05); }
         .log-entry-top { display:flex; align-items:center; justify-content:space-between; margin-bottom: 4px; }
         .log-entry-time { color: var(--text-muted); font-size: 10.5px; font-family: monospace; }
         .log-badge { font-size: 9.5px; font-weight:700; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; letter-spacing: .02em; }
@@ -1335,6 +1337,19 @@
             return 'log-badge-other';
         }
 
+        // Bed IDs aren't a structured column on ALERTS (see AlertEngine.gs --
+        // triggerAlert() only writes Timestamp/Alert_Type/Status/Message), so
+        // the only place a bed reference exists on a log row is inside the
+        // free-text Message string, e.g. "...on Bed B1-36 by USR-MANAGER1".
+        // This pulls it back out so a log entry can jump to that bed's panel.
+        // Matches the ranch's "<Letter><digit(s)>-<digit(s)>" bed ID format
+        // (B1-36, B4-30, B2-03, ...) as seen throughout BED_MASTER/messages.
+        function extractBedIdFromLogMessage_(message){
+            if(!message) return null;
+            const m = message.match(/\bBed\s+([A-Z]\d+-\d+)\b/i);
+            return m ? m[1].toUpperCase() : null;
+        }
+
         function renderActivityLog_(){
             const body = document.getElementById('activity-log-body');
             const alerts = (DATA && DATA.alerts) ? DATA.alerts.slice() : [];
@@ -1343,15 +1358,18 @@
                 return;
             }
             alerts.sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
-            body.innerHTML = alerts.slice(0, 100).map(a => `
-                <div class="log-entry">
+            body.innerHTML = alerts.slice(0, 100).map(a => {
+                const bedId = extractBedIdFromLogMessage_(a.Message);
+                return `
+                <div class="log-entry${bedId ? ' log-entry-clickable' : ''}"${bedId ? ` data-bed-id="${bedId}" title="Open Bed ${bedId}"` : ''}>
                     <div class="log-entry-top">
                         <span class="log-badge ${logBadgeClass_(a.Alert_Type)}">${(a.Alert_Type || 'EVENT').replace(/_/g, ' ')}</span>
                         <span class="log-entry-time">${a.Timestamp ? new Date(a.Timestamp).toLocaleString() : ''}</span>
                     </div>
                     <div class="log-entry-msg">${a.Message || ''}</div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
 
         /* ==================================================================
@@ -1360,6 +1378,15 @@
         document.addEventListener('click', (e) => {
             if(e.target.closest('#activity-log-btn')){
                 openActivityLog_();
+                return;
+            }
+            const logEntry = e.target.closest('.log-entry-clickable');
+            if(logEntry){
+                const bedId = logEntry.getAttribute('data-bed-id');
+                if(bedId){
+                    closeActivityLog_();
+                    openBedPanel(bedId);
+                }
                 return;
             }
             if(e.target.closest('#refresh-btn')){
