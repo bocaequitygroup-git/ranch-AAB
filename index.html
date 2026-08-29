@@ -945,7 +945,21 @@
             html += row('Last planting', bed.Last_Planting_Date || '—');
             html += row('Expected harvest', bed.Expected_Harvest_Date || '—');
             html += row('Irrigation zone', bed.Irrigation_Zone_ID || '—');
-            html += row('Worker on this bed', assignedBedIds.has(bedId) ? 'Yes — session open/planned' : 'No open session');
+
+            // "Worker on this bed" previously just reported a boolean from
+            // assignedBedIds (yes/no a session exists) with no name --
+            // assignedBedIds is a Set of Bed_IDs, built only to answer
+            // "is anyone assigned" cheaply for the grid/filter counts, and was
+            // never meant to carry worker identity. findOpenSessionsForBed_
+            // already returns the actual FIELD_LIVE_SESSION row(s) (used by
+            // the Reassign form below), which do carry Worker_ID/Activity_Type/
+            // Session_Status -- pull the same rows here instead of re-deriving
+            // from the boolean set.
+            const sessionsOnBed = findOpenSessionsForBed_(bedId);
+            const workerSummary = sessionsOnBed.length
+                ? sessionsOnBed.map(s => `${s.Worker_ID} — ${s.Activity_Type || 'Activity'} (${s.Session_Status})`).join('<br>')
+                : 'No open session';
+            html += row('Worker on this bed', workerSummary);
 
             const items = queueByBed[bedId] || [];
             if(items.length){
@@ -991,7 +1005,9 @@
 
             // Reassign only makes sense once something is dispatched/started on
             // this bed -- Dispatch task is what creates that first PLANNED row.
-            const openSessionsHere = findOpenSessionsForBed_(bedId);
+            // Reuses sessionsOnBed computed above (same rows findOpenSessionsForBed_
+            // would return) instead of calling it a second time.
+            const openSessionsHere = sessionsOnBed;
             html += `
                 <div class="panel-section-title">Actions</div>
                 <div class="stub-actions">
