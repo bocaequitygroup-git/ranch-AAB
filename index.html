@@ -165,6 +165,24 @@
         .log-badge-other { background: rgba(255,255,255,0.08); color: var(--text-muted); }
         .log-entry-msg { color: var(--text-main); line-height:1.4; }
 
+        /* irrigation calendar side panel -- shares bed-panel's slide-in
+           look but on the right, above bed-panel in stacking order (both
+           are opened from independent buttons and aren't expected open at
+           once, but a higher z-index keeps it on top if that ever
+           happens). */
+        #irrigation-cal-panel {
+            position: fixed; top: 0; right: -400px; width: 380px; height: 100%; background: var(--panel-bg);
+            border-left: 1px solid var(--border-color); padding: 20px; box-sizing: border-box; transition: right .2s ease;
+            z-index: 55; overflow-y: auto;
+        }
+        #irrigation-cal-panel.open { right: 0; }
+        #irrigation-cal-panel h2 { margin: 0 0 4px; font-size: 16px; }
+        #irrigation-cal-panel .sub { color: var(--text-muted); font-size: 11px; margin-bottom: 16px; }
+        #irrigation-cal-panel .close { position:absolute; top:14px; right:16px; cursor:pointer; color:var(--text-muted); font-size:18px; background:none; border:none; }
+        #irrigation-cal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 45; display:none; }
+        #irrigation-cal-backdrop.open { display:block; }
+        .irr-cal-refresh { font-size: 10.5px; color: var(--text-muted); background:none; border:none; cursor:pointer; text-decoration:underline; padding:0; margin-bottom:14px; }
+
         /* login gate */
         #login-screen {
             position: fixed; inset: 0; background: var(--bg-dark); z-index: 100;
@@ -265,6 +283,9 @@
             <button class="conn-pill" id="activity-log-btn" title="See recent dispatch/system events">
                 <span>🕘</span><span>Activity Log</span>
             </button>
+            <button class="conn-pill" id="irrigation-cal-btn" title="Irrigation Calendar -- due/overdue scheduled irrigation passes">
+                <span>💧</span><span id="irrigation-cal-label">Irrigation Calendar</span>
+            </button>
             <button class="conn-pill" id="refresh-btn" title="Refresh live data now">
                 <span id="refresh-icon">⟳</span><span id="refresh-label">Refresh</span>
             </button>
@@ -362,6 +383,15 @@
         <h2>Activity Log</h2>
         <div class="sub">Recent dispatch and system events (newest first).</div>
         <div id="activity-log-body"></div>
+    </div>
+
+    <div id="irrigation-cal-backdrop"></div>
+    <div id="irrigation-cal-panel">
+        <button class="close" id="irrigation-cal-close">&times;</button>
+        <h2>Irrigation Calendar</h2>
+        <div class="sub">SCHEDULED passes due today, overdue, or coming up (see IrrigationCalendarEngine.gs). Dispatching one here uses the same dispatch-task action as any other board assignment, with activity=Irrigation.</div>
+        <button class="irr-cal-refresh" id="irrigation-cal-refresh-btn">Refresh</button>
+        <div id="irrigation-cal-body"></div>
     </div>
 
     </div><!-- /#app-root -->
@@ -590,6 +620,7 @@
                 buildIndexes();
                 renderQueueWarning_();
                 renderBoard();
+                refreshIrrigationCalendarBadge_(); // fire-and-forget -- separate lightweight call, doesn't block the main board load
                 return true;
             } catch(err){
                 setConnUI('error', 'Connection failed');
@@ -602,6 +633,8 @@
             LIVE_MODE = false;
             APPS_SCRIPT_URL = '';
             DATA = null;
+            IRRIGATION_CAL_DATA = null;
+            document.getElementById('irrigation-cal-label').textContent = 'Irrigation Calendar';
             localStorage.removeItem(CONN_KEY);
             setConnUI('', 'Demo data');
             document.getElementById('conn-status').textContent = 'Back to demo data.';
@@ -1389,11 +1422,208 @@
         }
 
         /* ==================================================================
+           IRRIGATION CALENDAR — reads/writes IrrigationCalendarEngine.gs's
+           'get-irrigation-calendar' / 'generate-irrigation-calendar' actions
+           (routed in Code_main.gs's routeAction_, 2026-08-30 pass). This is
+           a SEPARATE call from get-manager-today-view (daily_queue's
+           'Irrigation' category is the OTHER, ET-driven IRRIGATION_CONTROL
+           system -- see badgesForBed_'s note above) -- these are the
+           discrete, worker-dispatched calendar passes instead.
+
+           Dispatching a due item reuses the existing 'dispatch-task' action
+           completely unchanged, just with activity: 'Irrigation' -- the
+           server-side write-back (markIrrigationCalendarDispatched_) that
+           closes the calendar row out happens automatically, same as any
+           other board assignment.
+           ================================================================== */
+        let IRRIGATION_CAL_DATA = null; // due/overdue/upcoming rows from the last successful load
+
+        // Runs after every connectLive() so the header pill shows a live
+        // due-count without the manager having to open the panel first.
+        // Best-effort and silent on failure -- a badge that fails to update
+        // this cycle isn't worth surfacing an error for; the panel itself
+        // will show the real error if the manager opens it.
+        async function refreshIrrigationCalendarBadge_(){
+            if(!LIVE_MODE || !APPS_SCRIPT_URL) return;
+            const managerId = SESSION && SESSION.workerId;
+            try {
+                const res = await callApi_(APPS_SCRIPT_URL, 'get-irrigation-calendar', { managerId });
+                if(res && res.success){
+                    IRRIGATION_CAL_DATA = res.due || [];
+                    const label = document.getElementById('irrigation-cal-label');
+                    if(label) label.textContent = 'Irrigation Calendar' + (IRRIGATION_CAL_DATA.length ? ' (' + IRRIGATION_CAL_DATA.length + ')' : '');
+                }
+            } catch(err){ /* best-effort -- see comment above */ }
+        }
+
+        function openIrrigationCalendar_(){
+            document.getElementById('irrigation-cal-panel').classList.add('open');
+            document.getElementById('irrigation-cal-backdrop').classList.add('open');
+            loadIrrigationCalendar_();
+        }
+        function closeIrrigationCalendar_(){
+            document.getElementById('irrigation-cal-panel').classList.remove('open');
+            document.getElementById('irrigation-cal-backdrop').classList.remove('open');
+        }
+        document.getElementById('irrigation-cal-close').onclick = closeIrrigationCalendar_;
+        document.getElementById('irrigation-cal-backdrop').onclick = closeIrrigationCalendar_;
+        document.getElementById('irrigation-cal-refresh-btn').onclick = loadIrrigationCalendar_;
+
+        async function loadIrrigationCalendar_(){
+            const body = document.getElementById('irrigation-cal-body');
+            if(!LIVE_MODE || !APPS_SCRIPT_URL){
+                body.innerHTML = '<div class="sub">Connect to live data to see the irrigation calendar.</div>';
+                return;
+            }
+            const managerId = SESSION && SESSION.workerId;
+            body.innerHTML = '<div class="sub">Loading…</div>';
+            try {
+                const res = await callApi_(APPS_SCRIPT_URL, 'get-irrigation-calendar', { managerId });
+                if(!res.success) throw new Error(res.error || 'Server returned an error');
+                IRRIGATION_CAL_DATA = res.due || [];
+                renderIrrigationCalendar_();
+                const label = document.getElementById('irrigation-cal-label');
+                if(label) label.textContent = 'Irrigation Calendar' + (IRRIGATION_CAL_DATA.length ? ' (' + IRRIGATION_CAL_DATA.length + ')' : '');
+            } catch(err){
+                body.innerHTML = '<div class="sub">Could not load the irrigation calendar: ' + String(err.message).replace(/</g, '&lt;') + '</div>';
+            }
+        }
+
+        // Same bucket visual language as the daily queue (queue-item /
+        // queue-chip classes) so an overdue irrigation pass reads exactly
+        // like an overdue queue item elsewhere in the board, even though
+        // this data comes from a different endpoint.
+        function renderIrrigationCalendar_(){
+            const body = document.getElementById('irrigation-cal-body');
+            const items = IRRIGATION_CAL_DATA || [];
+            if(!items.length){
+                body.innerHTML = '<div class="sub">Nothing due in the next couple of days. If this looks wrong for a cohort that should be scheduled, check that CROP_STAGE_TEMPLATE.Irrigation_Days_Per_Week is actually populated for its crop -- an empty cadence silently generates zero calendar rows.</div>';
+                return;
+            }
+            body.innerHTML = items.map(item => {
+                const bucket = item.isOverdue ? 'MUST_DO' : (item.isToday ? 'ATTENTION' : 'ROUTINE');
+                const label = item.isOverdue ? ('Overdue ' + Math.abs(item.daysUntil) + 'd') : (item.isToday ? 'Due Today' : ('In ' + item.daysUntil + 'd'));
+                const dateStr = item.scheduledDate ? new Date(item.scheduledDate).toLocaleDateString() : '—';
+                return `
+                    <div class="queue-item queue-${bucket}" data-calendar-id="${item.calendarId}">
+                        <div class="queue-item-top">
+                            <span class="queue-chip queue-chip-${bucket}">${label}</span>
+                            <span class="queue-cat">${item.stageName || ''}</span>
+                        </div>
+                        <div class="queue-title">${item.cropId || ''} — ${item.cohortId || ''}</div>
+                        <div class="queue-detail">${item.blockId || ''} · Beds ${item.bedRange || '—'} · Zone ${item.irrigationZoneId || '—'} · ${dateStr}</div>
+                        <div id="irrigation-dispatch-slot-${item.calendarId}"></div>
+                        <div class="stub-actions" style="margin-top:8px;">
+                            <button class="btn btn-primary" data-irr-dispatch="${item.calendarId}">Dispatch</button>
+                        </div>
+                    </div>`;
+            }).join('');
+
+            body.querySelectorAll('[data-irr-dispatch]').forEach(btn => {
+                btn.onclick = () => openIrrigationDispatchForm_(btn.dataset.irrDispatch);
+            });
+        }
+
+        // Mirrors openDispatchForm_'s chip-grid pattern (bed-panel above),
+        // just inline under the calendar row instead of in the bed-panel's
+        // actions slot -- a calendar item resolves to a COHORT's beds
+        // (bedIds, plural, via DATA.bed_ids_by_cohort server-side), not one
+        // specific bed, so a bed choice is needed here that the bed-panel
+        // dispatch flow doesn't have to make.
+        async function openIrrigationDispatchForm_(calendarId){
+            const item = (IRRIGATION_CAL_DATA || []).find(i => i.calendarId === calendarId);
+            if(!item) return;
+            const slot = document.getElementById('irrigation-dispatch-slot-' + calendarId);
+            const openBtn = document.querySelector('[data-irr-dispatch="' + calendarId + '"]');
+            if(openBtn) openBtn.disabled = true;
+            slot.innerHTML = '<div class="sub">Loading workers…</div>';
+
+            const workers = await getWorkers_();
+            const bedIds = item.bedIds || [];
+            if(!bedIds.length){
+                slot.innerHTML = '<div class="form-error">No beds resolved for this cohort via BED_MASTER -- can\'t dispatch. Check Current_Cohort_ID assignments.</div>';
+                if(openBtn) openBtn.disabled = false;
+                return;
+            }
+
+            const bedChipsHtml = bedIds.length > 1
+                ? `<div class="field-label">Bed</div>
+                   <div class="chip-grid" id="irr-bed-grid-${calendarId}">
+                       <div class="chip-row">${bedIds.map(b => `<button type="button" class="chip" data-bed="${b}">${b}</button>`).join('')}</div>
+                   </div>`
+                : '';
+
+            slot.innerHTML = `
+                <div class="inline-form" id="irr-dispatch-form-${calendarId}">
+                    ${bedChipsHtml}
+                    <div class="field-label">Assign to worker</div>
+                    <div class="chip-grid" id="irr-worker-grid-${calendarId}">${workerChipsHtml_(workers)}</div>
+                    <div class="form-error" id="irr-dispatch-error-${calendarId}"></div>
+                    <div class="inline-form-actions">
+                        <button class="btn btn-primary" id="irr-dispatch-submit-${calendarId}" disabled>Dispatch</button>
+                        <button class="btn" id="irr-dispatch-cancel-${calendarId}">Cancel</button>
+                    </div>
+                </div>`;
+
+            let selectedBed = bedIds.length === 1 ? bedIds[0] : '';
+            let selectedWorker = '';
+            const submitBtn = document.getElementById('irr-dispatch-submit-' + calendarId);
+            function refreshSubmitState(){ submitBtn.disabled = !(selectedBed && selectedWorker); }
+
+            if(bedIds.length > 1){
+                wireSingleSelectChips_(document.getElementById('irr-bed-grid-' + calendarId), (chip) => {
+                    selectedBed = chip.dataset.bed;
+                    refreshSubmitState();
+                });
+            }
+            if(workers.length){
+                wireSingleSelectChips_(document.getElementById('irr-worker-grid-' + calendarId), (chip) => {
+                    selectedWorker = chip.dataset.worker;
+                    refreshSubmitState();
+                });
+            }
+
+            function closeForm(){
+                slot.innerHTML = '';
+                if(openBtn) openBtn.disabled = false;
+            }
+            document.getElementById('irr-dispatch-cancel-' + calendarId).onclick = closeForm;
+
+            submitBtn.onclick = async () => {
+                const managerId = SESSION && SESSION.workerId;
+                if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
+                const errEl = document.getElementById('irr-dispatch-error-' + calendarId);
+                errEl.textContent = '';
+                submitBtn.disabled = true; submitBtn.textContent = 'Dispatching…';
+                try {
+                    // Deliberately NOT passing cohortId/activity beyond what
+                    // handleDispatchTask_ (Code_main.gs) already expects --
+                    // its own p.activity === 'Irrigation' branch derives
+                    // cohortId server-side from the bed it's dispatched to
+                    // (same as every other activity dispatch) and calls
+                    // markIrrigationCalendarDispatched_ from there; nothing
+                    // extra is needed from this form.
+                    const res = await callApi_(APPS_SCRIPT_URL, 'dispatch-task', { managerId, bedId: selectedBed, workerId: selectedWorker, activity: 'Irrigation' });
+                    if(!res.success) throw new Error(res.error || 'Server rejected the request.');
+                    await connectLive(APPS_SCRIPT_URL, { silent: true });
+                    await loadIrrigationCalendar_();
+                } catch(err){
+                    errEl.textContent = 'Could not dispatch: ' + err.message;
+                    submitBtn.disabled = false; submitBtn.textContent = 'Dispatch';
+                }
+            };
+        }
+
+        /* ==================================================================
            CONNECTION PANEL WIRING
            ================================================================== */
         document.addEventListener('click', (e) => {
             if(e.target.closest('#activity-log-btn')){
                 openActivityLog_();
+                return;
+            }
+            if(e.target.closest('#irrigation-cal-btn')){
+                openIrrigationCalendar_();
                 return;
             }
             const logEntry = e.target.closest('.log-entry-clickable');
