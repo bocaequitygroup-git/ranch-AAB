@@ -390,7 +390,11 @@
         <button class="close" id="irrigation-cal-close">&times;</button>
         <h2>Irrigation Calendar</h2>
         <div class="sub">SCHEDULED passes due today, overdue, or coming up (see IrrigationCalendarEngine.gs). Dispatching one here uses the same dispatch-task action as any other board assignment, with activity=Irrigation.</div>
-        <button class="irr-cal-refresh" id="irrigation-cal-refresh-btn">Refresh</button>
+        <div style="display:flex; gap:14px; align-items:center; margin-bottom:14px;">
+            <button class="irr-cal-refresh" id="irrigation-cal-refresh-btn" style="margin-bottom:0;">Refresh</button>
+            <button class="irr-cal-refresh" id="irrigation-cal-regen-btn" style="margin-bottom:0;">Regenerate calendar…</button>
+        </div>
+        <div class="sub" id="irrigation-cal-regen-status" style="margin-bottom:10px;"></div>
         <div id="irrigation-cal-body"></div>
     </div>
 
@@ -1468,6 +1472,52 @@
         document.getElementById('irrigation-cal-close').onclick = closeIrrigationCalendar_;
         document.getElementById('irrigation-cal-backdrop').onclick = closeIrrigationCalendar_;
         document.getElementById('irrigation-cal-refresh-btn').onclick = loadIrrigationCalendar_;
+        document.getElementById('irrigation-cal-regen-btn').onclick = regenerateIrrigationCalendar_;
+
+        // Sweeps every already-planted, non-Rest cohort via
+        // 'generate-irrigation-calendar' (handleGenerateIrrigationCalendar_,
+        // IrrigationCalendarEngine.gs) with no cohortId, i.e. the backfill
+        // path -- for cohorts whose planting verification already ran
+        // BEFORE Irrigation_Days_Per_Week had real values (created: 0 the
+        // first time, and lockCohortPlanting_'s hook only ever fires once
+        // per cohort, so it never retries on its own). Idempotent against
+        // cohorts that already have real calendar rows -- existingDates_
+        // in generateIrrigationCalendarForCohort_ skips any date already
+        // present, so re-running this after it's already working is a
+        // safe no-op, not a duplicate-generator.
+        async function regenerateIrrigationCalendar_(){
+            if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
+            if(!confirm('Regenerate the irrigation calendar for every already-planted cohort? This is safe to re-run (existing dates are never duplicated), but can take a few seconds across the whole portfolio.')) return;
+            const managerId = SESSION && SESSION.workerId;
+            if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
+            const btn = document.getElementById('irrigation-cal-regen-btn');
+            const statusEl = document.getElementById('irrigation-cal-regen-status');
+            btn.disabled = true;
+            statusEl.textContent = 'Regenerating across every planted cohort…';
+            try {
+                const res = await callApi_(APPS_SCRIPT_URL, 'generate-irrigation-calendar', { managerId });
+                if(!res.success) throw new Error(res.error || 'Server rejected the request.');
+                const failed = (res.results || []).filter(r => !r.success);
+                let msg = `Processed ${res.cohortsProcessed} cohort(s), created ${res.totalCreated} calendar row(s).`;
+                if(failed.length){
+                    // Surface WHICH cohorts still produced nothing and why --
+                    // e.g. a crop whose CROP_STAGE_TEMPLATE rows are still
+                    // missing entirely, not just a missing cadence value
+                    // (that case returns success:true/created:0, not an
+                    // error, so it wouldn't show up here -- this is only
+                    // the harder failures like "No CROP_STAGE_TEMPLATE rows
+                    // for Crop_ID X" or "no Actual_Planting_Date yet").
+                    msg += ` ${failed.length} cohort(s) errored: ` + failed.map(r => `${r.cohortId || '?'} (${r.error || 'unknown error'})`).join('; ');
+                }
+                statusEl.textContent = msg;
+                await loadIrrigationCalendar_();
+                await refreshIrrigationCalendarBadge_();
+            } catch(err){
+                statusEl.textContent = 'Regeneration failed: ' + err.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
 
         async function loadIrrigationCalendar_(){
             const body = document.getElementById('irrigation-cal-body');
