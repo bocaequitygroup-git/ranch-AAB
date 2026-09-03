@@ -706,7 +706,14 @@
 
             assignedBedIds = new Set();
             (DATA.field_live_session || []).forEach(s => {
-                const st = (s.Session_Status || '').toString().toUpperCase();
+                // Real FIELD_LIVE_SESSION column is 'Status', not 'Session_Status'
+                // ('Session_Status' belongs to the separate WORKER_LOCATION sheet --
+                // see Code_main.gs's header comment and getHandleOpenSessions_/
+                // handleGetManagerBoard_, which both read .Status). Reading the
+                // wrong key here always evaluated to undefined -> '', so a bed
+                // with a real ACTIVE/PAUSED/PLANNED session never made it into
+                // assignedBedIds. Fixed 2026-09-03.
+                const st = (s.Status || '').toString().toUpperCase();
                 if(!s.Bed_ID) return;
                 // ACTIVE/PAUSED are the only statuses that exist in the live sheet
                 // today. PLANNED is included forward-compatible with a future
@@ -720,8 +727,11 @@
         // on -- ACTIVE/PAUSED (a worker's already on it) or PLANNED (dispatched
         // but not yet started, see handleDispatchTask_ in Code.gs).
         function findOpenSessionsForBed_(bedId){
+            // Same 'Status' vs 'Session_Status' fix as buildIndexes above --
+            // this is what fed both the "Worker on this bed" panel and the
+            // Reassign form, and was always returning [] before the fix.
             return (DATA.field_live_session || []).filter(s => {
-                const st = (s.Session_Status || '').toString().toUpperCase();
+                const st = (s.Status || '').toString().toUpperCase();
                 return s.Bed_ID === bedId && (st === 'ACTIVE' || st === 'PAUSED' || st === 'PLANNED');
             });
         }
@@ -990,11 +1000,11 @@
             // never meant to carry worker identity. findOpenSessionsForBed_
             // already returns the actual FIELD_LIVE_SESSION row(s) (used by
             // the Reassign form below), which do carry Worker_ID/Activity_Type/
-            // Session_Status -- pull the same rows here instead of re-deriving
+            // Status -- pull the same rows here instead of re-deriving
             // from the boolean set.
             const sessionsOnBed = findOpenSessionsForBed_(bedId);
             const workerSummary = sessionsOnBed.length
-                ? sessionsOnBed.map(s => `${s.Worker_ID} — ${s.Activity_Type || 'Activity'} (${s.Session_Status})`).join('<br>')
+                ? sessionsOnBed.map(s => `${s.Worker_ID} — ${s.Activity_Type || 'Activity'} (${s.Status})`).join('<br>')
                 : 'No open session';
             html += row('Worker on this bed', workerSummary);
 
@@ -1156,13 +1166,16 @@
         // and the manager ID is never asked for -- it comes from SESSION
         // (see AUTH block above).
         //
-        // Dispatch starts the session immediately (Session_Status ACTIVE,
-        // real Start_Time) -- same as if the worker had scanned the bed and
-        // started it themselves -- so it shows up right away in that
-        // worker's My Active Sessions in WorkerApp.html, which only ever
-        // reads ACTIVE/PAUSED sessions. There's no "schedule for later"
-        // option here for that reason: a future-dated pre-assignment would
-        // have nothing in WorkerApp.html that ever surfaces it.
+        // CORRECTED 2026-09-03: this comment previously claimed Dispatch
+        // starts the session immediately (Status ACTIVE, real Start_Time).
+        // That's not what handleDispatchTask_ (Code_main.gs) does -- it
+        // writes Status: 'PLANNED' with Start_Time left blank, and the
+        // worker has to tap "Start" in WorkerApp.html (start-planned-session)
+        // to flip it to ACTIVE and stamp the real Start_Time. WorkerApp.html's
+        // get-open-sessions DOES read PLANNED as well as ACTIVE/PAUSED (see
+        // handleGetOpenSessions_), so a dispatched-but-not-started task still
+        // shows up right away in the worker's My Active Sessions -- just
+        // labeled ASSIGNED instead of ACTIVE until they start it.
         async function openDispatchForm_(bedId){
             if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
             const slot = document.getElementById('bed-actions-slot');
@@ -1246,7 +1259,7 @@
                 ? `<div class="field-label">Which session</div>
                    <div class="chip-grid" id="reassign-session-grid">
                        <div class="chip-row">${sessions.map(s =>
-                           `<button type="button" class="chip" data-session="${s.Session_ID}">${s.Activity_Type} (${s.Session_Status}) — currently ${s.Worker_ID}</button>`
+                           `<button type="button" class="chip" data-session="${s.Session_ID}">${s.Activity_Type} (${s.Status}) — currently ${s.Worker_ID}</button>`
                        ).join('')}</div>
                    </div>`
                 : '';
