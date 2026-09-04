@@ -1007,9 +1007,33 @@
             // ground) is preferred over BED_MASTER's Last_Planting_Date for
             // the same reason; falls back to the bed's own field so an
             // unplanted/no-cohort bed still shows whatever it has.
-            let cohort = bed.Current_Cohort_ID ? cohortIndex[bed.Current_Cohort_ID] : null;
-            let lastPlanting = (cohort && cohort.Actual_Planting_Date) || bed.Last_Planting_Date || '—';
-            let expectedHarvest = (cohort && cohort.Expected_Harvest_Date) || '—';
+
+
+          
+
+// ✅ CORRECTED CODE:
+let cohort = bed.Current_Cohort_ID ? cohortIndex[bed.Current_Cohort_ID] : null;
+let lastPlanting = (cohort && cohort.Actual_Planting_Date) || bed.Last_Planting_Date || '—';
+
+// Check if bed is actively planted before displaying target harvest dates
+const bedState = String(bed.Current_State || bed.State || '').toUpperCase();
+const isPlanted = bedState !== 'REST' && bedState !== 'PREP' && lastPlanting !== '—';
+
+let expectedHarvest = '—';
+if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
+    const rawDate = cohort.Expected_Harvest_Date;
+    const d = new Date(rawDate);
+    expectedHarvest = !isNaN(d.getTime()) 
+        ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : rawDate;
+}
+
+
+
+
+
+
+
             html += row('Last planting', lastPlanting);
             html += row('Expected harvest', expectedHarvest);
             html += row('Irrigation zone', bed.Irrigation_Zone_ID || '—');
