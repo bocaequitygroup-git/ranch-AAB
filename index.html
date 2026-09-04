@@ -535,6 +535,7 @@
         let APPS_SCRIPT_URL = localStorage.getItem(CONN_KEY) || DEFAULT_APPS_SCRIPT_URL;
         let DATA = null;          // { bed_master, cohort_master, exception_log, daily_queue, bed_ids_by_cohort, field_live_session, ... } once live
         let bedIndex = {};        // Bed_ID -> bed_master row
+        let cohortIndex = {};     // Cohort_ID -> cohort_master row
         let openExceptionsByBed = {}; // Bed_ID -> [exception rows]
         let queueByBed = {};      // Bed_ID -> [daily_queue items resolved onto this bed]
         let assignedBedIds = new Set(); // Bed_ID with an ACTIVE/PAUSED/PLANNED FIELD_LIVE_SESSION row
@@ -670,6 +671,14 @@
         function buildIndexes(){
             bedIndex = {};
             (DATA.bed_master || []).forEach(b => { bedIndex[b.Bed_ID] = b; });
+
+            // Cohort_master IS already in DATA (see DashboardAPI.gs) but was
+            // never indexed client-side -- the bed panel fell back to
+            // BED_MASTER's own Expected_Harvest_Date column instead, which
+            // is blank for every bed in the workbook. COHORT_MASTER's copy
+            // is the one that's actually kept up to date.
+            cohortIndex = {};
+            (DATA.cohort_master || []).forEach(c => { cohortIndex[c.Cohort_ID] = c; });
 
             openExceptionsByBed = {};
             (DATA.exception_log || []).forEach(e => {
@@ -989,8 +998,20 @@
             html += row('State', bed.Current_State);
             html += row('Crop', bed.Current_Crop || '—');
             html += row('Cohort', bed.Current_Cohort_ID || '—');
-            html += row('Last planting', bed.Last_Planting_Date || '—');
-            html += row('Expected harvest', bed.Expected_Harvest_Date || '—');
+
+            // Expected_Harvest_Date lives on COHORT_MASTER, not BED_MASTER --
+            // BED_MASTER's own column of the same name is never written by
+            // any backend function and is blank for every bed. Join through
+            // Current_Cohort_ID to get the real, kept-up-to-date value.
+            // Actual_Planting_Date (once the cohort's actually in the
+            // ground) is preferred over BED_MASTER's Last_Planting_Date for
+            // the same reason; falls back to the bed's own field so an
+            // unplanted/no-cohort bed still shows whatever it has.
+            let cohort = bed.Current_Cohort_ID ? cohortIndex[bed.Current_Cohort_ID] : null;
+            let lastPlanting = (cohort && cohort.Actual_Planting_Date) || bed.Last_Planting_Date || '—';
+            let expectedHarvest = (cohort && cohort.Expected_Harvest_Date) || '—';
+            html += row('Last planting', lastPlanting);
+            html += row('Expected harvest', expectedHarvest);
             html += row('Irrigation zone', bed.Irrigation_Zone_ID || '—');
 
             // "Worker on this bed" previously just reported a boolean from
