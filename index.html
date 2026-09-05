@@ -1304,11 +1304,19 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
         // fertilization/exception/turnover payload attached.
         function bedHistoryDetailLines_(details){
             const lines = [];
+            // Duration and quantity are always both written by archiveSessionRow_
+            // on every completed session row -- even a 0-minute/0-quantity
+            // completion is a real recorded value, not missing data (see comment
+            // above this function). Paired on one line rather than two so
+            // duration never again reads as the sole, stand-alone "Details:"
+            // line when quantity happens to be 0 -- both are genuine structured
+            // fields off Details_JSON, not narrative.
             if(details.elapsed_minutes !== undefined && details.elapsed_minutes !== null){
-                lines.push('Duration: ' + details.elapsed_minutes + ' min');
-            }
-            if(details.logged_quantity !== undefined && details.logged_quantity !== 0){
-                lines.push('Quantity: ' + details.logged_quantity + (details.unit ? ' ' + details.unit : ''));
+                let line = 'Duration: ' + details.elapsed_minutes + ' min elapsed';
+                if(details.logged_quantity !== undefined && details.logged_quantity !== null){
+                    line += ' \u00b7 ' + details.logged_quantity + (details.unit ? ' ' + details.unit : ' units') + ' recorded';
+                }
+                lines.push(line);
             }
             if(details.fertilization){
                 const f = details.fertilization;
@@ -1409,7 +1417,7 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                                 <div class="bh-kv"><span class="bh-kv-label">Type:</span><span class="bh-badge ${category.badgeClass}">${category.label}</span></div>
                                 <div class="bh-details">
                                     <span class="bh-kv-label">Details:</span>
-                                    <div class="bh-detail-line">${(details.from || '?')} \u2192 ${(details.to || '?')}${a.Cohort_ID ? ' \u00b7 ' + a.Cohort_ID : ''}</div>
+                                    ${cohortStateChangeDetailLines_(a, details).map(l => `<div class="bh-detail-line">${l}</div>`).join('')}
                                 </div>
                             </div>`;
                         return;
@@ -1430,6 +1438,33 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             }
 
             return html;
+        }
+
+        // Details lines for a COHORT_STATE_CHANGE row (lockBedDob_,
+        // DashboardAPI.gs). Details_JSON on that row only ever holds
+        // {from, to, verified_by} -- Cohort_ID and Expected_Harvest_Date are
+        // NOT part of it, so those two are pulled from real columns instead
+        // of being invented: Cohort_ID is the row's own FIELD_ACTIVITY_LOG
+        // column (already used elsewhere in this file), and Expected_Harvest_Date
+        // comes from COHORT_MASTER via cohortIndex -- the same join
+        // openBedPanel_ already does for the bed-panel header (see the
+        // "Expected_Harvest_Date lives on COHORT_MASTER" comment above). Omitted
+        // entirely when the cohort has no Expected_Harvest_Date on file rather
+        // than showing a placeholder dash, since a missing join result isn't a
+        // fact worth stating.
+        function cohortStateChangeDetailLines_(a, details){
+            const lines = [];
+            if(a.Cohort_ID) lines.push('Cohort ' + a.Cohort_ID + ' linked');
+            lines.push('State transitioned: ' + (details.from || '?') + ' \u2192 ' + (details.to || '?'));
+            const cohort = a.Cohort_ID ? cohortIndex[a.Cohort_ID] : null;
+            if(cohort && cohort.Expected_Harvest_Date){
+                const d = new Date(cohort.Expected_Harvest_Date);
+                const formatted = !isNaN(d.getTime())
+                    ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : cohort.Expected_Harvest_Date;
+                lines.push('Expected harvest: ' + formatted);
+            }
+            return lines;
         }
 
         function parseDetailsJson_(raw){
