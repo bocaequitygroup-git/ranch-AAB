@@ -136,6 +136,25 @@
         #bed-panel .row .k { color: var(--text-muted); }
         #bed-panel .close { position:absolute; top:14px; right:16px; cursor:pointer; color:var(--text-muted); font-size:18px; background:none; border:none; }
         #bed-panel .exception { margin-top:14px; padding:10px; border-radius:6px; background:rgba(229,57,53,0.12); border:1px solid var(--status-red); font-size:12px; }
+
+        /* Bed History drawer (ported from WorkerApp.html's Confirm Assignment
+           screen) -- Recent Activity + Latest Scout Finding for this bed, from
+           DATA.field_activity_log / DATA.scout_finding (already loaded in bulk
+           by handleGetManagerTodayView_ -- see buildIndexes()). Collapsed by
+           default so it doesn't push the always-visible Open Exceptions /
+           Actions sections down. No Last Irrigation section here (unlike
+           WorkerApp's getBedHistory()) -- IRRIGATION_LOG isn't part of the
+           get-manager-today-view payload; flagged as a possible follow-up. */
+        .bed-history-toggle { background: none; border: none; color: #81c784; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 0; margin-top: 16px; margin-bottom: 6px; cursor: pointer; display:block; }
+        .bh-row { margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); font-size: 12px; }
+        .bh-row-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .bh-title { font-weight: 600; }
+        .bh-meta { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+        .bh-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+        .bh-badge-low { background: rgba(255,255,255,0.1); color: var(--text-muted); }
+        .bh-badge-medium { background: rgba(201,162,39,0.18); color: #e8d382; }
+        .bh-badge-high { background: rgba(251,140,0,0.18); color: #ffb74d; }
+        .bh-badge-critical { background: rgba(229,57,53,0.18); color: #ef9a9a; }
         #bed-panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 40; display:none; }
         #bed-panel-backdrop.open { display:block; }
 
@@ -537,6 +556,8 @@
         let bedIndex = {};        // Bed_ID -> bed_master row
         let cohortIndex = {};     // Cohort_ID -> cohort_master row
         let openExceptionsByBed = {}; // Bed_ID -> [exception rows]
+        let activityLogByBed = {}; // Bed_ID -> [FIELD_ACTIVITY_LOG rows, most-recent-first, capped at 10] -- Bed History drawer
+        let latestScoutFindingByBed = {}; // Bed_ID -> single latest SCOUT_FINDING row -- Bed History drawer
         let queueByBed = {};      // Bed_ID -> [daily_queue items resolved onto this bed]
         let assignedBedIds = new Set(); // Bed_ID with an ACTIVE/PAUSED/PLANNED FIELD_LIVE_SESSION row
         let queueCounts = { mustDo: 0, attention: 0, routine: 0 }; // straight from DATA.daily_queue.counts
@@ -686,6 +707,32 @@
                 if(status === 'RESOLVED') return; // only open/unresolved exceptions flag a bed red
                 if(!e.Bed_ID) return;
                 (openExceptionsByBed[e.Bed_ID] = openExceptionsByBed[e.Bed_ID] || []).push(e);
+            });
+
+            // Bed History drawer support (see CSS comment above openBedPanel_'s
+            // renderBedHistory_ call) -- Bed_ID -> most-recent-first activity
+            // rows (capped to the last 10 per bed so a long-lived bed doesn't
+            // render an unbounded list), and Bed_ID -> single latest scout
+            // finding row. Built once here, same pattern as openExceptionsByBed,
+            // rather than filtering DATA.field_activity_log/scout_finding fresh
+            // on every bed-panel open.
+            activityLogByBed = {};
+            (DATA.field_activity_log || []).forEach(a => {
+                if(!a.Bed_ID) return;
+                (activityLogByBed[a.Bed_ID] = activityLogByBed[a.Bed_ID] || []).push(a);
+            });
+            Object.keys(activityLogByBed).forEach(bedId => {
+                activityLogByBed[bedId].sort((x, y) => new Date(y.Timestamp) - new Date(x.Timestamp));
+                activityLogByBed[bedId] = activityLogByBed[bedId].slice(0, 10);
+            });
+
+            latestScoutFindingByBed = {};
+            (DATA.scout_finding || []).forEach(s => {
+                if(!s.Bed_ID) return;
+                const existing = latestScoutFindingByBed[s.Bed_ID];
+                if(!existing || new Date(s.Timestamp) > new Date(existing.Timestamp)) {
+                    latestScoutFindingByBed[s.Bed_ID] = s;
+                }
             });
 
             // ----------------------------------------------------------------
@@ -1103,6 +1150,14 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                 });
             }
 
+            // Bed History (collapsed) -- Recent Activity + Latest Scout Finding.
+            // Separate from the always-visible Open Exceptions above (those stay
+            // actionable/resolvable, not folded into a collapsed drawer).
+            const bedActivities = activityLogByBed[bedId] || [];
+            const bedScoutFinding = latestScoutFindingByBed[bedId] || null;
+            html += `<button type="button" class="bed-history-toggle" id="bed-history-toggle">▸ Bed History</button>`;
+            html += `<div id="bed-history-body" class="hidden">${renderBedHistoryBody_(bedActivities, bedScoutFinding)}</div>`;
+
             // Reassign only makes sense once something is dispatched/started on
             // this bed -- Dispatch task is what creates that first PLANNED row.
             // Reuses sessionsOnBed computed above (same rows findOpenSessionsForBed_
@@ -1141,9 +1196,90 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             const reassignBtn = document.getElementById('reassign-worker-btn');
             if(reassignBtn && !reassignBtn.disabled) reassignBtn.onclick = () => openReassignForm_(bedId);
 
+            const bedHistoryToggle = document.getElementById('bed-history-toggle');
+            if(bedHistoryToggle) bedHistoryToggle.onclick = () => {
+                const bhBody = document.getElementById('bed-history-body');
+                const nowHidden = bhBody.classList.toggle('hidden');
+                bedHistoryToggle.textContent = (nowHidden ? '▸' : '▾') + ' Bed History';
+            };
+
             function row(k, v){
                 return `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`;
             }
+        }
+
+        // Bed History body markup -- mirrors WorkerApp.html's renderBedHistory()
+        // (recentActivities/latestScoutFinding shape from getBedHistory()), but
+        // built client-side here from DATA.field_activity_log/scout_finding
+        // (already loaded in bulk by get-manager-today-view) rather than a
+        // separate getBedHistory() round trip per bed-panel open. No Last
+        // Irrigation section -- see CSS comment above for why.
+        function renderBedHistoryBody_(activities, scout){
+            if((!activities || !activities.length) && !scout){
+                return '<div class="sub" style="margin-top:8px;">No history logged for this bed yet.</div>';
+            }
+
+            let html = '';
+
+            if(scout){
+                html += `<div class="panel-section-title">Latest Scout Finding</div>`;
+                html += `
+                    <div class="bh-row">
+                        <div class="bh-row-top">
+                            <span class="bh-title">${scoutDomainLabel_(scout.Domain)}${scout.Symptom ? ': ' + scout.Symptom : ''}</span>
+                            ${scout.Severity ? `<span class="bh-badge ${scoutSeverityBadgeClass_(scout.Severity)}">${scout.Severity}</span>` : ''}
+                        </div>
+                        ${scout.Notes ? `<div>${scout.Notes}</div>` : ''}
+                        <div class="bh-meta">${fmtBedHistoryTime_(scout.Timestamp)}</div>
+                    </div>`;
+            }
+
+            if(activities && activities.length){
+                html += `<div class="panel-section-title">Recent Activity</div>`;
+                activities.forEach(a => {
+                    const details = parseDetailsJson_(a.Details_JSON);
+                    const meta = [
+                        (details.elapsed_minutes !== undefined ? details.elapsed_minutes + ' min' : ''),
+                        (details.logged_quantity !== undefined && details.logged_quantity !== 0 ? details.logged_quantity + (details.unit ? ' ' + details.unit : '') : '')
+                    ].filter(Boolean).join(' \u00b7 ');
+                    html += `
+                        <div class="bh-row">
+                            <div class="bh-row-top">
+                                <span class="bh-title">${labelForActivity_(a.Activity_Type)}</span>
+                                <span class="bh-meta">${a.Worker_ID || ''}</span>
+                            </div>
+                            ${meta ? `<div class="bh-meta">${meta}</div>` : ''}
+                            <div class="bh-meta">${fmtBedHistoryTime_(a.Timestamp)}</div>
+                        </div>`;
+                });
+            }
+
+            return html;
+        }
+
+        function parseDetailsJson_(raw){
+            if(!raw) return {};
+            try { return JSON.parse(raw) || {}; } catch(err) { return {}; }
+        }
+
+        function labelForActivity_(activityType){
+            const labels = (DATA && DATA.taxonomy && DATA.taxonomy.labels) || {};
+            return labels[activityType] || activityType || '';
+        }
+
+        function scoutDomainLabel_(domain){
+            const labels = (DATA && DATA.taxonomy && DATA.taxonomy.scoutDomainLabels) || {};
+            return labels[domain] || domain || 'Finding';
+        }
+
+        function scoutSeverityBadgeClass_(sev){
+            return { LOW: 'bh-badge-low', MEDIUM: 'bh-badge-medium', HIGH: 'bh-badge-high', CRITICAL: 'bh-badge-critical' }[sev] || 'bh-badge-low';
+        }
+
+        function fmtBedHistoryTime_(ts){
+            if(!ts) return '';
+            const d = new Date(ts);
+            return isNaN(d.getTime()) ? '' : d.toLocaleString();
         }
 
         function bucketLabel_(bucket){
