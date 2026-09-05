@@ -139,11 +139,15 @@
 
         /* Bed History drawer (ported from WorkerApp.html's Confirm Assignment
            screen) -- Recent Activity + Latest Scout Finding for this bed, from
-           DATA.field_activity_log / DATA.scout_finding (already loaded in bulk
-           by handleGetManagerTodayView_ -- see buildIndexes()). Collapsed by
-           default so it doesn't push the always-visible Open Exceptions /
-           Actions sections down. No Last Irrigation section here (unlike
-           WorkerApp's getBedHistory()) -- IRRIGATION_LOG isn't part of the
+           DATA.field_activity_log / DATA.scout_finding / DATA.alerts (already
+           loaded in bulk by handleGetManagerTodayView_ -- see buildIndexes()).
+           Recent Activity merges field_activity_log with bed-relevant alerts
+           (2026-09-05 -- see renderBedHistoryBody_'s header comment) since a
+           bed's own dispatch events previously only ever surfaced in the
+           separate global Activity Log drawer. Collapsed by default so it
+           doesn't push the always-visible Open Exceptions / Actions sections
+           down. No Last Irrigation section here (unlike WorkerApp's
+           getBedHistory()) -- IRRIGATION_LOG isn't part of the
            get-manager-today-view payload; flagged as a possible follow-up. */
         .bed-history-toggle { background: none; border: none; color: #81c784; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 0; margin-top: 16px; margin-bottom: 6px; cursor: pointer; display:block; }
         .bh-row { margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); font-size: 12px; }
@@ -559,6 +563,12 @@
         let openExceptionsByBed = {}; // Bed_ID -> [exception rows]
         let activityLogByBed = {}; // Bed_ID -> [FIELD_ACTIVITY_LOG rows, most-recent-first, capped at 10] -- Bed History drawer
         let latestScoutFindingByBed = {}; // Bed_ID -> single latest SCOUT_FINDING row -- Bed History drawer
+        let alertsByBed = {}; // Bed_ID -> [ALERTS rows, most-recent-first, capped at 10] -- Bed History drawer (2026-09-05: same
+                               // ALERTS-has-no-Bed_ID-column situation as renderActivityLog_'s global merge below, so this reuses
+                               // extractBedIdFromLogMessage_ to recover the bed a dispatch/exception alert belongs to; a bed's active
+                               // dispatch (e.g. "Lisa dispatched for Irrigation") previously only showed up in the *global* Activity
+                               // Log drawer, never in that bed's own Bed History, because this per-bed drawer only ever read
+                               // field_activity_log/scout_finding)
         let queueByBed = {};      // Bed_ID -> [daily_queue items resolved onto this bed]
         let assignedBedIds = new Set(); // Bed_ID with an ACTIVE/PAUSED/PLANNED FIELD_LIVE_SESSION row
         let queueCounts = { mustDo: 0, attention: 0, routine: 0 }; // straight from DATA.daily_queue.counts
@@ -734,6 +744,23 @@
                 if(!existing || new Date(s.Timestamp) > new Date(existing.Timestamp)) {
                     latestScoutFindingByBed[s.Bed_ID] = s;
                 }
+            });
+
+            // Bed-relevant ALERTS, same message-regex extraction
+            // (extractBedIdFromLogMessage_, defined below with the global
+            // Activity Log) since ALERTS carries no structured Bed_ID column.
+            // Alerts with no recoverable bed reference (cohort-level ones,
+            // etc.) are simply skipped here -- they still show up in the
+            // global Activity Log drawer.
+            alertsByBed = {};
+            (DATA.alerts || []).forEach(al => {
+                const bedId = extractBedIdFromLogMessage_(al.Message);
+                if(!bedId) return;
+                (alertsByBed[bedId] = alertsByBed[bedId] || []).push(al);
+            });
+            Object.keys(alertsByBed).forEach(bedId => {
+                alertsByBed[bedId].sort((x, y) => new Date(y.Timestamp) - new Date(x.Timestamp));
+                alertsByBed[bedId] = alertsByBed[bedId].slice(0, 10);
             });
 
             // ----------------------------------------------------------------
@@ -1156,8 +1183,9 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             // actionable/resolvable, not folded into a collapsed drawer).
             const bedActivities = activityLogByBed[bedId] || [];
             const bedScoutFinding = latestScoutFindingByBed[bedId] || null;
+            const bedAlerts = alertsByBed[bedId] || [];
             html += `<button type="button" class="bed-history-toggle" id="bed-history-toggle">▸ Bed History</button>`;
-            html += `<div id="bed-history-body" class="hidden">${renderBedHistoryBody_(bedActivities, bedScoutFinding)}</div>`;
+            html += `<div id="bed-history-body" class="hidden">${renderBedHistoryBody_(bedActivities, bedScoutFinding, bedAlerts)}</div>`;
 
             // Reassign only makes sense once something is dispatched/started on
             // this bed -- Dispatch task is what creates that first PLANNED row.
@@ -1211,12 +1239,27 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
 
         // Bed History body markup -- mirrors WorkerApp.html's renderBedHistory()
         // (recentActivities/latestScoutFinding shape from getBedHistory()), but
-        // built client-side here from DATA.field_activity_log/scout_finding
+        // built client-side here from DATA.field_activity_log/scout_finding/alerts
         // (already loaded in bulk by get-manager-today-view) rather than a
         // separate getBedHistory() round trip per bed-panel open. No Last
         // Irrigation section -- see CSS comment above for why.
-        function renderBedHistoryBody_(activities, scout){
-            if((!activities || !activities.length) && !scout){
+        //
+        // UPDATED 2026-09-05: "Recent Activity" now merges two sources instead
+        // of one -- FIELD_ACTIVITY_LOG rows (activities) AND bed-relevant ALERTS
+        // rows (alerts) -- same two-source merge renderActivityLog_ already does
+        // for the global Activity Log drawer, and for the same reason: dispatch
+        // events (TASK_DISPATCHED, SESSION_REASSIGNED, ...) are triggerAlert()
+        // calls that land in ALERTS, never in FIELD_ACTIVITY_LOG, so without this
+        // merge a bed's own active dispatch never appeared in its own history.
+        // Also special-cases Activity_Type === 'COHORT_STATE_CHANGE' -- the
+        // audit row lockBedDob_ (DashboardAPI.gs) now appends the moment a bed
+        // actually flips Rest -> Planted -- rendering it as a lifecycle
+        // transition line instead of running it through labelForActivity_ (which
+        // has no taxonomy label for a non-canonical marker type and would just
+        // print the raw string).
+        function renderBedHistoryBody_(activities, scout, alerts){
+            const hasAlerts = alerts && alerts.length;
+            if((!activities || !activities.length) && !scout && !hasAlerts){
                 return '<div class="sub" style="margin-top:8px;">No history logged for this bed yet.</div>';
             }
 
@@ -1235,9 +1278,43 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                     </div>`;
             }
 
-            if(activities && activities.length){
+            const activityRows = (activities || []).map(a => ({ timestamp: a.Timestamp, kind: 'activity', raw: a }));
+            const alertRows = (alerts || []).map(al => ({ timestamp: al.Timestamp, kind: 'alert', raw: al }));
+            const merged = activityRows.concat(alertRows)
+                .sort((x, y) => new Date(y.timestamp) - new Date(x.timestamp))
+                .slice(0, 10);
+
+            if(merged.length){
                 html += `<div class="panel-section-title">Recent Activity</div>`;
-                activities.forEach(a => {
+                merged.forEach(entry => {
+                    if(entry.kind === 'alert'){
+                        const al = entry.raw;
+                        html += `
+                            <div class="bh-row">
+                                <div class="bh-row-top">
+                                    <span class="bh-title">${(al.Alert_Type || 'Event').replace(/_/g, ' ')}</span>
+                                </div>
+                                ${al.Message ? `<div>${al.Message}</div>` : ''}
+                                <div class="bh-meta">${fmtBedHistoryTime_(al.Timestamp)}</div>
+                            </div>`;
+                        return;
+                    }
+
+                    const a = entry.raw;
+                    if(a.Activity_Type === 'COHORT_STATE_CHANGE'){
+                        const details = parseDetailsJson_(a.Details_JSON);
+                        html += `
+                            <div class="bh-row">
+                                <div class="bh-row-top">
+                                    <span class="bh-title">Cohort Planting Initialized</span>
+                                    <span class="bh-meta">${a.Worker_ID || ''}</span>
+                                </div>
+                                <div>${(details.from || '?')} \u2192 ${(details.to || '?')}${a.Cohort_ID ? ' \u00b7 ' + a.Cohort_ID : ''}</div>
+                                <div class="bh-meta">${fmtBedHistoryTime_(a.Timestamp)}</div>
+                            </div>`;
+                        return;
+                    }
+
                     const details = parseDetailsJson_(a.Details_JSON);
                     const meta = [
                         (details.elapsed_minutes !== undefined ? details.elapsed_minutes + ' min' : ''),
