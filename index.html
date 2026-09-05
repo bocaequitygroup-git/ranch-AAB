@@ -136,9 +136,6 @@
         #bed-panel .row .k { color: var(--text-muted); }
         #bed-panel .close { position:absolute; top:14px; right:16px; cursor:pointer; color:var(--text-muted); font-size:18px; background:none; border:none; }
         #bed-panel .exception { margin-top:14px; padding:10px; border-radius:6px; background:rgba(229,57,53,0.12); border:1px solid var(--status-red); font-size:12px; }
-        #bed-panel .bed-history-toggle { background:none; border:none; color:var(--status-blue); font-weight:700; font-size:13px; padding:14px 0 6px; text-align:left; width:100%; cursor:pointer; }
-        #bed-panel .bed-history-item { padding:6px 0; border-bottom:1px solid var(--border-color); font-size:11.5px; color:var(--text-main); }
-        #bed-panel .bed-history-item .bh-time { color:var(--text-muted); margin-right:6px; }
         #bed-panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 40; display:none; }
         #bed-panel-backdrop.open { display:block; }
 
@@ -412,14 +409,6 @@
             { prefix: 'B3', startX: 410 },
             { prefix: 'B4', startX: 600 }
         ];
-
-        // Shared with WorkerApp.html's own copy of these two constants --
-        // Thinning/Replanting act on an existing cohort so they're excluded;
-        // only Seeding/Transplanting ever need a brand-new cohort created.
-        // Drives the Dispatch guardrail in openDispatchForm_ below.
-        const PLANTING_ACTIVITIES_REQUIRING_COHORT = ['Seeding', 'Transplanting'];
-        const REST_LIKE_BED_STATES = ['rest', 'prep', 'empty'];
-        let CROPS_CACHE_ = null; // lazy-loaded CROP_REFERENCE list, via 'list-crops'
 
         /* ==================================================================
            LIVE CONNECTION — same Apps Script deployment & wire format used by
@@ -986,7 +975,6 @@
             const panel = document.getElementById('bed-panel');
             const backdrop = document.getElementById('bed-panel-backdrop');
             const body = document.getElementById('bed-panel-body');
-            delete BED_HISTORY_CACHE_[bedId]; // always fetch fresh history on a new panel open (a dispatch/reassign/cohort-create may have just added an entry)
 
             if(!LIVE_MODE || !DATA){
                 body.innerHTML = `
@@ -1008,8 +996,16 @@
 
             let html = `<h2>${bed.Bed_ID}</h2><div class="sub">${bed.Block_ID || ''} · ${bed.Zone_Type || ''}</div>`;
             html += row('State', bed.Current_State);
-            html += row('Crop', bed.Current_Crop || '—');
-            html += row('Cohort', bed.Current_Cohort_ID || '—');
+            // bed.Current_Crop/Current_Cohort_ID are sanitized server-side now
+            // (handleGetManagerTodayView_, DashboardAPI.gs) -- both come back
+            // blank/'COH-UNASSIGNED' whenever the bed is Rest/Prep, matching
+            // exactly what WorkerApp.html shows for the same bed, instead of
+            // this modal showing whatever raw value the cell still held from
+            // a past cycle or an unplanted forward reservation. Crop_Name
+            // (also added server-side) is the human-readable label -- shows
+            // 'Unassigned' rather than this dash for a bed with no crop.
+            html += row('Crop', bed.Crop_Name || 'Unassigned');
+            html += row('Cohort', bed.Current_Cohort_ID || 'COH-UNASSIGNED');
 
             // Expected_Harvest_Date lives on COHORT_MASTER, not BED_MASTER --
             // BED_MASTER's own column of the same name is never written by
@@ -1050,35 +1046,20 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             html += row('Expected harvest', expectedHarvest);
             html += row('Irrigation zone', bed.Irrigation_Zone_ID || '—');
 
-            // Active Session Timer View: an ACTIVE session gets a live
-            // elapsed-time readout (ticked every second via
-            // startBedPanelTimers_ below); PAUSED/PLANNED sessions get a
-            // static status line; no open session at all falls back to the
-            // old single "No open session" row. findOpenSessionsForBed_
+            // "Worker on this bed" previously just reported a boolean from
+            // assignedBedIds (yes/no a session exists) with no name --
+            // assignedBedIds is a Set of Bed_IDs, built only to answer
+            // "is anyone assigned" cheaply for the grid/filter counts, and was
+            // never meant to carry worker identity. findOpenSessionsForBed_
             // already returns the actual FIELD_LIVE_SESSION row(s) (used by
-            // the Reassign form below), which carry Worker_ID/Activity_Type/
-            // Status/Start_Time.
+            // the Reassign form below), which do carry Worker_ID/Activity_Type/
+            // Status -- pull the same rows here instead of re-deriving
+            // from the boolean set.
             const sessionsOnBed = findOpenSessionsForBed_(bedId);
-            stopBedPanelTimers_();
-            if(!sessionsOnBed.length){
-                html += row('Worker Status', 'No open session');
-            } else {
-                sessionsOnBed.forEach(s => {
-                    const workerName = workerNameById_()[s.Worker_ID] || s.Worker_ID;
-                    const activityLbl = (DATA.taxonomy && DATA.taxonomy.labels && DATA.taxonomy.labels[s.Activity_Type]) || s.Activity_Type || 'Activity';
-                    if((s.Status || '').toUpperCase() === 'ACTIVE' && s.Start_Time){
-                        const startDate = new Date(s.Start_Time);
-                        html += row('Worker Status', '<span style="color:var(--status-green); font-weight:700;">IN PROGRESS</span>');
-                        html += row('Assigned Worker', workerName);
-                        html += row('Current Activity', activityLbl);
-                        html += row('Session Started', !isNaN(startDate.getTime()) ? startDate.toLocaleTimeString() : '—');
-                        html += `<div class="row"><span class="k">Elapsed Time</span><span>⏱️ <span id="session-elapsed-${s.Session_ID}">${fmtElapsed_(startDate)}</span> (Live)</span></div>`;
-                        BED_PANEL_TIMER_SESSIONS_.push({ sessionId: s.Session_ID, startDate });
-                    } else {
-                        html += row('Worker Status', `${workerName} — ${activityLbl} (${s.Status})`);
-                    }
-                });
-            }
+            const workerSummary = sessionsOnBed.length
+                ? sessionsOnBed.map(s => `${s.Worker_ID} — ${s.Activity_Type || 'Activity'} (${s.Status})`).join('<br>')
+                : 'No open session';
+            html += row('Worker on this bed', workerSummary);
 
             const items = queueByBed[bedId] || [];
             if(items.length){
@@ -1133,9 +1114,7 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                     <button class="btn btn-primary" id="dispatch-task-btn">New Activity</button>
                     <button class="btn" id="reassign-worker-btn"${openSessionsHere.length ? '' : ' disabled'} title="${openSessionsHere.length ? 'Reassign the worker on an existing session for this bed' : 'No active, paused, or planned session on this bed yet -- use New Activity first.'}">Reassign worker</button>
                 </div>
-                <div id="bed-actions-slot"></div>
-                <button type="button" class="bed-history-toggle" id="bed-history-toggle" onclick="toggleBedPanelHistory_('${bedId}')">▸ System &amp; Bed History</button>
-                <div id="bed-history-body" class="hidden"></div>`;
+                <div id="bed-actions-slot"></div>`;
 
             body.innerHTML = html;
             panel.classList.add('open'); backdrop.classList.add('open');
@@ -1161,7 +1140,6 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             document.getElementById('dispatch-task-btn').onclick = () => openDispatchForm_(bedId);
             const reassignBtn = document.getElementById('reassign-worker-btn');
             if(reassignBtn && !reassignBtn.disabled) reassignBtn.onclick = () => openReassignForm_(bedId);
-            startBedPanelTimers_();
 
             function row(k, v){
                 return `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`;
@@ -1251,26 +1229,6 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
         // handleGetOpenSessions_), so a dispatched-but-not-started task still
         // shows up right away in the worker's My Active Sessions -- just
         // labeled ASSIGNED instead of ACTIVE until they start it.
-        async function getCropsCached_(){
-            if(CROPS_CACHE_) return CROPS_CACHE_;
-            try {
-                const res = await callApi_(APPS_SCRIPT_URL, 'list-crops', {});
-                CROPS_CACHE_ = (res && res.success) ? (res.crops || []) : [];
-            } catch(err){
-                CROPS_CACHE_ = [];
-            }
-            return CROPS_CACHE_;
-        }
-
-        function cropChipsHtml_(crops){
-            if(!crops || !crops.length){
-                return '<div class="sub">Crop list not loaded -- reconnect to refresh.</div>';
-            }
-            return `<div class="chip-row">${crops.map(c =>
-                `<button type="button" class="chip" data-crop="${c.cropId}">${c.cropName}${c.nurseryTrack ? ' <span class="chip-worker-role">(' + c.nurseryTrack + ')</span>' : ''}</button>`
-            ).join('')}</div>`;
-        }
-
         async function openDispatchForm_(bedId){
             if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
             const slot = document.getElementById('bed-actions-slot');
@@ -1279,17 +1237,11 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
 
             const choices = buildActivityChoices_();
             const workers = await getWorkers_();
-            const bed = bedIndex[bedId];
-            const bedIsResting = REST_LIKE_BED_STATES.indexOf(String((bed && bed.Current_State) || '').toLowerCase()) !== -1;
 
             slot.innerHTML = `
                 <div class="inline-form" id="dispatch-form">
                     <div class="field-label">Activity</div>
                     <div class="chip-grid" id="dispatch-activity-grid">${activityChipsHtml_(choices)}</div>
-                    <div id="dispatch-cohort-section" class="hidden">
-                        <div class="field-label">This bed has no active cohort -- pick what's being planted</div>
-                        <div class="chip-grid" id="dispatch-crop-grid"><div class="sub">Loading crops…</div></div>
-                    </div>
                     <div class="field-label">Assign to worker</div>
                     <div class="chip-grid" id="dispatch-worker-grid">${workerChipsHtml_(workers)}</div>
                     <div class="sub" style="margin-top:12px;">Starts immediately for the worker — appears in their My Active Sessions right away.</div>
@@ -1300,47 +1252,13 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                     </div>
                 </div>`;
 
-            let selectedActivity = '', selectedWorker = '', selectedCrop = '';
+            let selectedActivity = '', selectedWorker = '';
             const submitBtn = document.getElementById('dispatch-submit-btn');
-            const cohortSection = document.getElementById('dispatch-cohort-section');
-
-            // Dispatch guardrail: a planting activity (Seeding/Transplanting)
-            // dispatched onto a REST/PREP bed has no cohort to attach to yet --
-            // expand the crop picker and require a selection before Create is
-            // enabled. Any other activity (or a bed that already has a cohort)
-            // needs no crop selection and submits exactly as before.
-            function requiresCohortSelection_(){
-                return bedIsResting && PLANTING_ACTIVITIES_REQUIRING_COHORT.indexOf(selectedActivity) !== -1;
-            }
-
-            function refreshSubmitState(){
-                submitBtn.disabled = !(selectedActivity && selectedWorker && (!requiresCohortSelection_() || selectedCrop));
-            }
-
-            async function updateCohortSectionVisibility_(){
-                if(!requiresCohortSelection_()){
-                    cohortSection.classList.add('hidden');
-                    selectedCrop = '';
-                    refreshSubmitState();
-                    return;
-                }
-                cohortSection.classList.remove('hidden');
-                const cropGrid = document.getElementById('dispatch-crop-grid');
-                const crops = await getCropsCached_();
-                cropGrid.innerHTML = cropChipsHtml_(crops);
-                if(crops.length){
-                    wireSingleSelectChips_(cropGrid, (chip) => {
-                        selectedCrop = chip.dataset.crop;
-                        refreshSubmitState();
-                    });
-                }
-                refreshSubmitState();
-            }
+            function refreshSubmitState(){ submitBtn.disabled = !(selectedActivity && selectedWorker); }
 
             if(choices && choices.length){
                 wireSingleSelectChips_(document.getElementById('dispatch-activity-grid'), (chip) => {
                     selectedActivity = chip.dataset.activity;
-                    updateCohortSectionVisibility_();
                     refreshSubmitState();
                 });
             }
@@ -1365,13 +1283,6 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                 errEl.textContent = '';
                 submitBtn.disabled = true; submitBtn.textContent = 'Creating…';
                 try {
-                    // Planting activity on a resting bed: establish the cohort
-                    // first (attaches Current_Cohort_ID/Current_Crop to the bed
-                    // server-side), then dispatch exactly as any other activity.
-                    if(requiresCohortSelection_()){
-                        const cohortRes = await callApi_(APPS_SCRIPT_URL, 'create-cohort', { bedId, cropId: selectedCrop });
-                        if(!cohortRes.success) throw new Error(cohortRes.error || 'Could not create the cohort.');
-                    }
                     const res = await callApi_(APPS_SCRIPT_URL, 'dispatch-task', { managerId, bedId, workerId: selectedWorker, activity: selectedActivity });
                     if(!res.success) throw new Error(res.error || 'Server rejected the request.');
                     await connectLive(APPS_SCRIPT_URL, { silent: true });
@@ -1513,117 +1424,9 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
         function closeBedPanel(){
             document.getElementById('bed-panel').classList.remove('open');
             document.getElementById('bed-panel-backdrop').classList.remove('open');
-            stopBedPanelTimers_();
         }
         document.getElementById('bed-panel-close').onclick = closeBedPanel;
         document.getElementById('bed-panel-backdrop').onclick = closeBedPanel;
-
-        // --- Active Session Timer View (openBedPanel) -------------------------
-        // Populated by openBedPanel with { sessionId, startDate } for every
-        // currently-ACTIVE session shown on the panel; ticked once a second
-        // while the panel is open, cleared whenever a new panel opens or the
-        // panel is closed.
-        let BED_PANEL_TIMER_SESSIONS_ = [];
-        let BED_PANEL_TIMER_HANDLE_ = null;
-
-        function fmtElapsed_(startDate){
-            let ms = Date.now() - startDate.getTime();
-            if(isNaN(ms) || ms < 0) ms = 0;
-            const totalSeconds = Math.floor(ms / 1000);
-            const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
-            const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
-            const s = String(totalSeconds % 60).padStart(2, '0');
-            return `${h}:${m}:${s}`;
-        }
-
-        function stopBedPanelTimers_(){
-            if(BED_PANEL_TIMER_HANDLE_){ clearInterval(BED_PANEL_TIMER_HANDLE_); BED_PANEL_TIMER_HANDLE_ = null; }
-            BED_PANEL_TIMER_SESSIONS_ = [];
-        }
-
-        // Called at the end of openBedPanel, once BED_PANEL_TIMER_SESSIONS_ has
-        // been populated by the render pass above and the elements it
-        // references actually exist in the DOM.
-        function startBedPanelTimers_(){
-            if(!BED_PANEL_TIMER_SESSIONS_.length) return;
-            BED_PANEL_TIMER_HANDLE_ = setInterval(() => {
-                BED_PANEL_TIMER_SESSIONS_.forEach(t => {
-                    const el = document.getElementById('session-elapsed-' + t.sessionId);
-                    if(el) el.textContent = fmtElapsed_(t.startDate);
-                });
-            }, 1000);
-        }
-
-        // Worker_ID -> full name, from whatever list-workers has already
-        // cached (WORKERS_CACHE, populated lazily the first time Dispatch or
-        // Reassign is opened). Falls back to the raw Worker_ID when the
-        // cache hasn't been populated yet -- still correct, just less
-        // friendly, and self-heals the next time either form loads it.
-        function workerNameById_(){
-            const map = {};
-            (WORKERS_CACHE || []).forEach(w => { map[w.workerId] = w.name; });
-            return map;
-        }
-
-        // --- System & Bed History (openBedPanel) -------------------------------
-        // Bed-scoped read of FIELD_ACTIVITY_LOG via 'get-activity-history'
-        // (payload.bedId, manager-only narrowing -- see handleGetActivityHistory_,
-        // Code_main.gs). Lazy-loaded on first expand, not on every panel open,
-        // to keep openBedPanel itself synchronous and instant.
-        let BED_HISTORY_CACHE_ = {}; // bedId -> entries[], cleared per bed on each fresh load
-        function toggleBedPanelHistory_(bedId){
-            const body = document.getElementById('bed-history-body');
-            const toggle = document.getElementById('bed-history-toggle');
-            if(!body || !toggle) return;
-            const isHidden = body.classList.contains('hidden');
-            if(!isHidden){
-                body.classList.add('hidden');
-                toggle.textContent = '▸ System & Bed History';
-                return;
-            }
-            toggle.textContent = '▾ System & Bed History';
-            body.classList.remove('hidden');
-            if(BED_HISTORY_CACHE_[bedId]){
-                renderBedHistoryBody_(BED_HISTORY_CACHE_[bedId]);
-                return;
-            }
-            body.innerHTML = '<div class="sub">Loading history…</div>';
-            const managerId = SESSION && SESSION.workerId;
-            callApi_(APPS_SCRIPT_URL, 'get-activity-history', { managerId, bedId, limit: 20 })
-                .then(res => {
-                    const entries = (res && res.success) ? (res.entries || []) : [];
-                    BED_HISTORY_CACHE_[bedId] = entries;
-                    renderBedHistoryBody_(entries);
-                })
-                .catch(() => { body.innerHTML = '<div class="sub">Could not load history.</div>'; });
-        }
-
-        function renderBedHistoryBody_(entries){
-            const body = document.getElementById('bed-history-body');
-            if(!body) return;
-            if(!entries.length){
-                body.innerHTML = '<div class="sub">No recorded activity for this bed yet.</div>';
-                return;
-            }
-            body.innerHTML = entries.map(bedHistoryEntryHtml_).join('');
-        }
-
-        // Renders one FIELD_ACTIVITY_LOG entry as a single readable line,
-        // matching the Manager Bed Detail Modal spec's format ("Field
-        // Turnover completed by M. Vance", "Stale metadata CHT-2026-TOM-02
-        // wiped by system", "Crop Cleanup logged by M. Vance").
-        function bedHistoryEntryHtml_(e){
-            const time = e.timestamp ? new Date(e.timestamp).toLocaleString() : '';
-            let text;
-            if(e.isMetadataWipe){
-                text = `Stale metadata ${e.wipedCohortId || ''} wiped by system`;
-            } else if(e.isStateChange){
-                text = `State changed: ${e.fromState || '—'} → ${e.toState || '—'}`;
-            } else {
-                text = `${e.activityLabel} ${['CropCleanup','FieldTurnover'].indexOf(e.activity) !== -1 ? 'logged' : 'completed'} by ${e.workerName || e.workerId}`;
-            }
-            return `<div class="bed-history-item"><span class="bh-time">${time}</span>${text}</div>`;
-        }
 
         /* ==================================================================
            ACTIVITY LOG — reads DATA.alerts (ALERTS sheet: Timestamp,
