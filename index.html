@@ -170,6 +170,14 @@
         .bh-badge-type-dispatch { background: rgba(186,104,200,0.18); color: #ce93d8; }
         .bh-badge-type-exception { background: rgba(229,57,53,0.18); color: #ef9a9a; }
         .bh-detail-line { margin-top: 4px; }
+        /* Structured card layout (2026-09-05 revision) -- Header (time —
+           title) / Actor: / Type: / Details:, replacing the earlier
+           badge-as-header + bulleted-meta layout. See renderBedHistoryBody_'s
+           header comment for why this changed again. */
+        .bh-header { font-weight: 700; font-size: 12.5px; margin-bottom: 4px; }
+        .bh-kv { display: flex; gap: 6px; margin-top: 2px; align-items: baseline; }
+        .bh-kv-label { color: var(--text-muted); flex-shrink: 0; }
+        .bh-details { margin-top: 4px; }
         #bed-panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 40; display:none; }
         #bed-panel-backdrop.open { display:block; }
 
@@ -1281,18 +1289,27 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
         }
 
         // Renders whatever real, structured detail actually exists on a
-        // completed FIELD_ACTIVITY_LOG row's Details_JSON, beyond the basic
-        // elapsed-time/quantity line. Deliberately does NOT invent narrative
-        // text ("pulled irrigation line...") -- checked WorkerApp.html's
-        // completion call (appCompleteSession) directly, and it only ever
-        // sends { sessionId, quantity } to complete-session (plus a
-        // fertilization object for that one activity type) -- there's no
-        // free-text notes field captured on a routine completion for this to
-        // read. What IS real and was previously dropped from this card:
-        // the fertilization payload, exception linkage, and (as of the
-        // archiveSessionRow_ fix, Database.gs) the bed_turnover side effect.
+        // completed FIELD_ACTIVITY_LOG row's Details_JSON, as the card's
+        // "Details:" block. Deliberately does NOT invent narrative text
+        // ("pulled irrigation line...", "transplanted African Eggplant...")
+        // -- checked WorkerApp.html's completion call (appCompleteSession)
+        // directly, and it only ever sends { sessionId, quantity } to
+        // complete-session (plus a fertilization object for that one
+        // activity type) -- there's no free-text notes field captured on a
+        // routine completion for this to read. Duration/quantity are always
+        // included here (they're always present on the row, even when 0 --
+        // a genuinely instant completion, not truncation, per
+        // archiveSessionRow_'s elapsed-time math), so the Details block is
+        // never an empty gap even for a plain activity with no
+        // fertilization/exception/turnover payload attached.
         function bedHistoryDetailLines_(details){
             const lines = [];
+            if(details.elapsed_minutes !== undefined && details.elapsed_minutes !== null){
+                lines.push('Duration: ' + details.elapsed_minutes + ' min');
+            }
+            if(details.logged_quantity !== undefined && details.logged_quantity !== 0){
+                lines.push('Quantity: ' + details.logged_quantity + (details.unit ? ' ' + details.unit : ''));
+            }
             if(details.fertilization){
                 const f = details.fertilization;
                 const bits = [f.application_rate, f.unit_of_measure].filter(Boolean).join(' ');
@@ -1319,20 +1336,22 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
         // separate getBedHistory() round trip per bed-panel open. No Last
         // Irrigation section -- see CSS comment above for why.
         //
-        // UPDATED 2026-09-05: "Recent Activity" now merges two sources instead
-        // of one -- FIELD_ACTIVITY_LOG rows (activities) AND bed-relevant ALERTS
-        // rows (alerts) -- same two-source merge renderActivityLog_ already does
-        // for the global Activity Log drawer, and for the same reason: dispatch
-        // events (TASK_DISPATCHED, SESSION_REASSIGNED, ...) are triggerAlert()
-        // calls that land in ALERTS, never in FIELD_ACTIVITY_LOG, so without this
-        // merge a bed's own active dispatch never appeared in its own history.
-        // Each row now also carries an explicit event-type badge
-        // (eventCategory_) and, for activity rows, whatever real contextual
-        // detail Details_JSON actually holds (bedHistoryDetailLines_) --
-        // previously this card dropped everything except elapsed time and
-        // quantity, silently discarding fertilization detail, exception
-        // linkage, and bed-turnover side effects that were being recorded
-        // (or, for bed_turnover, now newly recorded -- see Database.gs).
+        // "Recent Activity" merges two sources -- FIELD_ACTIVITY_LOG rows
+        // (activities) AND bed-relevant ALERTS rows (alerts) -- same
+        // two-source merge renderActivityLog_ already does for the global
+        // Activity Log drawer, since dispatch events (TASK_DISPATCHED,
+        // SESSION_REASSIGNED, ...) are triggerAlert() calls that land in
+        // ALERTS, never in FIELD_ACTIVITY_LOG.
+        //
+        // REVISED 2026-09-05: card layout changed from a badge-as-header row
+        // with a bulleted Actor/duration meta line to explicit
+        // Header (time — title) / Actor: / Type: / Details: fields, each its
+        // own line -- the badge-first layout was reading as "Type used as a
+        // top header" rather than a distinct metadata field attached to the
+        // event. ALERTS rows have no structured actor column (ALERTS is
+        // Timestamp/Alert_Type/Status/Message only -- confirmed against
+        // Database.gs's DEFAULT_HEADERS_), so alert-derived cards omit the
+        // Actor: line rather than guess one out of the free-text Message.
         function renderBedHistoryBody_(activities, scout, alerts){
             const hasAlerts = alerts && alerts.length;
             if((!activities || !activities.length) && !scout && !hasAlerts){
@@ -1369,12 +1388,12 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                         const al = entry.raw;
                         html += `
                             <div class="bh-row">
-                                <div class="bh-row-top">
-                                    <span class="bh-badge ${category.badgeClass}">${category.label}</span>
-                                    <span class="bh-meta">${fmtBedHistoryTime_(al.Timestamp)}</span>
+                                <div class="bh-header">${fmtBedHistoryTime_(al.Timestamp)} \u2014 ${(al.Alert_Type || 'Event').replace(/_/g, ' ')}</div>
+                                <div class="bh-kv"><span class="bh-kv-label">Type:</span><span class="bh-badge ${category.badgeClass}">${category.label}</span></div>
+                                <div class="bh-details">
+                                    <span class="bh-kv-label">Details:</span>
+                                    <div class="bh-detail-line">${al.Message || 'No message recorded.'}</div>
                                 </div>
-                                <div class="bh-title">${(al.Alert_Type || 'Event').replace(/_/g, ' ')}</div>
-                                ${al.Message ? `<div class="bh-detail-line">${al.Message}</div>` : ''}
                             </div>`;
                         return;
                     }
@@ -1385,31 +1404,27 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                     if(a.Activity_Type === 'COHORT_STATE_CHANGE'){
                         html += `
                             <div class="bh-row">
-                                <div class="bh-row-top">
-                                    <span class="bh-badge ${category.badgeClass}">${category.label}</span>
-                                    <span class="bh-meta">${fmtBedHistoryTime_(a.Timestamp)}</span>
+                                <div class="bh-header">${fmtBedHistoryTime_(a.Timestamp)} \u2014 Cohort Planting Initialized</div>
+                                <div class="bh-kv"><span class="bh-kv-label">Actor:</span><span>${a.Worker_ID || 'Unknown'}</span></div>
+                                <div class="bh-kv"><span class="bh-kv-label">Type:</span><span class="bh-badge ${category.badgeClass}">${category.label}</span></div>
+                                <div class="bh-details">
+                                    <span class="bh-kv-label">Details:</span>
+                                    <div class="bh-detail-line">${(details.from || '?')} \u2192 ${(details.to || '?')}${a.Cohort_ID ? ' \u00b7 ' + a.Cohort_ID : ''}</div>
                                 </div>
-                                <div class="bh-title">Cohort Planting Initialized</div>
-                                <div class="bh-detail-line">${(details.from || '?')} \u2192 ${(details.to || '?')}${a.Cohort_ID ? ' \u00b7 ' + a.Cohort_ID : ''}</div>
-                                <div class="bh-meta" style="margin-top:4px;">${a.Worker_ID || ''}</div>
                             </div>`;
                         return;
                     }
 
-                    const meta = [
-                        (details.elapsed_minutes !== undefined ? details.elapsed_minutes + ' min' : ''),
-                        (details.logged_quantity !== undefined && details.logged_quantity !== 0 ? details.logged_quantity + (details.unit ? ' ' + details.unit : '') : '')
-                    ].filter(Boolean).join(' \u00b7 ');
                     const detailLines = bedHistoryDetailLines_(details);
                     html += `
                         <div class="bh-row">
-                            <div class="bh-row-top">
-                                <span class="bh-badge ${category.badgeClass}">${category.label}</span>
-                                <span class="bh-meta">${fmtBedHistoryTime_(a.Timestamp)}</span>
+                            <div class="bh-header">${fmtBedHistoryTime_(a.Timestamp)} \u2014 ${labelForActivity_(a.Activity_Type)}</div>
+                            <div class="bh-kv"><span class="bh-kv-label">Actor:</span><span>${a.Worker_ID || 'Unknown'}</span></div>
+                            <div class="bh-kv"><span class="bh-kv-label">Type:</span><span class="bh-badge ${category.badgeClass}">${category.label}</span></div>
+                            <div class="bh-details">
+                                <span class="bh-kv-label">Details:</span>
+                                ${detailLines.map(l => `<div class="bh-detail-line">${l}</div>`).join('')}
                             </div>
-                            <div class="bh-title">${labelForActivity_(a.Activity_Type)}</div>
-                            <div class="bh-meta">${a.Worker_ID || ''}${meta ? ' \u00b7 ' + meta : ''}</div>
-                            ${detailLines.map(l => `<div class="bh-detail-line">${l}</div>`).join('')}
                         </div>`;
                 });
             }
@@ -1436,10 +1451,15 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             return { LOW: 'bh-badge-low', MEDIUM: 'bh-badge-medium', HIGH: 'bh-badge-high', CRITICAL: 'bh-badge-critical' }[sev] || 'bh-badge-low';
         }
 
+        // Drops seconds and uses a "Sep 3, 2026, 11:32 AM" style instead of
+        // toLocaleString()'s default (which included seconds and a bare
+        // numeric M/D/YYYY date) -- purely a formatting change, not a new data
+        // source.
         function fmtBedHistoryTime_(ts){
             if(!ts) return '';
             const d = new Date(ts);
-            return isNaN(d.getTime()) ? '' : d.toLocaleString();
+            if(isNaN(d.getTime())) return '';
+            return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
         }
 
         function bucketLabel_(bucket){
