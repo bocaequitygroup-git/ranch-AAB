@@ -159,6 +159,17 @@
         .bh-badge-medium { background: rgba(201,162,39,0.18); color: #e8d382; }
         .bh-badge-high { background: rgba(251,140,0,0.18); color: #ffb74d; }
         .bh-badge-critical { background: rgba(229,57,53,0.18); color: #ef9a9a; }
+        /* Event-type badges (2026-09-05) -- one of Bed Activity / Bed
+           Maintenance / Lifecycle Transition / Dispatch Event / Exception &
+           Alert, per eventCategory_(). Distinct palette from the scouting
+           severity badges above so the two badge families read as separate
+           concepts at a glance. */
+        .bh-badge-type-activity { background: rgba(255,255,255,0.1); color: var(--text-muted); }
+        .bh-badge-type-maintenance { background: rgba(129,199,132,0.18); color: #a5d6a7; }
+        .bh-badge-type-lifecycle { background: rgba(100,181,246,0.18); color: #90caf9; }
+        .bh-badge-type-dispatch { background: rgba(186,104,200,0.18); color: #ce93d8; }
+        .bh-badge-type-exception { background: rgba(229,57,53,0.18); color: #ef9a9a; }
+        .bh-detail-line { margin-top: 4px; }
         #bed-panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 40; display:none; }
         #bed-panel-backdrop.open { display:block; }
 
@@ -1237,6 +1248,70 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             }
         }
 
+        // Event-type classification for the Bed History drawer (2026-09-05).
+        // Built from data that already exists on the row -- no new field
+        // required: alerts are ALERTS rows (already merged in above), everything
+        // else is a FIELD_ACTIVITY_LOG row whose Activity_Type either matches
+        // ActivityTaxonomy.gs's 'Crop Maintenance' group (Bed Maintenance) or
+        // doesn't (Bed Activity), except the COHORT_STATE_CHANGE marker rows
+        // (Lifecycle Transition -- see lockBedDob_/updateCohortState_,
+        // DashboardAPI.gs/Database.gs). Not every ALERTS row is actually a
+        // dispatch -- triggerAlert() also carries cold-chain violations,
+        // harvest-gate overrides, and worker-reported exception/scouting
+        // alerts (checked against every triggerAlert() call site in
+        // Code_main.gs/Database.gs) -- so those get their own bucket rather
+        // than being mislabeled as dispatch events just to force a 4-way split.
+        function eventCategory_(entry){
+            if(entry.kind === 'alert'){
+                const alertType = entry.raw.Alert_Type || '';
+                if(alertType === 'TASK_DISPATCHED' || alertType === 'SESSION_REASSIGNED'){
+                    return { label: 'Dispatch Event', badgeClass: 'bh-badge-type-dispatch' };
+                }
+                return { label: 'Exception / Alert', badgeClass: 'bh-badge-type-exception' };
+            }
+            const a = entry.raw;
+            if(a.Activity_Type === 'COHORT_STATE_CHANGE'){
+                return { label: 'Lifecycle Transition', badgeClass: 'bh-badge-type-lifecycle' };
+            }
+            const maintenanceTypes = ((DATA && DATA.taxonomy && DATA.taxonomy.groups) || {})['Crop Maintenance'] || [];
+            if(maintenanceTypes.indexOf(a.Activity_Type) !== -1){
+                return { label: 'Bed Maintenance', badgeClass: 'bh-badge-type-maintenance' };
+            }
+            return { label: 'Bed Activity', badgeClass: 'bh-badge-type-activity' };
+        }
+
+        // Renders whatever real, structured detail actually exists on a
+        // completed FIELD_ACTIVITY_LOG row's Details_JSON, beyond the basic
+        // elapsed-time/quantity line. Deliberately does NOT invent narrative
+        // text ("pulled irrigation line...") -- checked WorkerApp.html's
+        // completion call (appCompleteSession) directly, and it only ever
+        // sends { sessionId, quantity } to complete-session (plus a
+        // fertilization object for that one activity type) -- there's no
+        // free-text notes field captured on a routine completion for this to
+        // read. What IS real and was previously dropped from this card:
+        // the fertilization payload, exception linkage, and (as of the
+        // archiveSessionRow_ fix, Database.gs) the bed_turnover side effect.
+        function bedHistoryDetailLines_(details){
+            const lines = [];
+            if(details.fertilization){
+                const f = details.fertilization;
+                const bits = [f.application_rate, f.unit_of_measure].filter(Boolean).join(' ');
+                lines.push('Fertilization: ' + [bits, f.brand_name, f.application_method ? '(' + f.application_method + ')' : ''].filter(Boolean).join(' \u00b7 '));
+            }
+            if(details.exception_flag){
+                lines.push('Exception flagged during session: ' + (details.exception_type || 'UNSPECIFIED'));
+            }
+            if(details.linked_exception_id){
+                lines.push('Resolves exception ' + details.linked_exception_id + (details.resolution_type ? ' (' + details.resolution_type + ')' : ''));
+            }
+            if(details.bed_turnover){
+                const bt = details.bed_turnover;
+                const clearedList = (bt.cleared || []).filter(f => f !== 'Current_State');
+                lines.push('Bed advanced ' + bt.from + ' \u2192 ' + bt.to + (clearedList.length ? ' \u00b7 cleared ' + clearedList.join(', ') : ''));
+            }
+            return lines;
+        }
+
         // Bed History body markup -- mirrors WorkerApp.html's renderBedHistory()
         // (recentActivities/latestScoutFinding shape from getBedHistory()), but
         // built client-side here from DATA.field_activity_log/scout_finding/alerts
@@ -1251,12 +1326,13 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
         // events (TASK_DISPATCHED, SESSION_REASSIGNED, ...) are triggerAlert()
         // calls that land in ALERTS, never in FIELD_ACTIVITY_LOG, so without this
         // merge a bed's own active dispatch never appeared in its own history.
-        // Also special-cases Activity_Type === 'COHORT_STATE_CHANGE' -- the
-        // audit row lockBedDob_ (DashboardAPI.gs) now appends the moment a bed
-        // actually flips Rest -> Planted -- rendering it as a lifecycle
-        // transition line instead of running it through labelForActivity_ (which
-        // has no taxonomy label for a non-canonical marker type and would just
-        // print the raw string).
+        // Each row now also carries an explicit event-type badge
+        // (eventCategory_) and, for activity rows, whatever real contextual
+        // detail Details_JSON actually holds (bedHistoryDetailLines_) --
+        // previously this card dropped everything except elapsed time and
+        // quantity, silently discarding fertilization detail, exception
+        // linkage, and bed-turnover side effects that were being recorded
+        // (or, for bed_turnover, now newly recorded -- see Database.gs).
         function renderBedHistoryBody_(activities, scout, alerts){
             const hasAlerts = alerts && alerts.length;
             if((!activities || !activities.length) && !scout && !hasAlerts){
@@ -1287,47 +1363,53 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             if(merged.length){
                 html += `<div class="panel-section-title">Recent Activity</div>`;
                 merged.forEach(entry => {
+                    const category = eventCategory_(entry);
+
                     if(entry.kind === 'alert'){
                         const al = entry.raw;
                         html += `
                             <div class="bh-row">
                                 <div class="bh-row-top">
-                                    <span class="bh-title">${(al.Alert_Type || 'Event').replace(/_/g, ' ')}</span>
+                                    <span class="bh-badge ${category.badgeClass}">${category.label}</span>
+                                    <span class="bh-meta">${fmtBedHistoryTime_(al.Timestamp)}</span>
                                 </div>
-                                ${al.Message ? `<div>${al.Message}</div>` : ''}
-                                <div class="bh-meta">${fmtBedHistoryTime_(al.Timestamp)}</div>
+                                <div class="bh-title">${(al.Alert_Type || 'Event').replace(/_/g, ' ')}</div>
+                                ${al.Message ? `<div class="bh-detail-line">${al.Message}</div>` : ''}
                             </div>`;
                         return;
                     }
 
                     const a = entry.raw;
+                    const details = parseDetailsJson_(a.Details_JSON);
+
                     if(a.Activity_Type === 'COHORT_STATE_CHANGE'){
-                        const details = parseDetailsJson_(a.Details_JSON);
                         html += `
                             <div class="bh-row">
                                 <div class="bh-row-top">
-                                    <span class="bh-title">Cohort Planting Initialized</span>
-                                    <span class="bh-meta">${a.Worker_ID || ''}</span>
+                                    <span class="bh-badge ${category.badgeClass}">${category.label}</span>
+                                    <span class="bh-meta">${fmtBedHistoryTime_(a.Timestamp)}</span>
                                 </div>
-                                <div>${(details.from || '?')} \u2192 ${(details.to || '?')}${a.Cohort_ID ? ' \u00b7 ' + a.Cohort_ID : ''}</div>
-                                <div class="bh-meta">${fmtBedHistoryTime_(a.Timestamp)}</div>
+                                <div class="bh-title">Cohort Planting Initialized</div>
+                                <div class="bh-detail-line">${(details.from || '?')} \u2192 ${(details.to || '?')}${a.Cohort_ID ? ' \u00b7 ' + a.Cohort_ID : ''}</div>
+                                <div class="bh-meta" style="margin-top:4px;">${a.Worker_ID || ''}</div>
                             </div>`;
                         return;
                     }
 
-                    const details = parseDetailsJson_(a.Details_JSON);
                     const meta = [
                         (details.elapsed_minutes !== undefined ? details.elapsed_minutes + ' min' : ''),
                         (details.logged_quantity !== undefined && details.logged_quantity !== 0 ? details.logged_quantity + (details.unit ? ' ' + details.unit : '') : '')
                     ].filter(Boolean).join(' \u00b7 ');
+                    const detailLines = bedHistoryDetailLines_(details);
                     html += `
                         <div class="bh-row">
                             <div class="bh-row-top">
-                                <span class="bh-title">${labelForActivity_(a.Activity_Type)}</span>
-                                <span class="bh-meta">${a.Worker_ID || ''}</span>
+                                <span class="bh-badge ${category.badgeClass}">${category.label}</span>
+                                <span class="bh-meta">${fmtBedHistoryTime_(a.Timestamp)}</span>
                             </div>
-                            ${meta ? `<div class="bh-meta">${meta}</div>` : ''}
-                            <div class="bh-meta">${fmtBedHistoryTime_(a.Timestamp)}</div>
+                            <div class="bh-title">${labelForActivity_(a.Activity_Type)}</div>
+                            <div class="bh-meta">${a.Worker_ID || ''}${meta ? ' \u00b7 ' + meta : ''}</div>
+                            ${detailLines.map(l => `<div class="bh-detail-line">${l}</div>`).join('')}
                         </div>`;
                 });
             }
