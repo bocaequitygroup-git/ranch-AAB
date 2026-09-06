@@ -1147,8 +1147,25 @@
             const pendingCropLabel = pendingCropId ? (cropRefIndex[pendingCropId] || pendingCropId) : '';
 
             let html = `<h2>${bed.Bed_ID}</h2><div class="sub">${bed.Block_ID || ''} · ${bed.Zone_Type || ''}</div>`;
+            // FIX 2026-09-06: this used to read `${bed.Current_State} Pending
+            // Verification` -- e.g. literally "Rest Pending Verification" --
+            // while the "Worker on this bed" row a few lines down said
+            // "Lisa — Seeding (ACTIVE)". Both were technically accurate
+            // (BED_MASTER.Current_State really is still Rest until Verify &
+            // Lock DOB runs) but together they read as two contradictory
+            // truths to a founder glancing at the card: is it resting, or is
+            // someone seeding it right now? The header is the one line
+            // people scan first, so it needs to state what's actually
+            // happening in the field, not the stale ledger value. When a
+            // pending (unverified) session is active, the header now names
+            // the in-progress activity itself instead of the bed's rest
+            // state -- the "Unverified" tag still carries the "not yet
+            // locked in" signal, just without implying the bed is idle.
+            const pendingActivityLabel = pendingSession
+                ? (labelForActivity_(pendingSession.Activity_Type) || pendingSession.Activity_Type || 'Activity')
+                : '';
             html += row('State', pendingSession
-                ? `${bed.Current_State} <span class="pending-tag">Pending Verification</span>`
+                ? `${pendingActivityLabel} In Progress <span class="pending-tag">Unverified</span>`
                 : bed.Current_State);
             // bed.Current_Crop/Current_Cohort_ID are sanitized server-side now
             // (handleGetManagerTodayView_, DashboardAPI.gs) -- both come back
@@ -1181,30 +1198,24 @@
             // ground) is preferred over BED_MASTER's Last_Planting_Date for
             // the same reason; falls back to the bed's own field so an
             // unplanted/no-cohort bed still shows whatever it has.
+            const cohort = bed.Current_Cohort_ID ? cohortIndex[bed.Current_Cohort_ID] : null;
+            const lastPlanting = (cohort && cohort.Actual_Planting_Date) || bed.Last_Planting_Date || '—';
 
+            // Only project a harvest date once the bed is out of Rest/Prep
+            // AND has a real planting date -- otherwise this would show a
+            // projected date for a bed that's still just scheduled/pending,
+            // implying more certainty than exists yet.
+            const bedState = String(bed.Current_State || bed.State || '').toUpperCase();
+            const isPlanted = bedState !== 'REST' && bedState !== 'PREP' && lastPlanting !== '—';
 
-          
-
-// ✅ CORRECTED CODE:
-let cohort = bed.Current_Cohort_ID ? cohortIndex[bed.Current_Cohort_ID] : null;
-let lastPlanting = (cohort && cohort.Actual_Planting_Date) || bed.Last_Planting_Date || '—';
-
-// Check if bed is actively planted before displaying target harvest dates
-const bedState = String(bed.Current_State || bed.State || '').toUpperCase();
-const isPlanted = bedState !== 'REST' && bedState !== 'PREP' && lastPlanting !== '—';
-
-let expectedHarvest = '—';
-if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
-    const rawDate = cohort.Expected_Harvest_Date;
-    const d = new Date(rawDate);
-    expectedHarvest = !isNaN(d.getTime()) 
-        ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        : rawDate;
-}
-
-
-
-
+            let expectedHarvest = '—';
+            if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
+                const rawDate = cohort.Expected_Harvest_Date;
+                const d = new Date(rawDate);
+                expectedHarvest = !isNaN(d.getTime())
+                    ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : rawDate;
+            }
 
 
 
