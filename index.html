@@ -579,6 +579,12 @@
         let DATA = null;          // { bed_master, cohort_master, exception_log, daily_queue, bed_ids_by_cohort, field_live_session, ... } once live
         let bedIndex = {};        // Bed_ID -> bed_master row
         let cohortIndex = {};     // Cohort_ID -> cohort_master row
+        // Crop_ID -> Crop_Name, for labeling a session's crop in the bed panel
+        // "Worker on this bed" line (see openBedPanel's live-session block,
+        // added alongside the pending-cohort-verification fix). DATA.crop_reference
+        // is already loaded in bulk by handleGetManagerTodayView_ -- this is just
+        // never-before-indexed, same situation cohortIndex was in.
+        let cropRefIndex = {};
         let openExceptionsByBed = {}; // Bed_ID -> [exception rows]
         let activityLogByBed = {}; // Bed_ID -> [FIELD_ACTIVITY_LOG rows, most-recent-first, capped at 10] -- Bed History drawer
         let latestScoutFindingByBed = {}; // Bed_ID -> single latest SCOUT_FINDING row -- Bed History drawer
@@ -730,6 +736,9 @@
             // is the one that's actually kept up to date.
             cohortIndex = {};
             (DATA.cohort_master || []).forEach(c => { cohortIndex[c.Cohort_ID] = c; });
+
+            cropRefIndex = {};
+            (DATA.crop_reference || []).forEach(c => { cropRefIndex[c.Crop_ID] = c.Crop_Name || c.Crop_ID; });
 
             openExceptionsByBed = {};
             (DATA.exception_log || []).forEach(e => {
@@ -1150,8 +1159,38 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             // Status -- pull the same rows here instead of re-deriving
             // from the boolean set.
             const sessionsOnBed = findOpenSessionsForBed_(bedId);
+            // FIX (halted-fix follow-up -- SOP spec's "Board Visualization"
+            // requirement): a worker self-starting a planting activity on a
+            // Rest/Prep bed mints its own pending Cohort_ID/Crop_ID directly
+            // onto the FIELD_LIVE_SESSION row (resolveSessionCohortAndCrop_,
+            // Database.gs) -- but bed.Current_Cohort_ID/Crop_Name above are
+            // deliberately sanitized blank for a Rest/Prep bed
+            // (resolveBedDisplayFields_), so until now this panel showed a
+            // worker's name with NO indication of what they were actually
+            // planting, or that it hadn't been manager-verified yet. Reads
+            // the session's own Cohort_ID/Crop_ID (not the bed's) so this
+            // works precisely for the case the bed-level fields hide.
+            // The "Unverified" badge checks openExceptionsByBed for this
+            // bed's OPEN exceptions (already fetched above as `exceptions`)
+            // for an UNVERIFIED_PLANTING row tied to this exact Session_ID --
+            // the same signal logPendingCohortException_ (Database.gs) writes
+            // and autoResolvePendingCohortException_ (DashboardAPI.gs) clears
+            // at Verify & Lock DOB, so the badge disappears the moment that
+            // happens with no separate bookkeeping here.
             const workerSummary = sessionsOnBed.length
-                ? sessionsOnBed.map(s => `${s.Worker_ID} — ${s.Activity_Type || 'Activity'} (${s.Status})`).join('<br>')
+                ? sessionsOnBed.map(s => {
+                    const sessionCohort = s.Cohort_ID ? cohortIndex[s.Cohort_ID] : null;
+                    const sessionCropId = s.Crop_ID || (sessionCohort && sessionCohort.Crop_ID) || '';
+                    const cropLabel = sessionCropId ? (cropRefIndex[sessionCropId] || sessionCropId) : '';
+                    const cohortLabel = s.Cohort_ID ? ` · ${s.Cohort_ID}` : '';
+                    const cropCohortSuffix = cropLabel ? ` — ${cropLabel}${cohortLabel}` : '';
+                    const isUnverifiedPlanting = exceptions.some(e =>
+                        e.Session_ID === s.Session_ID && e.Exception_Type === 'UNVERIFIED_PLANTING');
+                    const badge = isUnverifiedPlanting
+                        ? ' <span class="queue-chip queue-chip-MUST_DO">Unverified</span>'
+                        : '';
+                    return `${s.Worker_ID} — ${s.Activity_Type || 'Activity'} (${s.Status})${cropCohortSuffix}${badge}`;
+                }).join('<br>')
                 : 'No open session';
             html += row('Worker on this bed', workerSummary);
 
@@ -1550,6 +1589,26 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             ).join('')}</div>`;
         }
 
+        // Crop chips for the "New Cohort" step of the dispatch form -- same
+        // chip-grid pattern as activityChipsHtml_/workerChipsHtml_ above.
+        // Sourced from DATA.crop_reference (already loaded in bulk by
+        // get-manager-today-view, see DashboardAPI.gs), not a second round
+        // trip.
+        function cropChipsHtml_(crops){
+            if(!crops || !crops.length){
+                return '<div class="sub">Crop reference not loaded -- reconnect to refresh.</div>';
+            }
+            return `<div class="chip-row">${crops.map(c =>
+                `<button type="button" class="chip" data-crop="${c.Crop_ID}">${c.Crop_Name || c.Crop_ID}</button>`
+            ).join('')}</div>`;
+        }
+
+        function todayIsoDate_(){
+            const d = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+        }
+
         // Single-select behavior for a chip container: tapping a chip
         // highlights it and clears any other selection in the same
         // container, then hands the chosen chip to the caller.
@@ -1580,6 +1639,16 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
         // handleGetOpenSessions_), so a dispatched-but-not-started task still
         // shows up right away in the worker's My Active Sessions -- just
         // labeled ASSIGNED instead of ACTIVE until they start it.
+        // 2026-09-05: added the "New Cohort" step below. A planting activity
+        // (Seeding/Transplanting/Replanting -- DATA.taxonomy.plantingActivityTypes)
+        // dispatched onto a Rest/Prep bed (DATA.taxonomy.bedUnassignedStates)
+        // is rejected server-side by resolveSessionCohortAndCrop_
+        // (Database.gs) unless a real cohortId is supplied -- that gate was
+        // already correct, but until now nothing in this form could ever
+        // supply one, so a manager had no way to actually unblock the exact
+        // case the server error told them to fix. This step calls the new
+        // create-cohort action to mint one, then carries its cohortId into
+        // dispatch-task same as any other field on this form.
         async function openDispatchForm_(bedId){
             if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
             const slot = document.getElementById('bed-actions-slot');
@@ -1588,6 +1657,11 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
 
             const choices = buildActivityChoices_();
             const workers = await getWorkers_();
+            const bed = bedIndex[bedId] || {};
+            const unassignedStates = (DATA.taxonomy && DATA.taxonomy.bedUnassignedStates) || [];
+            const plantingTypes = (DATA.taxonomy && DATA.taxonomy.plantingActivityTypes) || [];
+            const bedIsUnassigned = unassignedStates.indexOf(bed.Current_State) !== -1;
+            const cropRef = DATA.crop_reference || [];
 
             slot.innerHTML = `
                 <div class="inline-form" id="dispatch-form">
@@ -1595,6 +1669,17 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                     <div class="chip-grid" id="dispatch-activity-grid">${activityChipsHtml_(choices)}</div>
                     <div class="field-label">Assign to worker</div>
                     <div class="chip-grid" id="dispatch-worker-grid">${workerChipsHtml_(workers)}</div>
+                    <div id="dispatch-cohort-section" class="hidden">
+                        <div class="field-label">Cohort (this bed is ${bed.Current_State || 'Rest'} -- planting a crop here needs a cohort first)</div>
+                        <div class="chip-grid" id="dispatch-crop-grid">${cropChipsHtml_(cropRef)}</div>
+                        <div class="sub" style="margin:6px 0;">
+                            Planting date
+                            <input type="date" id="new-cohort-date" value="${todayIsoDate_()}" style="margin-left:6px;">
+                            <button type="button" class="btn" id="new-cohort-create-btn" disabled style="margin-left:8px;">Create Cohort</button>
+                        </div>
+                        <div class="form-error" id="new-cohort-error"></div>
+                        <div class="sub" id="new-cohort-confirm" style="margin-top:4px;"></div>
+                    </div>
                     <div class="sub" style="margin-top:12px;">Starts immediately for the worker — appears in their My Active Sessions right away.</div>
                     <div class="form-error" id="dispatch-form-error"></div>
                     <div class="inline-form-actions">
@@ -1603,14 +1688,28 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                     </div>
                 </div>`;
 
-            let selectedActivity = '', selectedWorker = '';
+            let selectedActivity = '', selectedWorker = '', selectedCrop = '', selectedCohortId = '';
             const submitBtn = document.getElementById('dispatch-submit-btn');
-            function refreshSubmitState(){ submitBtn.disabled = !(selectedActivity && selectedWorker); }
+            const cohortSection = document.getElementById('dispatch-cohort-section');
+            const cropGrid = document.getElementById('dispatch-crop-grid');
+            const dateInput = document.getElementById('new-cohort-date');
+            const createCohortBtn = document.getElementById('new-cohort-create-btn');
+
+            function needsCohort(){
+                return bedIsUnassigned && plantingTypes.indexOf(selectedActivity) !== -1;
+            }
+            function refreshSubmitState(){
+                submitBtn.disabled = !(selectedActivity && selectedWorker && (!needsCohort() || selectedCohortId));
+            }
+            function refreshCohortSection(){
+                cohortSection.classList.toggle('hidden', !needsCohort());
+                refreshSubmitState();
+            }
 
             if(choices && choices.length){
                 wireSingleSelectChips_(document.getElementById('dispatch-activity-grid'), (chip) => {
                     selectedActivity = chip.dataset.activity;
-                    refreshSubmitState();
+                    refreshCohortSection();
                 });
             }
             if(workers.length){
@@ -1619,6 +1718,34 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                     refreshSubmitState();
                 });
             }
+            if(cropRef.length){
+                wireSingleSelectChips_(cropGrid, (chip) => {
+                    selectedCrop = chip.dataset.crop;
+                    createCohortBtn.disabled = !selectedCrop;
+                });
+            }
+
+            createCohortBtn.onclick = async () => {
+                const managerId = SESSION && SESSION.workerId;
+                if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
+                const errEl = document.getElementById('new-cohort-error');
+                errEl.textContent = '';
+                createCohortBtn.disabled = true; createCohortBtn.textContent = 'Creating…';
+                try {
+                    const res = await callApi_(APPS_SCRIPT_URL, 'create-cohort', { managerId, cropId: selectedCrop, plantingDate: dateInput.value });
+                    if(!res.success) throw new Error(res.error || 'Server rejected the request.');
+                    selectedCohortId = res.cohortId;
+                    document.getElementById('new-cohort-confirm').textContent =
+                        'Cohort ' + res.cohortId + ' created (' + (res.cropName || selectedCrop) + ') -- ready to assign.';
+                    cropGrid.querySelectorAll('.chip').forEach(c => c.disabled = true);
+                    dateInput.disabled = true;
+                    createCohortBtn.textContent = 'Created';
+                    refreshSubmitState();
+                } catch(err){
+                    errEl.textContent = 'Could not create cohort: ' + err.message;
+                    createCohortBtn.disabled = false; createCohortBtn.textContent = 'Create Cohort';
+                }
+            };
 
             function closeForm(){
                 slot.innerHTML = '';
@@ -1634,7 +1761,9 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                 errEl.textContent = '';
                 submitBtn.disabled = true; submitBtn.textContent = 'Creating…';
                 try {
-                    const res = await callApi_(APPS_SCRIPT_URL, 'dispatch-task', { managerId, bedId, workerId: selectedWorker, activity: selectedActivity });
+                    const payload = { managerId, bedId, workerId: selectedWorker, activity: selectedActivity };
+                    if(selectedCohortId) payload.cohortId = selectedCohortId;
+                    const res = await callApi_(APPS_SCRIPT_URL, 'dispatch-task', payload);
                     if(!res.success) throw new Error(res.error || 'Server rejected the request.');
                     await connectLive(APPS_SCRIPT_URL, { silent: true });
                     openBedPanel(bedId);
