@@ -108,6 +108,20 @@
         .queue-item-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; }
         .queue-chip { font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px; text-transform:uppercase; letter-spacing:.03em; }
         .queue-chip.queue-chip-MUST_DO { background:rgba(229,57,53,0.18); color:#ff8a80; }
+        /* Pending-verification treatment for the bed panel's State/Crop/Cohort
+           rows -- a worker self-start mints a real crop/cohort onto the
+           session before any manager review, but BED_MASTER.Current_State
+           correctly stays Rest/Prep until Verify & Lock DOB (see
+           resolveBedDisplayFields_, DashboardAPI.gs). Previously that meant
+           this panel showed State: Rest / Crop: Unassigned / Cohort:
+           COH-UNASSIGNED with zero indication a planting was actually in
+           progress and awaiting review -- indistinguishable from a bed with
+           genuinely nothing happening on it. This surfaces the pending
+           value instead of hiding it, visually distinct (amber, not the
+           plain white/gray of a confirmed value) so it can never be
+           mistaken for a verified Crop/Cohort/State. */
+        .pending-value { color: var(--status-amber); font-weight: 600; }
+        .pending-tag { font-size: 10px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--status-amber); border: 1px solid var(--status-amber); border-radius: 3px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
         .queue-chip.queue-chip-ATTENTION { background:rgba(251,140,0,0.18); color:#ffcc80; }
         .queue-chip.queue-chip-ROUTINE { background:rgba(201,162,39,0.18); color:#e8d382; }
         .queue-cat { font-size:10.5px; color:var(--text-muted); }
@@ -1097,8 +1111,29 @@
                 return;
             }
 
+            // Pulled up ahead of the State/Crop/Cohort rows (previously computed
+            // much further down, only for the "Worker on this bed" line) so
+            // those rows can distinguish "genuinely nothing happening" from
+            // "a worker self-start is in progress and awaiting manager
+            // review" -- see the .pending-value/.pending-tag CSS comment
+            // above for why this exists. findOpenSessionsForBed_ returns the
+            // live FIELD_LIVE_SESSION row(s); a pending planting is any open
+            // session whose Session_ID has a matching OPEN
+            // UNVERIFIED_PLANTING row in openExceptionsByBed (the same
+            // signal logPendingCohortException_ writes and
+            // autoResolvePendingCohortException_ clears at Verify & Lock
+            // DOB -- see the fuller comment on workerSummary below).
+            const sessionsOnBed = findOpenSessionsForBed_(bedId);
+            const pendingSession = sessionsOnBed.find(s => exceptions.some(e =>
+                e.Session_ID === s.Session_ID && e.Exception_Type === 'UNVERIFIED_PLANTING'));
+            const pendingCohort = pendingSession && pendingSession.Cohort_ID ? cohortIndex[pendingSession.Cohort_ID] : null;
+            const pendingCropId = pendingSession ? (pendingSession.Crop_ID || (pendingCohort && pendingCohort.Crop_ID) || '') : '';
+            const pendingCropLabel = pendingCropId ? (cropRefIndex[pendingCropId] || pendingCropId) : '';
+
             let html = `<h2>${bed.Bed_ID}</h2><div class="sub">${bed.Block_ID || ''} · ${bed.Zone_Type || ''}</div>`;
-            html += row('State', bed.Current_State);
+            html += row('State', pendingSession
+                ? `${bed.Current_State} <span class="pending-tag">Pending Verification</span>`
+                : bed.Current_State);
             // bed.Current_Crop/Current_Cohort_ID are sanitized server-side now
             // (handleGetManagerTodayView_, DashboardAPI.gs) -- both come back
             // blank/'COH-UNASSIGNED' whenever the bed is Rest/Prep, matching
@@ -1107,8 +1142,20 @@
             // a past cycle or an unplanted forward reservation. Crop_Name
             // (also added server-side) is the human-readable label -- shows
             // 'Unassigned' rather than this dash for a bed with no crop.
-            html += row('Crop', bed.Crop_Name || 'Unassigned');
-            html += row('Cohort', bed.Current_Cohort_ID || 'COH-UNASSIGNED');
+            //
+            // When a pending self-start exists, show its crop/cohort instead
+            // of the sanitized blank -- marked pending (amber, "unverified"/
+            // "Pending Verification" tag) so it reads as provisional, never
+            // as a confirmed value. This is what the worker actually minted
+            // (resolveSessionCohortAndCrop_, Database.gs); hiding it here
+            // was the source of the Rest/—/— reading as "nothing happening"
+            // when a founder pulled up this exact bed mid-session.
+            html += row('Crop', pendingSession
+                ? `<span class="pending-value">${pendingCropLabel || pendingCropId}</span><span class="pending-tag">Unverified</span>`
+                : (bed.Crop_Name || 'Unassigned'));
+            html += row('Cohort', pendingSession
+                ? `<span class="pending-value">${pendingSession.Cohort_ID}</span><span class="pending-tag">Pending Verification</span>`
+                : (bed.Current_Cohort_ID || 'COH-UNASSIGNED'));
 
             // Expected_Harvest_Date lives on COHORT_MASTER, not BED_MASTER --
             // BED_MASTER's own column of the same name is never written by
@@ -1158,7 +1205,8 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             // the Reassign form below), which do carry Worker_ID/Activity_Type/
             // Status -- pull the same rows here instead of re-deriving
             // from the boolean set.
-            const sessionsOnBed = findOpenSessionsForBed_(bedId);
+            // (sessionsOnBed is now computed once, up near the State/Crop/
+            // Cohort rows above, and reused here -- see the comment there.)
             // FIX (halted-fix follow-up -- SOP spec's "Board Visualization"
             // requirement): a worker self-starting a planting activity on a
             // Rest/Prep bed mints its own pending Cohort_ID/Crop_ID directly
@@ -1177,6 +1225,9 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             // and autoResolvePendingCohortException_ (DashboardAPI.gs) clears
             // at Verify & Lock DOB, so the badge disappears the moment that
             // happens with no separate bookkeeping here.
+            // (sessionsOnBed itself is now computed once, up above, so the
+            // State/Crop/Cohort rows and this line stay in sync off the
+            // same read -- no second findOpenSessionsForBed_ call here.)
             const workerSummary = sessionsOnBed.length
                 ? sessionsOnBed.map(s => {
                     const sessionCohort = s.Cohort_ID ? cohortIndex[s.Cohort_ID] : null;
