@@ -1114,18 +1114,34 @@
             // Pulled up ahead of the State/Crop/Cohort rows (previously computed
             // much further down, only for the "Worker on this bed" line) so
             // those rows can distinguish "genuinely nothing happening" from
-            // "a worker self-start is in progress and awaiting manager
-            // review" -- see the .pending-value/.pending-tag CSS comment
-            // above for why this exists. findOpenSessionsForBed_ returns the
-            // live FIELD_LIVE_SESSION row(s); a pending planting is any open
-            // session whose Session_ID has a matching OPEN
-            // UNVERIFIED_PLANTING row in openExceptionsByBed (the same
-            // signal logPendingCohortException_ writes and
-            // autoResolvePendingCohortException_ clears at Verify & Lock
-            // DOB -- see the fuller comment on workerSummary below).
+            // "a planting is in progress and not yet verified" -- see the
+            // .pending-value/.pending-tag CSS comment above for why this
+            // exists.
+            //
+            // REVISED 2026-09-06: originally kept "pending" tied to whether
+            // an OPEN UNVERIFIED_PLANTING exception existed for the session.
+            // That was wrong -- live data proved it: a manager can click
+            // "Resolve exception" without ever running Verify & Lock DOB
+            // (they're two independent actions, nothing forces the second
+            // to follow the first), which flips the exception to RESOLVED
+            // while the cohort itself is still fully unverified
+            // (Current_State still Rest, no Actual_Planting_Date). The old
+            // check would then silently stop showing the pending tags --
+            // worse than the original bug, since now there's no exception
+            // AND no panel indication either. The real source of truth for
+            // "has this planting actually been verified" is the cohort's
+            // own Actual_Planting_Date (set only by lockCohortPlanting_,
+            // DashboardAPI.gs, at Verify & Lock DOB) -- so this now checks
+            // that directly instead of going through exception status.
+            // Applies to either path in the dual-path model (self-start OR
+            // manager-dispatch): both leave a cohort unlocked until Verify
+            // & Lock DOB, so both correctly read as pending here.
             const sessionsOnBed = findOpenSessionsForBed_(bedId);
-            const pendingSession = sessionsOnBed.find(s => exceptions.some(e =>
-                e.Session_ID === s.Session_ID && e.Exception_Type === 'UNVERIFIED_PLANTING'));
+            const pendingSession = sessionsOnBed.find(s => {
+                if(!s.Cohort_ID) return false;
+                const c = cohortIndex[s.Cohort_ID];
+                return c && !c.Actual_Planting_Date;
+            });
             const pendingCohort = pendingSession && pendingSession.Cohort_ID ? cohortIndex[pendingSession.Cohort_ID] : null;
             const pendingCropId = pendingSession ? (pendingSession.Crop_ID || (pendingCohort && pendingCohort.Crop_ID) || '') : '';
             const pendingCropLabel = pendingCropId ? (cropRefIndex[pendingCropId] || pendingCropId) : '';
@@ -1218,13 +1234,11 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             // planting, or that it hadn't been manager-verified yet. Reads
             // the session's own Cohort_ID/Crop_ID (not the bed's) so this
             // works precisely for the case the bed-level fields hide.
-            // The "Unverified" badge checks openExceptionsByBed for this
-            // bed's OPEN exceptions (already fetched above as `exceptions`)
-            // for an UNVERIFIED_PLANTING row tied to this exact Session_ID --
-            // the same signal logPendingCohortException_ (Database.gs) writes
-            // and autoResolvePendingCohortException_ (DashboardAPI.gs) clears
-            // at Verify & Lock DOB, so the badge disappears the moment that
-            // happens with no separate bookkeeping here.
+            // The "Unverified" badge now uses the same cohort-based check as
+            // pendingSession above (Actual_Planting_Date unset), not exception
+            // status -- see the REVISED 2026-09-06 comment above for why open-
+            // exception status alone isn't a reliable signal (a resolved
+            // exception doesn't mean the cohort got verified).
             // (sessionsOnBed itself is now computed once, up above, so the
             // State/Crop/Cohort rows and this line stay in sync off the
             // same read -- no second findOpenSessionsForBed_ call here.)
@@ -1235,8 +1249,7 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                     const cropLabel = sessionCropId ? (cropRefIndex[sessionCropId] || sessionCropId) : '';
                     const cohortLabel = s.Cohort_ID ? ` · ${s.Cohort_ID}` : '';
                     const cropCohortSuffix = cropLabel ? ` — ${cropLabel}${cohortLabel}` : '';
-                    const isUnverifiedPlanting = exceptions.some(e =>
-                        e.Session_ID === s.Session_ID && e.Exception_Type === 'UNVERIFIED_PLANTING');
+                    const isUnverifiedPlanting = !!(sessionCohort && !sessionCohort.Actual_Planting_Date);
                     const badge = isUnverifiedPlanting
                         ? ' <span class="queue-chip queue-chip-MUST_DO">Unverified</span>'
                         : '';
