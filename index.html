@@ -1282,17 +1282,29 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
                     // version of this panel read e.Message, which is always
                     // undefined, and silently fell back to just the exception
                     // type with no detail. Fixed to read e.Notes.
+                    // Fix #2 (2026-09-06): the inline form now has a second act.
+                    // First "Confirm resolve" click always tries the plain
+                    // resolve-exception route (auto-chains into Verify & Lock
+                    // DOB for UNVERIFIED_PLANTING when there's a completed,
+                    // unverified planting activity to verify -- see
+                    // resolveUnverifiedPlantingException_, Code_main.gs). Only
+                    // if that comes back requiresForceDismiss does this form
+                    // switch into a distinct "dismiss without verifying" mode
+                    // (resolve-hint-*/resolve-force-* below), which requires a
+                    // note and never lands as a bare "Resolved."
                     html += `
                         <div class="exception">
                             <strong>${e.Exception_Type || 'Exception'}${e.Severity ? ' (' + e.Severity + ')' : ''}</strong><br>
                             ${e.Notes || 'No notes recorded.'}
                             <div style="margin-top:8px;"><button class="btn btn-resolve" data-exception-id="${e.Exception_ID}">Resolve</button></div>
                             <div class="inline-form hidden" id="resolve-form-${e.Exception_ID}">
-                                <div class="field-label">Resolution notes (optional)</div>
+                                <div class="field-label" id="resolve-label-${e.Exception_ID}">Resolution notes (optional)</div>
+                                <div class="form-hint hidden" id="resolve-hint-${e.Exception_ID}" style="color:#8A3A1D; margin-bottom:6px;"></div>
                                 <textarea id="resolve-notes-${e.Exception_ID}" placeholder="What was done to resolve this?"></textarea>
                                 <div class="form-error" id="resolve-error-${e.Exception_ID}"></div>
                                 <div class="inline-form-actions">
                                     <button class="btn btn-primary" data-resolve-submit="${e.Exception_ID}">Confirm resolve</button>
+                                    <button class="btn hidden" data-resolve-force="${e.Exception_ID}" style="background:#A8502F;color:#fff;">Dismiss without verifying</button>
                                     <button class="btn" data-resolve-cancel="${e.Exception_ID}">Cancel</button>
                                 </div>
                             </div>
@@ -1341,7 +1353,11 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
             });
             body.querySelectorAll('[data-resolve-submit]').forEach(btn => {
                 const exceptionId = btn.dataset.resolveSubmit;
-                btn.onclick = () => resolveExceptionFromPanel_(exceptionId, bedId);
+                btn.onclick = () => resolveExceptionFromPanel_(exceptionId, bedId, false);
+            });
+            body.querySelectorAll('[data-resolve-force]').forEach(btn => {
+                const exceptionId = btn.dataset.resolveForce;
+                btn.onclick = () => resolveExceptionFromPanel_(exceptionId, bedId, true);
             });
             document.getElementById('dispatch-task-btn').onclick = () => openDispatchForm_(bedId);
             const reassignBtn = document.getElementById('reassign-worker-btn');
@@ -1922,16 +1938,55 @@ if (isPlanted && cohort && cohort.Expected_Harvest_Date) {
         // Resolve now happens inline on the exception card itself (see the
         // hidden .inline-form injected per-exception in openBedPanel above)
         // instead of a prompt() for resolution notes.
-        async function resolveExceptionFromPanel_(exceptionId, bedId){
+        //
+        // Fix #2 (2026-09-06): forceDismiss=false (the "Confirm resolve"
+        // button) always tries the plain route first -- for a non-
+        // UNVERIFIED_PLANTING exception, or an UNVERIFIED_PLANTING one
+        // whose planting activity is already completed, this is a normal
+        // resolve (or an auto-chained Verify & Lock DOB) and finishes here.
+        // If the backend comes back requiresForceDismiss:true (the planting
+        // hasn't been completed/verified yet), this switches the same
+        // inline form into a "dismiss without verifying" confirmation
+        // instead of silently failing -- a note is required before the
+        // forceDismiss:true retry is allowed to fire.
+        async function resolveExceptionFromPanel_(exceptionId, bedId, forceDismiss){
             if(!LIVE_MODE || !APPS_SCRIPT_URL){ alert('Connect to live data first.'); return; }
             const managerId = SESSION && SESSION.workerId;
             if(!managerId){ alert('Your session expired -- please sign in again.'); signOut_(); return; }
             const errEl = document.getElementById('resolve-error-' + exceptionId);
+            const hintEl = document.getElementById('resolve-hint-' + exceptionId);
+            const labelEl = document.getElementById('resolve-label-' + exceptionId);
+            const forceBtn = document.querySelector('[data-resolve-force="' + exceptionId + '"]');
+            const submitBtn = document.querySelector('[data-resolve-submit="' + exceptionId + '"]');
             const notesEl = document.getElementById('resolve-notes-' + exceptionId);
-            const resolutionNotes = notesEl ? notesEl.value : '';
+            const resolutionNotes = notesEl ? notesEl.value.trim() : '';
             if(errEl) errEl.textContent = '';
+
+            if(forceDismiss && !resolutionNotes){
+                if(errEl) errEl.textContent = 'A note explaining why you are dismissing this without verifying the planting is required.';
+                return;
+            }
+
             try {
-                const res = await callApi_(APPS_SCRIPT_URL, 'resolve-exception', { exceptionId, managerId, resolutionNotes });
+                const payload = { exceptionId, managerId, resolutionNotes };
+                if(forceDismiss) payload.forceDismiss = true;
+                const res = await callApi_(APPS_SCRIPT_URL, 'resolve-exception', payload);
+
+                if(!res.success && res.requiresForceDismiss && !forceDismiss){
+                    // Switch this card's form into dismiss-without-verifying
+                    // mode instead of treating this as a plain failure.
+                    if(hintEl){
+                        hintEl.textContent = res.error.replace(/^Cannot resolve: /, 'Not verified yet: ') +
+                            ' You can leave this open (Cancel) until the activity is complete, or dismiss it now without verifying the planting.';
+                        hintEl.classList.remove('hidden');
+                    }
+                    if(labelEl) labelEl.textContent = 'Required: why dismiss without verifying?';
+                    if(submitBtn) submitBtn.classList.add('hidden');
+                    if(forceBtn) forceBtn.classList.remove('hidden');
+                    if(errEl) errEl.textContent = '';
+                    return;
+                }
+
                 if(!res.success) throw new Error(res.error || 'Server rejected the request.');
                 await connectLive(APPS_SCRIPT_URL, { silent: true });
                 openBedPanel(bedId);
