@@ -122,6 +122,25 @@
            mistaken for a verified Crop/Cohort/State. */
         .pending-value { color: var(--status-amber); font-weight: 600; }
         .pending-tag { font-size: 10px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--status-amber); border: 1px solid var(--status-amber); border-radius: 3px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+        /* T2: single stage badge replacing the old per-row "Unverified"/
+           "Pending Verification" tags repeated on State/Crop/Cohort/Worker.
+           One badge, shown once, right under the header. */
+        .stage-badge { display:inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--status-amber); border: 1px solid var(--status-amber); border-radius: 4px; padding: 3px 8px; margin-bottom: 10px; }
+        /* T4 (Option 1): sits right under the stage badge, sets expectations
+           that only the worker can complete the session -- a manager reading
+           this before clicking Resolve shouldn't have to discover that the
+           hard way via a requiresForceDismiss error. */
+        .stage-hint { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; margin-top: -4px; }
+        /* T4: proactive "why you can't verify yet" note shown inside an
+           exception card, before the manager clicks Resolve at all. */
+        .exception-pre-hint { font-size: 11px; color: #8A3A1D; margin-top: 6px; }
+        /* T3: state-history breadcrumb (Rest/Prepped -> Seeding -> Awaiting
+           Sign-Off). Purely derived from data already computed for the
+           stage badge/pending rows -- no new backend call. */
+        .state-breadcrumb { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; }
+        .state-breadcrumb .crumb-done { text-decoration: line-through; opacity: 0.6; }
+        .state-breadcrumb .crumb-current { color: var(--status-amber); font-weight: 700; }
+        .state-breadcrumb .crumb-sep { margin: 0 5px; opacity: 0.5; }
         .queue-chip.queue-chip-ATTENTION { background:rgba(251,140,0,0.18); color:#ffcc80; }
         .queue-chip.queue-chip-ROUTINE { background:rgba(201,162,39,0.18); color:#e8d382; }
         .queue-cat { font-size:10.5px; color:var(--text-muted); }
@@ -1159,13 +1178,54 @@
             // happening in the field, not the stale ledger value. When a
             // pending (unverified) session is active, the header now names
             // the in-progress activity itself instead of the bed's rest
-            // state -- the "Unverified" tag still carries the "not yet
-            // locked in" signal, just without implying the bed is idle.
+            // state.
             const pendingActivityLabel = pendingSession
                 ? (labelForActivity_(pendingSession.Activity_Type) || pendingSession.Activity_Type || 'Activity')
                 : '';
+
+            // T2 (single verification pipeline): the State/Crop/Cohort/Worker
+            // rows used to each carry their own "Unverified"/"Pending
+            // Verification" tag -- four repeats of the same signal, which is
+            // exactly the alarm-fatigue problem flagged in the redesign
+            // review. Replaced with ONE stage badge shown once, right under
+            // the header, driven by the same pendingSession/Actual_Planting_Date
+            // check as before -- no new signal, just one rendering of it
+            // instead of four. The individual rows below keep their
+            // .pending-value amber styling (so provisional data still reads
+            // as "not confirmed yet" at a glance) but no longer repeat the
+            // tag text.
+            if(pendingSession){
+                html += `<div class="stage-badge">Awaiting Field Sign-Off</div>`;
+                // T4 (Option 1 -- completion stays worker-only, manager-side
+                // UX just gets clearer about it): a manager has no "complete
+                // this session" action anywhere in this app -- only the
+                // worker can mark their own FIELD_LIVE_SESSION complete
+                // (WorkerApp.html's complete-session call). Say that plainly
+                // here, up front, instead of letting a manager click Resolve
+                // and be surprised by the requiresForceDismiss response.
+                html += `<div class="stage-hint">Verification unlocks once ${pendingSession.Worker_ID} marks this activity complete in the field app.</div>`;
+            }
+
+            // T3 (state-history breadcrumb): purely derived from data already
+            // on hand above -- bed.Current_State is the pre-session state
+            // (BED_MASTER isn't touched until sign-off), pendingActivityLabel
+            // is the live in-progress step, and "Awaiting Sign-Off" is the
+            // step that follows. Only rendered when there's something to show
+            // a transition for; a bed with no open session has no breadcrumb
+            // to draw (it's just sitting in whatever bed.Current_State is).
+            if(pendingSession){
+                const priorState = bed.Current_State || 'Rest';
+                html += `<div class="state-breadcrumb">` +
+                    `<span class="crumb-done">${priorState}</span>` +
+                    `<span class="crumb-sep">→</span>` +
+                    `<span class="crumb-current">${pendingActivityLabel}</span>` +
+                    `<span class="crumb-sep">→</span>` +
+                    `<span>Awaiting Sign-Off</span>` +
+                `</div>`;
+            }
+
             html += row('State', pendingSession
-                ? `${pendingActivityLabel} In Progress <span class="pending-tag">Unverified</span>`
+                ? `${pendingActivityLabel} In Progress`
                 : bed.Current_State);
             // bed.Current_Crop/Current_Cohort_ID are sanitized server-side now
             // (handleGetManagerTodayView_, DashboardAPI.gs) -- both come back
@@ -1177,17 +1237,18 @@
             // 'Unassigned' rather than this dash for a bed with no crop.
             //
             // When a pending self-start exists, show its crop/cohort instead
-            // of the sanitized blank -- marked pending (amber, "unverified"/
-            // "Pending Verification" tag) so it reads as provisional, never
-            // as a confirmed value. This is what the worker actually minted
-            // (resolveSessionCohortAndCrop_, Database.gs); hiding it here
-            // was the source of the Rest/—/— reading as "nothing happening"
-            // when a founder pulled up this exact bed mid-session.
+            // of the sanitized blank -- kept amber via .pending-value so it
+            // still reads as provisional, without repeating the stage badge's
+            // text a second (and third) time. This is what the worker
+            // actually minted (resolveSessionCohortAndCrop_, Database.gs);
+            // hiding it here was the source of the Rest/—/— reading as
+            // "nothing happening" when a founder pulled up this exact bed
+            // mid-session.
             html += row('Crop', pendingSession
-                ? `<span class="pending-value">${pendingCropLabel || pendingCropId}</span><span class="pending-tag">Unverified</span>`
+                ? `<span class="pending-value">${pendingCropLabel || pendingCropId}</span>`
                 : (bed.Crop_Name || 'Unassigned'));
             html += row('Cohort', pendingSession
-                ? `<span class="pending-value">${pendingSession.Cohort_ID}</span><span class="pending-tag">Pending Verification</span>`
+                ? `<span class="pending-value">${pendingSession.Cohort_ID}</span>`
                 : (bed.Current_Cohort_ID || 'COH-UNASSIGNED'));
 
             // Expected_Harvest_Date lives on COHORT_MASTER, not BED_MASTER --
@@ -1245,11 +1306,11 @@
             // planting, or that it hadn't been manager-verified yet. Reads
             // the session's own Cohort_ID/Crop_ID (not the bed's) so this
             // works precisely for the case the bed-level fields hide.
-            // The "Unverified" badge now uses the same cohort-based check as
-            // pendingSession above (Actual_Planting_Date unset), not exception
-            // status -- see the REVISED 2026-09-06 comment above for why open-
-            // exception status alone isn't a reliable signal (a resolved
-            // exception doesn't mean the cohort got verified).
+            // T2: this row used to add its own "Unverified" chip per session
+            // (cohort-based check, same signal as pendingSession above) --
+            // now folded into the single stage badge at the top of the panel,
+            // so this line just states the fact (who's doing what) without a
+            // fifth repeat of the same tag.
             // (sessionsOnBed itself is now computed once, up above, so the
             // State/Crop/Cohort rows and this line stay in sync off the
             // same read -- no second findOpenSessionsForBed_ call here.)
@@ -1260,11 +1321,7 @@
                     const cropLabel = sessionCropId ? (cropRefIndex[sessionCropId] || sessionCropId) : '';
                     const cohortLabel = s.Cohort_ID ? ` · ${s.Cohort_ID}` : '';
                     const cropCohortSuffix = cropLabel ? ` — ${cropLabel}${cohortLabel}` : '';
-                    const isUnverifiedPlanting = !!(sessionCohort && !sessionCohort.Actual_Planting_Date);
-                    const badge = isUnverifiedPlanting
-                        ? ' <span class="queue-chip queue-chip-MUST_DO">Unverified</span>'
-                        : '';
-                    return `${s.Worker_ID} — ${s.Activity_Type || 'Activity'} (${s.Status})${cropCohortSuffix}${badge}`;
+                    return `${s.Worker_ID} — ${s.Activity_Type || 'Activity'} (${s.Status})${cropCohortSuffix}`;
                 }).join('<br>')
                 : 'No open session';
             html += row('Worker on this bed', workerSummary);
@@ -1303,11 +1360,28 @@
                     // switch into a distinct "dismiss without verifying" mode
                     // (resolve-hint-*/resolve-force-* below), which requires a
                     // note and never lands as a bare "Resolved."
+                    //
+                    // T4 (Option 1, 2026-09-06): that requiresForceDismiss
+                    // response was the ONLY way a manager found out the
+                    // underlying session wasn't complete yet -- they'd click
+                    // Resolve, expect it to just work, and get a form that
+                    // switched shape on them instead. Since sessionsOnBed is
+                    // already loaded for this bed panel, this can be known
+                    // up front: if this exception's Session_ID still matches
+                    // an OPEN session, completion (and therefore
+                    // verification) genuinely isn't possible yet -- say so
+                    // before the manager clicks anything, rather than after.
+                    const linkedOpenSession = sessionsOnBed.find(s => s.Session_ID === e.Session_ID);
+                    const notYetCompletable = e.Exception_Type === 'UNVERIFIED_PLANTING' && !!linkedOpenSession;
+                    const preResolveHint = notYetCompletable
+                        ? `<div class="exception-pre-hint">Not yet completable — ${linkedOpenSession.Worker_ID} is still ${linkedOpenSession.Status === 'PAUSED' ? 'paused mid-' : ''}working on this (${linkedOpenSession.Activity_Type || 'activity'}). Verification requires the worker to mark it complete first; you can wait, or dismiss below without verifying.</div>`
+                        : '';
                     html += `
                         <div class="exception">
                             <strong>${e.Exception_Type || 'Exception'}${e.Severity ? ' (' + e.Severity + ')' : ''}</strong><br>
                             ${e.Notes || 'No notes recorded.'}
-                            <div style="margin-top:8px;"><button class="btn btn-resolve" data-exception-id="${e.Exception_ID}">Resolve</button></div>
+                            ${preResolveHint}
+                            <div style="margin-top:8px;"><button class="btn btn-resolve" data-exception-id="${e.Exception_ID}">${notYetCompletable ? 'Dismiss / Resolve' : 'Resolve'}</button></div>
                             <div class="inline-form hidden" id="resolve-form-${e.Exception_ID}">
                                 <div class="field-label" id="resolve-label-${e.Exception_ID}">Resolution notes (optional)</div>
                                 <div class="form-hint hidden" id="resolve-hint-${e.Exception_ID}" style="color:#8A3A1D; margin-bottom:6px;"></div>
