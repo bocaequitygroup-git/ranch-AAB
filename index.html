@@ -1781,13 +1781,45 @@
         // Sourced from DATA.crop_reference (already loaded in bulk by
         // get-manager-today-view, see DashboardAPI.gs), not a second round
         // trip.
-        function cropChipsHtml_(crops){
+        //
+        // 2026-09-08: grouped by Default_Block_ID (the SAME field
+        // createCohort_/Database.gs actually uses to place a cohort) and
+        // labeled with each block's family name, matching the spatial
+        // grid's own SVG labels (BLOCK 1: SOLANACEAE, etc.). This is a
+        // "usual block" hint, not a hard rule -- a block's beds rotate
+        // through several crops (see CROP_ZONING_REFERENCE), and a crop can
+        // legitimately be planted outside its Default_Block_ID (confirmed
+        // live: Sukuma Wiki self-started on B1-03 in the 2026-09-05 fix
+        // note above). bedBlockId is the bed this form is already open
+        // for, so each chip can also flag whether it matches.
+        var BLOCK_FAMILY_NAMES_ = {
+            'BLK-01': 'Block 1 — Solanaceae & Peppers',
+            'BLK-02': 'Block 2 — Fast Greens',
+            'BLK-03': 'Block 3 — Brassicas & Vine',
+            'BLK-04': 'Block 4 — Roots, Staples & Cover Crops',
+            'Z5': 'Zone 5 — Perennial'
+        };
+        var BED_BLOCK_TO_COHORT_BLOCK_CLIENT_ = { 'B1': 'BLK-01', 'B2': 'BLK-02', 'B3': 'BLK-03', 'B4': 'BLK-04', 'Z5': 'Z5' };
+        function cropChipsHtml_(crops, bedBlockId){
             if(!crops || !crops.length){
                 return '<div class="sub">Crop reference not loaded -- reconnect to refresh.</div>';
             }
-            return `<div class="chip-row">${crops.map(c =>
-                `<button type="button" class="chip" data-crop="${c.Crop_ID}">${c.Crop_Name || c.Crop_ID}</button>`
-            ).join('')}</div>`;
+            var bedCohortBlock = BED_BLOCK_TO_COHORT_BLOCK_CLIENT_[bedBlockId] || null;
+            var byBlock = {};
+            var order = [];
+            crops.forEach(function(c){
+                var key = c.Default_Block_ID || 'Unassigned';
+                if(!byBlock[key]){ byBlock[key] = []; order.push(key); }
+                byBlock[key].push(c);
+            });
+            return order.map(function(key){
+                var isMatch = bedCohortBlock && key === bedCohortBlock;
+                return `
+                <div class="chip-group-label">${BLOCK_FAMILY_NAMES_[key] || key}${isMatch ? ' <span style="color:var(--status-green);">(this bed\u2019s block)</span>' : ''}</div>
+                <div class="chip-row">
+                    ${byBlock[key].map(c => `<button type="button" class="chip" data-crop="${c.Crop_ID}">${c.Crop_Name || c.Crop_ID}</button>`).join('')}
+                </div>`;
+            }).join('');
         }
 
         function todayIsoDate_(){
@@ -1858,7 +1890,7 @@
                     <div class="chip-grid" id="dispatch-worker-grid">${workerChipsHtml_(workers)}</div>
                     <div id="dispatch-cohort-section" class="hidden">
                         <div class="field-label">Cohort (this bed is ${bed.Current_State || 'Rest'} -- planting a crop here needs a cohort first)</div>
-                        <div class="chip-grid" id="dispatch-crop-grid">${cropChipsHtml_(cropRef)}</div>
+                        <div class="chip-grid" id="dispatch-crop-grid">${cropChipsHtml_(cropRef, bed.Block_ID)}</div>
                         <div class="sub" style="margin:6px 0;">
                             Planting date
                             <input type="date" id="new-cohort-date" value="${todayIsoDate_()}" style="margin-left:6px;">
