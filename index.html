@@ -893,6 +893,17 @@
 
         // Outer border = urgency, not biological state. An open exception always
         // escalates to red regardless of what the queue engine bucketed it as.
+        // 2026-09-08 (Rules-to-Events engine, verification pass): confirmed
+        // this already does what the new engine needs -- a bed only ever
+        // gets a queue-driven urgency color (red/orange/amber) or the
+        // Harvestable purple badge once it's actually Planted/Growing/
+        // Harvestable/Cleanup; Current_State === 'Rest' always falls through
+        // to plain gray with no badges, regardless of how many PLANTING_EVENTS
+        // rows are staged against it. A PLANNED event never touches BED_MASTER
+        // (see PlanningEngine.gs's handleDispatchPlantingEvent_) so a bed
+        // reserved-but-not-yet-dispatched reads identically to an unreserved
+        // Rest bed here -- intentional, since AAB's job is today's field
+        // reality, not the planning layer's future intent.
         function urgencyClassForBed_(bedId, bed, hasOpenException){
             const worst = worstBucketForBed_(bedId);
             if(hasOpenException || worst === 'MUST_DO') return 'status-red';
@@ -1244,9 +1255,20 @@
             // hiding it here was the source of the Rest/—/— reading as
             // "nothing happening" when a founder pulled up this exact bed
             // mid-session.
+            // 2026-09-08 (Rules-to-Events engine): added the cropRefIndex
+            // fallback between bed.Crop_Name and 'Unassigned'. bed.Crop_Name
+            // is attached server-side by resolveBedDisplayFields_ and should
+            // always be present -- but a cohort minted via PCB's new
+            // dispatch-planting-event path is one more write path than
+            // existed before, so if a deployment's resolveBedDisplayFields_
+            // predates that addition and a bed comes back with a raw
+            // Current_Crop code but no Crop_Name, this still resolves it
+            // through the crop reference already loaded for this render
+            // (see cropRefIndex above) instead of falling straight to
+            // 'Unassigned' or a raw code like "SUK".
             html += row('Crop', pendingSession
                 ? `<span class="pending-value">${pendingCropLabel || pendingCropId}</span>`
-                : (bed.Crop_Name || 'Unassigned'));
+                : (bed.Crop_Name || (bed.Current_Crop && cropRefIndex[bed.Current_Crop]) || 'Unassigned'));
             html += row('Cohort', pendingSession
                 ? `<span class="pending-value">${pendingSession.Cohort_ID}</span>`
                 : (bed.Current_Cohort_ID || 'COH-UNASSIGNED'));
