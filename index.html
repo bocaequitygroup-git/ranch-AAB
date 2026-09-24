@@ -40,7 +40,10 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .bed{stroke:var(--line);stroke-width:1;cursor:pointer;}
 .bed:hover{stroke:var(--forest);stroke-width:2;}
 .bed.selected{stroke:var(--forest);stroke-width:3;}
-.badge{pointer-events:none;}
+.badge text,.badge circle{pointer-events:none;}
+.bed{pointer-events:all;}
+.notice{background:#FFF3C4;color:#5b4300;font-size:12.5px;padding:7px 14px;border-bottom:1px solid var(--line);}
+.seg .n{opacity:.65;font-weight:600;margin-left:3px;}
 .blocklabel{font-size:9px;font-weight:800;fill:var(--ink-soft);}
 .panel{width:360px;max-width:92vw;background:var(--paper);border-left:1px solid var(--line);display:flex;flex-direction:column;transition:margin .15s;}
 .panel.closed{display:none;}
@@ -92,8 +95,9 @@ const QUEUE_COLOR = { MUST_DO:'#B3261E', ATTENTION:'#C77700', ROUTINE:'#5B8FC9',
 const COHORT_STATUS_LABEL = { PLANNED:'Planned', PRE_PLANTING:'Assigned · awaiting planting', ACTIVE:'Active', COMPLETE:'Complete', TERMINATED:'Terminated' };
 
 /* ============================== STATE ============================== */
-const state = { managerId:null, name:null, role:null, token:null, beds:[], sessions:[], exceptions:[], harvestReady:[], queueByBed:{}, workers:[], assignableCohorts:[], eligibleLocations:[] };
-const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'' };
+const state = { managerId:null, name:null, role:null, token:null, beds:[], sessions:[], exceptions:[], harvestReady:[], queueByBed:{}, workers:[], assignableCohorts:[], eligibleLocations:[],
+  todayById:{}, board:{ loaded:false, year:null, beds:[], cohorts:[], byKey:{}, unplaced:[], stats:{} } };
+const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', filter:'ALL', year:new Date().getFullYear(), loading:false };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
 function toast(msg){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},3200); }
@@ -145,12 +149,94 @@ function logout(){ apiCall('logout',{}).catch(()=>{}); Object.assign(state,{mana
 
 /* ============================== DATA LOAD ============================== */
 async function loadToday(){
-  try{
-    const d = await apiCall('get-manager-today-view', {});
+  ui.loading=true; render();
+  const [today, board] = await Promise.allSettled([ apiCall('get-manager-today-view', {}), loadCohortBoard() ]);
+  ui.loading=false;
+  if(today.status==='fulfilled'){
+    const d=today.value||{};
     state.beds = d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
     state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||[];
-    setConn(IS_DEMO?'demo':'online'); render();
-  }catch(e){ toast(e.message); }
+    state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
+  }
+  setConn(IS_DEMO?'demo':'online'); render();
+  if(today.status==='rejected') toast(today.reason.message);
+  else if(board.status==='rejected') toast('Cohort board: '+board.reason.message);
+}
+
+/* ============================== COHORT BOARD: COHORT_PRODUCTION -> BEDS ==============================
+ * get-cohort-board (AssignmentEngine.gs getCohortBoard) returns COHORT_PRODUCTION rows where
+ * Location_ID is not blank, Cohort_Status is not CANCELLED and Planning_Year = ui.year, plus the
+ * BED_MASTER grid. Location_ID is parsed here and the cohort tile is placed on the matching bed.
+ * Accepted forms: B1-04 / BLK1-04 / BLOCK1-04 -> Block 1, Bed 04;  Z5-03 / ZONE5-03 -> Zone 5, Bed 03.
+ * No stage math here: Current_Stage and Cohort_Status are displayed exactly as the backend sends them. */
+const FILTERS = [['ALL','All'],['PRE_PLANTING','Pre planting'],['GROWING','Growing'],['HARVEST_READY','Harvest ready'],['HARVEST_COMPLETE','Harvest complete'],['TERMINATED','Terminated'],['EXCEPTION','Exception']];
+const DARK_FILLS = ['#2E7D32','#7C8B98','#B3261E','#C77700','#5B8FC9'];
+function parseLocationId(id){
+  const t=String(id==null?'':id).trim().toUpperCase().replace(/\s+/g,'');
+  let m=t.match(/^(?:BLK|BLOCK|B)(\d+)-(\d+)$/);
+  if(m) return { kind:'BLOCK', group:+m[1], bed:+m[2], label:'Block '+(+m[1]) };
+  m=t.match(/^(?:ZONE|Z)(\d+)-(\d+)$/);
+  if(m) return { kind:'ZONE', group:+m[1], bed:+m[2], label:'Zone '+(+m[1]) };
+  return null;
+}
+const locKey = p => p.kind+p.group+'-'+p.bed;
+function cohortStage(c){
+  const cs=String(c.cohortStatus||'').toUpperCase(), st=String(c.currentStage||'').toUpperCase();
+  if(cs==='TERMINATED') return 'TERMINATED';
+  if(cs==='COMPLETE') return 'HARVEST_COMPLETE';
+  return st || (cs==='PRE_PLANTING' ? 'PRE_PLANTING' : '');
+}
+const isLive = c => !['TERMINATED','COMPLETE'].includes(String(c.cohortStatus||'').toUpperCase());
+function pickCohort(list){ if(!list||!list.length) return null; return list.find(isLive) || list[list.length-1]; }
+async function loadCohortBoard(){
+  const d = await apiCall('get-cohort-board', { year: ui.year });
+  const cohorts=(d&&d.cohorts)||[], byKey={}, unplaced=[];
+  cohorts.forEach(c=>{ const p=parseLocationId(c.locationId); if(!p){ unplaced.push(c); return; } (byKey[locKey(p)]=byKey[locKey(p)]||[]).push(c); });
+  state.board = { loaded:true, year:ui.year, beds:(d&&d.beds)||[], cohorts, byKey, unplaced, stats:(d&&d.stats)||{} };
+}
+function gridBeds(){
+  return state.board.beds.length ? state.board.beds.map(x=>({ id:x.bedId, blockId:x.blockId, locationType:x.locationType })) : state.beds;
+}
+function bedView(b){
+  const v = Object.assign({}, state.todayById[b.id]||{}, { id:b.id, blockId:b.blockId });
+  if(!state.board.loaded) return v;
+  const p=parseLocationId(b.id), c = p ? pickCohort(state.board.byKey[locKey(p)]) : null;
+  if(c){
+    Object.assign(v, { cohortId:c.cohortId, cropId:c.cropId, cropName:c.cropName, cohortStatus:c.cohortStatus, currentStage:cohortStage(c),
+      plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'' });
+  }else{
+    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plantingDate:'', harvestWindow:'' });
+  }
+  return v;
+}
+function bedViewById(id){ const b=gridBeds().find(x=>x.id===id); return b?bedView(b):null; }
+function bedMatches(v){
+  if(ui.filter==='ALL') return true;
+  if(ui.filter==='EXCEPTION') return bedExceptions(v.id).some(x=>x.status!=='RESOLVED');
+  return !!v.cohortId && v.currentStage===ui.filter;
+}
+function filterCounts(views){
+  const n={ ALL:views.length };
+  FILTERS.forEach(([k])=>{ if(k!=='ALL') n[k]=0; });
+  views.forEach(v=>{
+    if(v.cohortId && n[v.currentStage]!==undefined) n[v.currentStage]++;
+    if(bedExceptions(v.id).some(x=>x.status!=='RESOLVED')) n.EXCEPTION++;
+  });
+  return n;
+}
+function setFilter(k){ ui.filter=k; render(); }
+function setYear(y){ ui.year=+y; loadToday(); }
+function boardNotice(views){
+  const b=state.board; if(!b.loaded) return '';
+  const gridKeys=new Set(gridBeds().map(x=>{ const p=parseLocationId(x.id); return p?locKey(p):x.id; }));
+  const orphans=b.cohorts.filter(c=>{ const p=parseLocationId(c.locationId); return !p || !gridKeys.has(locKey(p)); });
+  const placed=views.filter(v=>v.cohortId).length;
+  if(orphans.length) return `${orphans.length} cohort(s) have a Location_ID that matches no bed: ${orphans.slice(0,6).map(c=>esc(c.cohortId+' → '+c.locationId)).join(', ')}${orphans.length>6?'…':''}`;
+  if(!b.cohorts.length){
+    const un=b.stats&&b.stats.unassigned, tot=b.stats&&b.stats.yearRows;
+    return `No cohorts in ${ui.year} have a Location_ID yet${tot!=null?` (${tot} cohort rows in COHORT_PRODUCTION, ${un!=null?un:tot} unassigned)`:''}. Use “+ Assign cohort to bed” to place them.`;
+  }
+  return '';
 }
 
 /* ============================== DISPATCH / TRIAGE ACTIONS ============================== */
@@ -277,9 +363,12 @@ function boardScreen(){
           <button class="${ui.overlay==='stage'?'active':''}" onclick="setOverlay('stage')">Current stage</button>
           <button class="${ui.overlay==='queue'?'active':''}" onclick="setOverlay('queue')">Queue</button>
         </div>
+        <select onchange="setYear(this.value)" aria-label="Planning year">${[ui.year-1,ui.year,ui.year+1].map(y=>`<option value="${y}" ${y===ui.year?'selected':''}>${y}</option>`).join('')}</select>
         <button class="btn btn-outline" style="width:auto;margin:0;" onclick="openAssignModal()">+ Assign cohort to bed</button>
-        <button class="btn btn-ghost" style="width:auto;margin:0;" onclick="loadToday()">↻ Refresh</button>
+        <button class="btn btn-ghost" style="width:auto;margin:0;" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing…':'↻ Refresh'}</button>
       </div>
+      ${filterBar()}
+      ${noticeStrip()}
       <div class="legend">${legendHTML()}</div>
       <div class="mapscroll">${mapSVG()}</div>
     </div>
@@ -294,39 +383,46 @@ function legendHTML(){
   return Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
 }
 
+function filterBar(){
+  const n=filterCounts(gridBeds().map(bedView));
+  return `<div class="toolbar" style="padding-top:6px;padding-bottom:6px;"><div class="seg" style="flex-wrap:wrap;">${FILTERS.map(([k,l])=>`<button class="${ui.filter===k?'active':''}" onclick="setFilter('${k}')">${l}<span class="n">${n[k]||0}</span></button>`).join('')}</div></div>`;
+}
+function noticeStrip(){ const m=boardNotice(gridBeds().map(bedView)); return m?`<div class="notice">${m}</div>`:''; }
+
 function mapSVG(){
-  const cols=BEDS_PER_ROW, cell=44, gap=6, blockGap=26;
-  let x=0,y=0,svg='', blockStart={};
-  state.beds.forEach((b,i)=>{
-    if(blockStart[b.blockId]===undefined){ blockStart[b.blockId]={row:0}; }
-  });
-  // layout: iterate blocks in order encountered, grid within block
-  const blocks=[...new Set(state.beds.map(b=>b.blockId))];
-  let curY=10;
+  const cols=BEDS_PER_ROW, cw=84, ch=58, gap=6, blockGap=26;
+  const grid=gridBeds();
+  const blocks=[...new Set(grid.map(b=>b.blockId))];
+  let svg='', curY=16;
   blocks.forEach(blk=>{
-    const beds=state.beds.filter(b=>b.blockId===blk);
-    const rows=Math.ceil(beds.length/cols);
-    svg += `<text class="blocklabel" x="10" y="${curY-4}">${esc(blk)}</text>`;
+    const beds=grid.filter(b=>b.blockId===blk), rows=Math.ceil(beds.length/cols);
+    svg += `<text class="blocklabel" x="10" y="${curY-5}">${esc(blk)}</text>`;
     beds.forEach((b,idx)=>{
-      const col=idx%cols, row=Math.floor(idx/cols);
-      const bx=10+col*(cell+gap), by=curY+row*(cell+gap);
-      const exc=bedExceptions(b.id).length, hr=state.harvestReady.some(h=>h.bedId===b.id), sess=bedSessions(b.id).length;
-      svg += `<g class="badge">
-        <rect class="bed ${ui.selectedBed===b.id?'selected':''}" data-bed="${esc(b.id)}" x="${bx}" y="${by}" width="${cell}" height="${cell}" rx="6" fill="${bedFill(b)}"></rect>
-        <text x="${bx+cell/2}" y="${by+cell/2+3}" text-anchor="middle" font-size="8" font-weight="700" fill="#00000088" style="pointer-events:none;">${esc(b.id.split('-')[1]||b.id)}</text>
-        ${sess?`<circle cx="${bx+cell-6}" cy="${by+6}" r="4" fill="#1F3A2E"></circle>`:''}
-        ${exc?`<circle cx="${bx+6}" cy="${by+6}" r="4" fill="var(--danger)"></circle>`:''}
-        ${hr?`<circle cx="${bx+cell/2}" cy="${by+cell-6}" r="4" fill="var(--ok)"></circle>`:''}
+      const v=bedView(b), match=bedMatches(v), has=!!v.cohortId;
+      const col=idx%cols, row=Math.floor(idx/cols), bx=10+col*(cw+gap), by=curY+row*(ch+gap);
+      const exc=bedExceptions(v.id).some(x=>x.status!=='RESOLVED'), hr=state.harvestReady.some(h=>h.bedId===v.id), sess=bedSessions(v.id).length;
+      const fill=has?bedFill(v):(ui.overlay==='queue'?bedFill(v):'#EEE'), tc=DARK_FILLS.includes(fill)?'#fff':'#1B1B18';
+      const bedNo=esc(String(v.id).split('-')[1]||v.id);
+      svg += `<g class="badge" opacity="${match?1:0.28}">
+        <rect class="bed ${ui.selectedBed===v.id?'selected':''}" data-bed="${esc(v.id)}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${fill}"></rect>
+        <text x="${bx+6}" y="${by+11}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${bedNo}</text>
+        ${has&&match?`<text x="${bx+cw/2}" y="${by+29}" text-anchor="middle" font-size="11" font-weight="800" fill="${tc}">${esc(v.cohortId)}</text>
+        <text x="${bx+cw/2}" y="${by+41}" text-anchor="middle" font-size="9" font-weight="600" fill="${tc}">${esc(String(v.cropName||'').slice(0,13))}</text>
+        <text x="${bx+cw/2}" y="${by+52}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">${esc((v.currentStage||v.cohortStatus||'').replace(/_/g,' '))}</text>`:''}
+        ${sess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E"></circle>`:''}
+        ${exc?`<circle cx="${bx+cw-19}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
+        ${hr?`<circle cx="${bx+cw-7}" cy="${by+ch-7}" r="4" fill="var(--ok)"></circle>`:''}
       </g>`;
     });
-    curY += rows*(cell+gap) + blockGap;
+    curY += rows*(ch+gap) + blockGap;
   });
-  return `<svg viewBox="0 0 ${10+cols*(cell+gap)} ${curY}" width="${10+cols*(cell+gap)}" height="${curY}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;">${svg}</svg>`;
+  const W=10+cols*(cw+gap);
+  return `<svg viewBox="0 0 ${W} ${curY}" width="${W}" height="${curY}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;">${svg}</svg>`;
 }
 function attachMapEvents(){ document.querySelectorAll('[data-bed]').forEach(el=>{ el.addEventListener('click', ()=>selectBed(el.dataset.bed)); }); }
 
 function panelHTML(){
-  const b = state.beds.find(x=>x.id===ui.selectedBed); if(!b) return '';
+  const b = bedViewById(ui.selectedBed); if(!b) return '';
   const sess=bedSessions(b.id), exc=bedExceptions(b.id), hr=state.harvestReady.find(h=>h.bedId===b.id);
   return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}</div></div><button onclick="closePanel()">✕</button></div>
   <div class="tabs">
@@ -565,6 +661,11 @@ async function mockBackend(action, p){
       return ok({done:true});
     }
     // ---- AssignmentEngine.gs mirrors: manager write-back actions only ----
+    case 'get-cohort-board': {
+      const cohorts = demoBeds.filter(b=>b.cohortId).map(b=>({ cohortId:b.cohortId, cropId:b.cohortId.slice(0,3), cropName:b.cropName, locationId:b.id,
+        cohortStatus:b.cohortStatus, currentStage:b.currentStage, planningYear:p.year||new Date().getFullYear(), actualDob:b.plantingDate||'', harvestWindowStart:'', harvestWindowEnd:'' }));
+      return ok({ year:p.year, beds:demoBeds.map(b=>({ bedId:b.id, blockId:b.blockId, locationType:b.locationType })), cohorts, stats:{ yearRows:cohorts.length+demoAssignableCohorts.length, unassigned:demoAssignableCohorts.length } });
+    }
     case 'get-assignable-cohorts':
       return ok(demoAssignableCohorts.slice());
     case 'get-eligible-locations': {
