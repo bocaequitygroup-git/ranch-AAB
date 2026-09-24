@@ -40,6 +40,11 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .bed{stroke:var(--line);stroke-width:1;cursor:pointer;}
 .bed:hover{stroke:var(--forest);stroke-width:2;}
 .bed.selected{stroke:var(--forest);stroke-width:3;}
+.bed.proposed{stroke:var(--warn);stroke-width:1.5;stroke-dasharray:4 3;}
+.bed.proposed:hover{stroke:var(--forest);stroke-width:2;stroke-dasharray:none;}
+.bed.proposed.selected{stroke:var(--forest);stroke-width:3;stroke-dasharray:none;}
+.sw.sw-proposed{background:#FBEBD6;border:1.5px dashed var(--warn);width:11px;height:11px;}
+.sw.sw-avail{background:#EEE;border:1px solid var(--line);}
 .badge text,.badge circle{pointer-events:none;}
 .bed{pointer-events:all;}
 .notice{background:#FFF3C4;color:#5b4300;font-size:12.5px;padding:7px 14px;border-bottom:1px solid var(--line);}
@@ -189,7 +194,12 @@ async function loadToday(){
  * Accepted forms: B1-04 / BLK1-04 / BLOCK1-04 -> Block 1, Bed 04;  Z5-03 / ZONE5-03 -> Zone 5, Bed 03.
  * No stage math here: Current_Stage and Cohort_Status are displayed exactly as the backend sends them. */
 /* Bed-map filters count BEDS (physical locations). Crop-lifecycle counts belong on the production dashboard. */
-const FILTERS = [['ALL','All'],['OCCUPIED','Occupied'],['AVAILABLE','Available'],['EXCEPTION','Exceptions']];
+const FILTERS = [['ALL','All'],['OCCUPIED','Occupied'],['PROPOSED','Proposed'],['AVAILABLE','Available'],['EXCEPTION','Exceptions']];
+/* A bed is in exactly one of three states: OCCUPIED (a cohort has this Location_ID in COHORT_PRODUCTION),
+ * PROPOSED (no cohort placed, but the assignment engine has reserved it as a recommendation in
+ * COHORT_ASSIGNMENT_QUEUE, awaiting manager approval), or AVAILABLE (neither). PROPOSED is display only:
+ * nothing is written to COHORT_PRODUCTION until the manager approves. */
+const PROPOSED_FILL = '#FBEBD6';
 const DARK_FILLS = ['#2E7D32','#7C8B98','#B3261E','#C77700','#5B8FC9'];
 function parseLocationId(id){
   const t=String(id==null?'':id).trim().toUpperCase().replace(/\s+/g,'');
@@ -222,15 +232,28 @@ async function loadCohortBoard(){
 function gridBeds(){
   return state.board.beds.length ? state.board.beds.map(x=>({ id:x.bedId, blockId:x.blockId, locationType:x.locationType })) : state.beds;
 }
+/* Proposals keyed by normalised bed id (same parser as the grid, so 'B1-10' / 'BLK1-10' / 'B1-010' all agree).
+ * Source: get-assignment-queue -> proposed[] (Status PROPOSED, cohort still unassigned). Exceptions carry no bed. */
+function bedKey(id){ const p=parseLocationId(id); return p ? locKey(p) : String(id==null?'':id).trim().toUpperCase(); }
+function proposalIndex(){
+  const src=state.aq.proposed||[];
+  if(proposalIndex._src===src && proposalIndex._map) return proposalIndex._map;
+  const m={};
+  src.forEach(p=>{ if(!String(p.recommendedBed||'').trim()) return; (m[bedKey(p.recommendedBed)]=m[bedKey(p.recommendedBed)]||[]).push(p); });
+  Object.keys(m).forEach(k=>m[k].sort((a,b)=>String(a.plannedDob).localeCompare(String(b.plannedDob))||String(a.cohortId).localeCompare(String(b.cohortId))));
+  proposalIndex._src=src; proposalIndex._map=m; return m;
+}
+function bedState(v){ return v.cohortId ? 'OCCUPIED' : (v.proposals&&v.proposals.length ? 'PROPOSED' : 'AVAILABLE'); }
 function bedView(b){
   const v = Object.assign({}, state.todayById[b.id]||{}, { id:b.id, blockId:b.blockId, locationType:b.locationType||(state.todayById[b.id]||{}).locationType||'' });
+  v.proposals = proposalIndex()[bedKey(b.id)] || [];
   if(!state.board.loaded) return v;
   const p=parseLocationId(b.id), c = p ? pickCohort(state.board.byKey[locKey(p)]) : null;
   if(c){
     Object.assign(v, { cohortId:c.cohortId, cropId:c.cropId, cropName:c.cropName, cohortStatus:c.cohortStatus, currentStage:cohortStage(c),
-      plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'' });
+      plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'' });
   }else{
-    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plantingDate:'', harvestWindow:'' });
+    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'' });
   }
   return v;
 }
@@ -238,14 +261,15 @@ function bedViewById(id){ const b=gridBeds().find(x=>x.id===id); return b?bedVie
 function bedMatches(v){
   if(ui.filter==='ALL') return true;
   if(ui.filter==='EXCEPTION') return bedExceptions(v.id).some(x=>x.status!=='RESOLVED');
-  if(ui.filter==='OCCUPIED') return !!v.cohortId;
-  if(ui.filter==='AVAILABLE') return !v.cohortId;
+  if(ui.filter==='OCCUPIED') return bedState(v)==='OCCUPIED';
+  if(ui.filter==='PROPOSED') return bedState(v)==='PROPOSED';
+  if(ui.filter==='AVAILABLE') return bedState(v)==='AVAILABLE';
   return true;
 }
 function filterCounts(views){
-  const n={ ALL:views.length, OCCUPIED:0, AVAILABLE:0, EXCEPTION:0 };
+  const n={ ALL:views.length, OCCUPIED:0, PROPOSED:0, AVAILABLE:0, EXCEPTION:0 };
   views.forEach(v=>{
-    if(v.cohortId) n.OCCUPIED++; else n.AVAILABLE++;
+    n[bedState(v)]++;
     if(bedExceptions(v.id).some(x=>x.status!=='RESOLVED')) n.EXCEPTION++;
   });
   return n;
@@ -260,7 +284,8 @@ function boardNotice(views){
   if(orphans.length) return `${orphans.length} cohort(s) have a Location_ID that matches no bed: ${orphans.slice(0,6).map(c=>esc(c.cohortId+' → '+c.locationId)).join(', ')}${orphans.length>6?'…':''}`;
   if(!b.cohorts.length){
     const un=b.stats&&b.stats.unassigned, tot=b.stats&&b.stats.yearRows;
-    return `No cohorts in ${ui.year} have a Location_ID yet${tot!=null?` (${tot} cohort rows in COHORT_PRODUCTION, ${un!=null?un:tot} unassigned)`:''}. Open “Assignments” to review the recommended beds.`;
+    const np=views.filter(v=>bedState(v)==='PROPOSED').length;
+    return `No cohorts in ${ui.year} have a Location_ID yet${tot!=null?` (${tot} cohort rows in COHORT_PRODUCTION, ${un!=null?un:tot} unassigned)`:''}. ${np?`${np} bed${np===1?' is':'s are'} reserved as proposals awaiting approval - `:''}Open “Assignments” to review the recommended beds.`;
   }
   return '';
 }
@@ -453,8 +478,8 @@ function boardScreen(){
 function pendingAssignments(){ const c=state.aq.counts||{}; return (c.proposed||0)+(c.exceptions||0); }
 function assignmentsButton(){ const n=pendingAssignments(); return `<button class="btn btn-primary btn-cta" style="width:auto;margin:0;" onclick="openQueue()">Assignments${n?` (${n})`:''}</button>`; }
 function legendHTML(){
-  if(ui.overlay==='queue') return Object.entries(QUEUE_COLOR).filter(([k])=>k!=='NONE').map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace('_',' ')}</span>`).join('');
-  return Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
+  if(ui.overlay==='queue') return `<span><span class="sw sw-proposed"></span>PROPOSED (awaiting approval)</span>` + Object.entries(QUEUE_COLOR).filter(([k])=>k!=='NONE').map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace('_',' ')}</span>`).join('');
+  return `<span><span class="sw sw-avail"></span>AVAILABLE</span><span><span class="sw sw-proposed"></span>PROPOSED (awaiting approval)</span>` + Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
 }
 
 /* Assignment status (where cohorts are in the approval workflow) is a different dimension from the
@@ -477,7 +502,7 @@ function noticeStrip(){
   if(b.error) return `<div class="notice" style="background:#F7DEDB;color:var(--danger);">Cohort board failed to load: ${esc(b.error)}. No cohort data is being read from COHORT_PRODUCTION.</div>`;
   if(!b.loaded) return `<div class="notice">Cohort board not loaded yet.</div>`;
   const st=b.stats||{};
-  return `<div class="notice" style="background:transparent;color:var(--ink-soft);font-size:11.5px;">COHORT_PRODUCTION ${ui.year}: ${st.yearRows!=null?st.yearRows:'?'} rows · ${b.cohorts.length} with a Location_ID · ${views.filter(v=>v.cohortId).length} placed on the grid</div>`;
+  return `<div class="notice" style="background:transparent;color:var(--ink-soft);font-size:11.5px;">COHORT_PRODUCTION ${ui.year}: ${st.yearRows!=null?st.yearRows:'?'} rows · ${b.cohorts.length} with a Location_ID · ${views.filter(v=>v.cohortId).length} placed on the grid · ${views.filter(v=>bedState(v)==='PROPOSED').length} beds proposed (queue, not yet assigned)</div>`;
 }
 
 function mapSVG(){
@@ -489,17 +514,20 @@ function mapSVG(){
     const beds=grid.filter(b=>b.blockId===blk), rows=Math.ceil(beds.length/cols);
     svg += `<text class="blocklabel" x="10" y="${curY-5}">${esc(blk)}</text>`;
     beds.forEach((b,idx)=>{
-      const v=bedView(b), match=bedMatches(v), has=!!v.cohortId;
+      const v=bedView(b), match=bedMatches(v), st=bedState(v), has=st==='OCCUPIED', prop=st==='PROPOSED', pr=prop?v.proposals[0]:null;
       const col=idx%cols, row=Math.floor(idx/cols), bx=10+col*(cw+gap), by=curY+row*(ch+gap);
       const exc=bedExceptions(v.id).some(x=>x.status!=='RESOLVED'), hr=state.harvestReady.some(h=>h.bedId===v.id), sess=bedSessions(v.id).length;
-      const fill=has?bedFill(v):(ui.overlay==='queue'?bedFill(v):'#EEE'), tc=DARK_FILLS.includes(fill)?'#fff':'#1B1B18';
+      const qf=bedFill(v), fill=has?qf:(ui.overlay==='queue'?(qf!=='transparent'?qf:(prop?PROPOSED_FILL:qf)):(prop?PROPOSED_FILL:'#EEE')), tc=DARK_FILLS.includes(fill)?'#fff':'#1B1B18';
       const bedNo=esc(String(v.id).split('-')[1]||v.id);
       svg += `<g class="badge" opacity="${match?1:0.28}">
-        <rect class="bed ${ui.selectedBed===v.id?'selected':''}" data-bed="${esc(v.id)}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${fill}"></rect>
+        <rect class="bed ${prop?'proposed':''} ${ui.selectedBed===v.id?'selected':''}" data-bed="${esc(v.id)}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${fill}"></rect>
         <text x="${bx+6}" y="${by+11}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${bedNo}</text>
         ${has&&match?`<text x="${bx+cw/2}" y="${by+29}" text-anchor="middle" font-size="11" font-weight="800" fill="${tc}">${esc(v.cohortId)}</text>
         <text x="${bx+cw/2}" y="${by+41}" text-anchor="middle" font-size="9" font-weight="600" fill="${tc}">${esc(String(v.cropName||'').slice(0,13))}</text>
         <text x="${bx+cw/2}" y="${by+52}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">${esc((v.currentStage||v.cohortStatus||'').replace(/_/g,' '))}</text>`:''}
+        ${prop&&match?`<text x="${bx+cw/2}" y="${by+29}" text-anchor="middle" font-size="11" font-weight="800" fill="${tc}">${esc(pr.cohortId)}</text>
+        <text x="${bx+cw/2}" y="${by+41}" text-anchor="middle" font-size="9" font-weight="600" fill="${tc}">${esc(String(pr.cropName||'').slice(0,13))}</text>
+        <text x="${bx+cw/2}" y="${by+52}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">PROPOSED${v.proposals.length>1?' +'+(v.proposals.length-1):''}</text>`:''}
         ${sess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E"></circle>`:''}
         ${exc?`<circle cx="${bx+cw-19}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
         ${hr?`<circle cx="${bx+cw-7}" cy="${by+ch-7}" r="4" fill="var(--ok)"></circle>`:''}
@@ -515,7 +543,7 @@ function attachMapEvents(){ document.querySelectorAll('[data-bed]').forEach(el=>
 function panelHTML(){
   const b = bedViewById(ui.selectedBed); if(!b) return '';
   const sess=bedSessions(b.id), exc=bedExceptions(b.id), hr=state.harvestReady.find(h=>h.bedId===b.id);
-  return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${b.cohortId?`${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}`:`${esc(b.blockId)} · ${esc(String(b.locationType||'field').toLowerCase())} bed · Available`}</div></div><button onclick="closePanel()">✕</button></div>
+  return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${b.cohortId?`${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}`:`${esc(b.blockId)} · ${esc(String(b.locationType||'field').toLowerCase())} bed · ${b.proposals.length?'Proposed':'Available'}`}</div></div><button onclick="closePanel()">✕</button></div>
   <div class="tabs">
     <button class="${ui.tab==='overview'?'active':''}" onclick="setTab('overview')">Overview</button>
     ${b.cohortId?`<button class="${ui.tab==='activity'?'active':''}" onclick="setTab('activity')">Activity</button>`:''}
@@ -531,14 +559,16 @@ function panelHTML(){
 function overviewTab(b,sess){
   const cs=b.cohortStatus||'';
   return `${b.cohortId?`<div class="card">
+    <div class="row"><span>Status</span><span><span class="chip chip-ok">Occupied</span></span></div>
     <div class="row"><span>Crop</span><span>${esc(b.cropName)}</span></div>
     <div class="row"><span>Cohort</span><span>${esc(b.cohortId)}</span></div>
     <div class="row"><span>Current stage</span><span><span class="chip chip-neutral">${esc((b.currentStage||'—').replace(/_/g,' '))}</span></span></div>
     <div class="row"><span>Cohort status</span><span><span class="chip chip-neutral">${esc(COHORT_STATUS_LABEL[cs]||cs||'—')}</span></span></div>
     <div class="row"><span>Planted</span><span>${esc(b.plantingDate||'—')}</span></div>
+    ${b.plannedDob?`<div class="row"><span>DOB (planned)</span><span>${esc(b.plannedDob)}</span></div>`:''}
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>`:''}
-  ${b.cohortId?cohortActionButtons(b):emptyBedBlock(b)}
+  ${b.cohortId?cohortActionButtons(b)+pendingBlock(b,true):emptyBedBlock(b)}
   <h2 style="font-size:13px;">Live sessions</h2>
   ${sess.length? sess.map(s=>`<div class="card"><div class="row"><span>${esc(s.workerName)}</span><span class="chip ${s.status==='ACTIVE'?'chip-ok':'chip-warn'}">${esc(s.status)}</span></div>
     <div class="row"><span>Task</span><span>${esc(s.activity)}</span></div>
@@ -553,24 +583,33 @@ function overviewTab(b,sess){
  * this board only ever displays what the backend already computed.
  */
 function confidenceOf(p){ return (p.reasons||[]).some(r=>String(r).startsWith('⚠')) ? ['Review needed','chip-warn'] : ['Match','chip-ok']; }
-/* An empty bed shows PHYSICAL facts only. A proposal is an engine suggestion sitting in the assignment queue:
- * it is labelled as such and never presented as something this bed has. Assigning happens only from the queue. */
+/* An unoccupied bed is either PROPOSED (the engine reserved it in COHORT_ASSIGNMENT_QUEUE, awaiting approval) or
+ * AVAILABLE. A proposal is labelled as pending and never presented as something this bed has: the bed is not
+ * occupied and nothing is written to COHORT_PRODUCTION until a manager approves it in Assignments. */
+function proposalCards(b){
+  return b.proposals.map(p=>{ const cf=confidenceOf(p); return `<div class="card proposal"><div class="plabel">Pending assignment</div>
+      <div class="row"><span>Pending</span><span>${esc(p.cropName)} ${esc(p.cohortId)}</span></div>
+      <div class="row"><span>Planting</span><span>${esc(p.plannedDob||'—')}</span></div>
+      <div class="row"><span>Confidence</span><span><span class="chip ${cf[1]}">${cf[0]}</span></span></div>
+      <div class="qsub" style="margin-top:4px;">Approval required</div>
+      <button class="btn btn-primary" style="margin:8px 0 0;" onclick="openQueue('proposed','${esc(p.cohortId)}')">Review Assignment</button></div>`; }).join('');
+}
+function pendingBlock(b, occupied){
+  if(!b.proposals.length) return '';
+  return `<h2 style="font-size:13px;margin:14px 0 6px;">${occupied?'Next in this bed (proposed)':'Pending assignment'}</h2>
+    <div class="note" style="margin-top:0;">Proposals only. Nothing is assigned to ${esc(b.id)} until a manager approves it in Assignments.</div>${proposalCards(b)}`;
+}
 function emptyBedBlock(b){
-  const recs=(state.aq.proposed||[]).filter(p=>p.recommendedBed===b.id);
+  if(b.proposals.length){
+    return `<div class="card">
+      <div class="row"><span>Status</span><span><span class="chip chip-warn">Proposed</span></span></div>
+      <div class="row"><span>Current</span><span>No crop assigned</span></div></div>
+      ${pendingBlock(b,false)}`;
+  }
   return `<div class="card">
       <div class="row"><span>Status</span><span><span class="chip chip-ok">Available</span></span></div>
-      <div class="row"><span>Crop</span><span>No crop assigned</span></div></div>
-    <div class="card"><div class="row"><span>Next action</span><span>Review recommended assignments</span></div>
-      <button class="btn btn-outline" style="margin:8px 0 0;" onclick="openQueue()">Open Assignments${pendingAssignments()?` (${pendingAssignments()})`:''}</button></div>
-    ${recs.length?`<h2 style="font-size:13px;margin:14px 0 6px;">Recommended assignments</h2>
-      <div class="note" style="margin-top:0;">Proposals only. Nothing is assigned to ${esc(b.id)} until a manager approves it in Assignments.</div>
-      ${recs.map(p=>{ const cf=confidenceOf(p); return `<div class="card proposal"><div class="plabel">Recommended assignment</div>
-        <div class="pname">${esc(p.cropName)}</div><div class="pcode">${esc(p.cohortId)}</div>
-        <div class="row"><span>Proposed location</span><span>${esc(p.recommendedBed)}</span></div>
-        <div class="row"><span>Planting date</span><span>${esc(p.plannedDob||'—')}</span></div>
-        <div class="row"><span>Confidence</span><span><span class="chip ${cf[1]}">${cf[0]}</span></span></div>
-        <button class="btn btn-primary" style="margin:8px 0 0;" onclick="openQueue('proposed','${esc(p.cohortId)}')">Review Assignment</button></div>`; }).join('')}`
-      :`<div class="note">No pending recommendations for this bed.</div>`}`;
+      <div class="row"><span>Current</span><span>No crop assigned</span></div>
+      <div class="row"><span>Pending</span><span>No pending assignments</span></div></div>`;
 }
 function cohortActionButtons(b){
   const cs=b.cohortStatus||'';
