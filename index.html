@@ -62,7 +62,7 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .chip-ok{background:#E4F1E5;color:var(--ok);} .chip-warn{background:#FBEBD6;color:var(--warn);} .chip-danger{background:#F7DEDB;color:var(--danger);} .chip-neutral{background:var(--line);color:var(--ink-soft);}
 .btn{display:block;width:100%;text-align:center;padding:11px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:700;border:none;cursor:pointer;margin-bottom:8px;}
 .btn-primary{background:var(--forest);color:#fff;} .btn-outline{background:transparent;color:var(--forest);border:1.5px solid var(--forest);}
-.btn-danger{background:var(--danger);color:#fff;} .btn-ghost{background:transparent;color:var(--ink-soft);font-weight:600;}
+.btn-danger{background:var(--danger);color:#fff;} .btn-reject{background:transparent;color:var(--danger);border:1.5px solid var(--danger);} .btn-ghost{background:transparent;color:var(--ink-soft);font-weight:600;}
 .empty{text-align:center;color:var(--ink-soft);font-size:12.5px;padding:24px 10px;}
 .field{margin-bottom:12px;} .field label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:5px;}
 .loginwrap{max-width:380px;margin:60px auto;padding:0 16px;}
@@ -107,7 +107,7 @@ const APPROVE_CHUNK = 5;   // approvals per request: each one re-validates again
 const COHORT_STATUS_LABEL = { PLANNED:'Planned', PRE_PLANTING:'Assigned · awaiting planting', ACTIVE:'Active', COMPLETE:'Complete', TERMINATED:'Terminated' };
 
 /* ============================== STATE ============================== */
-const state = { managerId:null, name:null, role:null, token:null, beds:[], sessions:[], exceptions:[], harvestReady:[], queueByBed:{}, workers:[], assignableCohorts:[], eligibleLocations:[],
+const state = { managerId:null, name:null, role:null, token:null, beds:[], sessions:[], exceptions:[], harvestReady:[], queueByBed:{}, workers:[], eligibleLocations:[],
   aq:{ loaded:false, error:'', counts:{}, proposed:[], exceptions:[], plantingReady:[], generatedDate:'' }, candidates:{ locations:[] },
   todayById:{}, board:{ loaded:false, year:null, beds:[], cohorts:[], byKey:{}, unplaced:[], stats:{} } };
 const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', generating:false, resetScroll:false, filter:'ALL', year:new Date().getFullYear(), loading:false };
@@ -163,7 +163,7 @@ function logout(){ apiCall('logout',{}).catch(()=>{}); Object.assign(state,{mana
 /* ============================== DATA LOAD ============================== */
 async function loadToday(){
   ui.loading=true; render();
-  const [today, board, aq] = await Promise.allSettled([ apiCall('get-manager-today-view', {}), loadCohortBoard(), loadAssignQueue() ]);
+  const [today, board, aq] = await Promise.allSettled([ apiCall('get-manager-today-view', {}), loadCohortBoard(), loadAssignmentQueue() ]);
   ui.loading=false;
   if(today.status==='fulfilled'){
     const d=today.value||{};
@@ -292,7 +292,7 @@ async function verifyHarvestComplete(cohortId){
 /* Bed assignment is a proposal/approval workflow: BedAssignmentEngine.gs recommends a bed for every
  * planned cohort (crop block rule, bed availability over time, rotation, planting window); the manager
  * approves or changes it. Nothing here asks the manager to pick from the full bed list. */
-async function loadAssignQueue(){
+async function loadAssignmentQueue(){
   try{ const d=await apiCall('get-assignment-queue', { year: ui.year }); state.aq=Object.assign({ loaded:true, error:'' }, d); }
   catch(e){ state.aq.error=(e.code?('['+e.code+'] '):'')+e.message; throw e; }
 }
@@ -306,14 +306,14 @@ async function doGenerate(){
   ui.generating=true; state.aq.error=''; render();
   try{
     const r=await apiCall('generate-bed-recommendations', { year: ui.year }, 90000);
-    await loadAssignQueue();
+    await loadAssignmentQueue();
     ui.queueTab = r.proposed ? 'proposed' : 'exceptions'; ui.resetScroll=true;
     toast(r.proposed+' recommended · '+r.exceptions+' need review');
   }catch(e){ state.aq.error='Generate failed: '+(e.code?('['+e.code+'] '):'')+e.message; toast(e.message); }
   ui.generating=false; render();
 }
-async function doApprove(cohortId, overrideBedId){
-  try{ const r=await apiCall('approve-assignment', { cohortId, overrideBedId: overrideBedId||'' }, 60000); toast('Approved → '+r.locationId+'. Ready for planting.'); }
+async function approveAssignment(cohortId){
+  try{ const r=await apiCall('approve-assignment', { cohortId }, 60000); toast('Approved → '+r.locationId+'. Ready for planting.'); }
   catch(e){ toast(e.message); }
   await loadToday();
 }
@@ -329,15 +329,32 @@ async function doApproveBatch(ids){
   toast(ok+' approved'+(failed?(' · '+failed+' need attention - regenerate or change location'):''));
   await loadToday();
 }
-async function openChangeLocation(cohortId){
+async function openChangeAssignmentBed(cohortId){
   try{ state.candidates = await apiCall('get-bed-candidates', { cohortId }); openModal('change-loc', { cohortId }); }
   catch(e){ toast(e.message); }
 }
-async function doChangeApprove(cohortId){
+/* Validates server-side (bed exists / available / crop allowed / rotation). Saves the new bed onto the proposal and
+ * returns to the queue; the manager still presses Approve. Nothing is written to COHORT_PRODUCTION here. */
+async function changeAssignmentBed(cohortId){
   const bed=($('#md-newbed')||{}).value;
   if(!bed){ toast('Choose a location.'); return; }
-  ui.modal='queue'; ui.modalDraft={};
-  await doApprove(cohortId, bed);
+  try{
+    await apiCall('change-assignment-bed', { cohortId, newLocationId:bed }, 60000);
+    await loadAssignmentQueue();
+    ui.queueTab='proposed'; ui.resetScroll=true; openModal('queue');
+    toast('Location changed to '+bed+'. Review and approve.');
+  }catch(e){ toast(e.message); }
+}
+function openRejectModal(cohortId){ openModal('reject', { cohortId }); }
+async function rejectAssignment(cohortId){
+  const reason=String((($('#md-rreason')||{}).value)||'').trim();
+  if(!reason){ toast('Enter a reason for rejecting.'); return; }
+  try{
+    await apiCall('reject-assignment', { cohortId, reason });
+    await loadAssignmentQueue();
+    ui.resetScroll=true; openModal('queue');
+    toast(cohortId+' rejected.');
+  }catch(e){ toast(e.message); }
 }
 async function doVerifyPlanting(cohortId, actualDob){
   if(!actualDob){ toast('Enter the actual planting date.'); return; }
@@ -577,6 +594,7 @@ function modalHTML(){
   else if(ui.modal==='resolve') inner=resolveModal();
   else if(ui.modal==='queue') inner=queueModal();
   else if(ui.modal==='change-loc') inner=changeLocModal();
+  else if(ui.modal==='reject') inner=rejectModal();
   else if(ui.modal==='verify-planting') inner=verifyPlantingModal();
   else if(ui.modal==='move') inner=moveModal();
   else if(ui.modal==='terminate') inner=terminateModal();
@@ -610,12 +628,12 @@ function queueModal(){
   const tabs=[['proposed','Recommended',c.proposed||0],['exceptions','Exceptions',c.exceptions||0],['assigned','Assigned',c.plantingReady||0]];
   return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;">
       <div><h2 style="font-size:16px;margin:0;">Bed assignments · ${esc(ui.year)}</h2>
-      <div style="font-size:12px;color:var(--ink-soft);margin-top:3px;">${c.unassigned||0} unassigned cohorts${a.generatedDate?` · recommendations generated ${esc(a.generatedDate)}`:''}</div></div>
+      <div style="font-size:12px;color:var(--ink-soft);margin-top:3px;">${c.unassigned||0} unassigned cohorts${c.rejected?` · ${c.rejected} rejected`:''}${a.generatedDate?` · recommendations generated ${esc(a.generatedDate)}`:''}</div></div>
       <button onclick="closeModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ink-soft);">✕</button></div>
     ${a.error?`<div class="error">${esc(a.error)}</div>`:''}
     <button class="btn btn-primary" ${ui.generating?'disabled':''} onclick="doGenerate()">${ui.generating?'Generating…':(has?'Regenerate assignments':'Generate assignments')}</button>
     ${(c.notYetProposed>0&&has)?`<div class="notice" style="border-radius:8px;margin-bottom:10px;">${c.notYetProposed} cohort(s) have no recommendation yet. Regenerate to include them.</div>`:''}
-    <div class="seg" style="margin-bottom:6px;">${tabs.map(([k,l,n])=>`<button class="${tab===k?'active':''}" onclick="setQueueTab('${k}')">${l}<span class="n">${n}</span></button>`).join('')}</div>
+    <div class="seg" style="margin-bottom:6px;">${tabs.map(([k,l,n])=>`<button class="${tab===k?'active':''}" onclick="setQueueTab('${k}')">${l} (${n})</button>`).join('')}</div>
     ${tab==='proposed'?proposedList():tab==='exceptions'?exceptionList():assignedList()}`;
 }
 function reasonList(p){ return `<ul class="checks">${(p.reasons||[]).map(r=>`<li class="${String(r).startsWith('⚠')?'w':'ok'}">${esc(r)}</li>`).join('')}</ul>`; }
@@ -629,7 +647,7 @@ function proposedList(){
       + items.map(p=>`<div class="card ${(p.reasons||[]).some(r=>String(r).startsWith('⚠'))?'qwarn':''}">${cohortHead(p)}
         <div class="qrec"><span>Recommended location</span><b>${esc(p.recommendedBed)}</b><span class="chip chip-neutral">${esc(p.blockId)}</span></div>
         ${reasonList(p)}
-        <div class="qbtns"><button class="btn btn-primary" onclick="doApprove('${esc(p.cohortId)}')">Approve</button><button class="btn btn-outline" onclick="openChangeLocation('${esc(p.cohortId)}')">Change location</button></div></div>`).join('');
+        <div class="qbtns"><button class="btn btn-primary" onclick="approveAssignment('${esc(p.cohortId)}')">Approve</button><button class="btn btn-outline" onclick="openChangeAssignmentBed('${esc(p.cohortId)}')">Change</button><button class="btn btn-reject" onclick="openRejectModal('${esc(p.cohortId)}')">Reject</button></div></div>`).join('');
   }).join('');
 }
 function exceptionList(){
@@ -638,7 +656,7 @@ function exceptionList(){
   return list.map(p=>`<div class="card qwarn">${cohortHead(p)}
     <div class="qrec"><span class="chip chip-danger">${esc(EXC_LABEL[p.exceptionType]||p.exceptionType||'Exception')}</span></div>
     <ul class="checks">${(p.reasons||[]).map(r=>`<li class="w">${esc(r)}</li>`).join('')}</ul>
-    ${p.exceptionType==='MISSING_DATES'?'':`<button class="btn btn-outline" onclick="openChangeLocation('${esc(p.cohortId)}')">Choose a location</button>`}</div>`).join('');
+    <div class="qbtns">${p.exceptionType==='MISSING_DATES'?'':`<button class="btn btn-outline" onclick="openChangeAssignmentBed('${esc(p.cohortId)}')">Choose a location</button>`}<button class="btn btn-reject" onclick="openRejectModal('${esc(p.cohortId)}')">Reject</button></div></div>`).join('');
 }
 function assignedList(){
   const list=state.aq.plantingReady||[];
@@ -654,10 +672,18 @@ function changeLocModal(){
   const pref=r.recommendedBlocks||[];
   const opts=Object.keys(groups).sort((a,b)=>(pref.includes(a)?0:1)-(pref.includes(b)?0:1)||a.localeCompare(b)).map(g=>
     `<optgroup label="${esc(g)}${pref.includes(g)?' (approved block)':''}">${groups[g].map(l=>`<option value="${esc(l.locationId)}">${esc(l.locationId)} · ${esc(l.note)}</option>`).join('')}</optgroup>`).join('');
-  return `<h2 style="font-size:15px;">Change location</h2>
-  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">${esc(item.cropName||'')} · ${esc(d.cohortId)}${item.plannedDob?` · ${esc(item.plannedDob)} → ${esc(item.endDate||'?')}`:''}${item.recommendedBed?` · engine recommended ${esc(item.recommendedBed)}`:''}<br>Only beds that are free for these dates and pass rotation are listed.${pref.length?` Approved block: ${esc(pref.join(', '))}.`:''}</p>
+  return `<h2 style="font-size:15px;">Change bed</h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">${esc(item.cropName||'')} · ${esc(d.cohortId)}${item.plannedDob?` · ${esc(item.plannedDob)} → ${esc(item.endDate||'?')}`:''}${item.recommendedBed?` · engine recommended ${esc(item.recommendedBed)}`:''}<br>Only beds that are free for these dates and pass rotation are listed. Saving updates the recommendation; you approve it afterwards.${pref.length?` Approved block: ${esc(pref.join(', '))}.`:''}</p>
   <div class="field"><label>Location</label><select id="md-newbed">${opts?`<option value="">Select a location…</option>${opts}`:`<option value="">No free bed for these dates</option>`}</select></div>
-  <button class="btn btn-primary" onclick="doChangeApprove('${esc(d.cohortId)}')">Approve this location</button>
+  <button class="btn btn-primary" onclick="changeAssignmentBed('${esc(d.cohortId)}')">Save new location</button>
+  <button class="btn btn-ghost" onclick="openModal('queue')">Back</button>`;
+}
+function rejectModal(){
+  const d=ui.modalDraft, item=[].concat(state.aq.proposed||[],state.aq.exceptions||[]).find(x=>x.cohortId===d.cohortId)||{};
+  return `<h2 style="font-size:15px;">Reject recommendation</h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">${esc(item.cropName||'')} · ${esc(d.cohortId)}${item.recommendedBed?` · recommended ${esc(item.recommendedBed)}`:''}<br>The cohort stays planned with no bed. The reason is kept on the queue record.</p>
+  <div class="field"><label>Reason (required)</label><textarea id="md-rreason" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;"></textarea></div>
+  <button class="btn btn-danger" onclick="rejectAssignment('${esc(d.cohortId)}')">Reject recommendation</button>
   <button class="btn btn-ghost" onclick="openModal('queue')">Back</button>`;
 }
 function verifyPlantingModal(){
@@ -699,8 +725,8 @@ function buildDemoBeds(){
     const countThisBlock = Math.min(BEDS_PER_ROW*7, TOTAL_BEDS-n, 40);
     for(let i=1;i<=countThisBlock && n<TOTAL_BEDS;i++,n++){
       const crop=CROPS[Math.floor(rnd()*CROPS.length)];
-      // ~6% of beds start vacant (no cohort assigned yet) so "Assign cohort to
-      // bed" has somewhere to go in demo mode; the rest are ACTIVE cohorts
+      // ~6% of beds start vacant (no cohort assigned yet) so the demo has free
+      // beds to recommend into; the rest are ACTIVE cohorts
       // mid-cycle at a random Current_Stage.
       const vacant = (n%17===4);
       const stage = vacant? '' : CURRENT_STAGES[Math.floor(rnd()*rnd()*CURRENT_STAGES.length)];
@@ -739,6 +765,7 @@ const demoAssign = {
     exceptionType:'NO_BLOCK_RULE', reasons:['No approved block for Onions. Add Preferred_Block to this crop on CROP_REFERENCE (e.g. B2).'] }]
 };
 const demoSessionsByToken = {};
+let demoRejected = 0;
 async function mockBackend(action, p){
   await new Promise(r=>setTimeout(r,150));
   const ok=data=>({ok:true,data}), bad=(error,code)=>({ok:false,error,code});
@@ -785,7 +812,7 @@ async function mockBackend(action, p){
       return ok({ year:p.year, beds:demoBeds.map(b=>({ bedId:b.id, blockId:b.blockId, locationType:b.locationType })), cohorts, stats:{ yearRows:cohorts.length+demoAssign.proposed.length+demoAssign.exceptions.length, unassigned:demoAssign.proposed.length+demoAssign.exceptions.length } });
     }
     case 'get-assignment-queue':
-      return ok({ year:p.year, generatedDate:'demo', counts:{ unassigned:demoAssign.proposed.length+demoAssign.exceptions.length, proposed:demoAssign.proposed.length, exceptions:demoAssign.exceptions.length, notYetProposed:0, plantingReady:demoBeds.filter(b=>b.cohortStatus==='PRE_PLANTING').length },
+      return ok({ year:p.year, generatedDate:'demo', counts:{ rejected:demoRejected, unassigned:demoAssign.proposed.length+demoAssign.exceptions.length, proposed:demoAssign.proposed.length, exceptions:demoAssign.exceptions.length, notYetProposed:0, plantingReady:demoBeds.filter(b=>b.cohortStatus==='PRE_PLANTING').length },
         proposed:demoAssign.proposed, exceptions:demoAssign.exceptions,
         plantingReady:demoBeds.filter(b=>b.cohortStatus==='PRE_PLANTING').map(b=>({ cohortId:b.cohortId, cropName:b.cropName, waveNumber:'', locationId:b.id, plannedDob:'' })) });
     case 'generate-bed-recommendations':
@@ -793,27 +820,34 @@ async function mockBackend(action, p){
     case 'get-bed-candidates':
       return ok({ ok:true, cohortId:p.cohortId, recommendedBlocks:['Block 1'], locations:demoBeds.filter(b=>!b.cohortId).map(b=>({ locationId:b.id, blockId:b.blockId, outOfRule:b.blockId!=='Block 1', note:b.blockId!=='Block 1'?'Outside approved block':'Empty in this window' })) });
     case 'approve-assignment': case 'approve-assignments': {
-      const ids = action==='approve-assignments' ? p.cohortIds : [p.cohortId]; let approved=0;
+      const ids = action==='approve-assignments' ? p.cohortIds : [p.cohortId]; let approved=0, lastBed='';
       ids.forEach(id=>{
         const list = demoAssign.proposed.some(x=>x.cohortId===id) ? demoAssign.proposed : demoAssign.exceptions, i=list.findIndex(x=>x.cohortId===id); if(i<0) return;
-        const q=list[i], bed=demoBeds.find(b=>b.id===(p.overrideBedId||q.recommendedBed)); if(!bed||bed.cohortId) return;
+        const q=list[i], bed=demoBeds.find(b=>b.id===q.recommendedBed); if(!bed||bed.cohortId) return; lastBed=bed.id;
         bed.cohortId=q.cohortId; bed.cropName=q.cropName; bed.cohortStatus='PRE_PLANTING'; bed.currentStage=''; list.splice(i,1); approved++;
       });
-      if(action==='approve-assignment') return approved ? ok({ cohortId:p.cohortId, locationId:p.overrideBedId||'assigned' }) : bad('That bed is no longer free for this cohort\'s dates. Regenerate recommendations or pick another bed.','LOCATION_OCCUPIED');
+      if(action==='approve-assignment') return approved ? ok({ cohortId:p.cohortId, locationId:lastBed }) : bad('That bed is no longer free for this cohort\'s dates. Regenerate recommendations or pick another bed.','LOCATION_OCCUPIED');
       return ok({ approved, failed:ids.length-approved, results:[] });
     }
     case 'get-eligible-locations': {
       const vacant = demoBeds.filter(b=>!b.cohortId).map(b=>({ locationId:b.id, blockId:b.blockId, locationType:b.locationType }));
       return ok({ cohortId:p.cohortId, productionPath:'FIELD', locations:vacant });
     }
-    case 'assign-bed': {
-      const ci=demoAssignableCohorts.findIndex(c=>c.cohortId===p.cohortId); if(ci<0) return bad('Cohort not found or already assigned.','COHORT_NOT_FOUND');
-      const bed=demoBeds.find(b=>b.id===p.locationId); if(!bed) return bad('Bed not found.','LOCATION_NOT_FOUND');
-      if(bed.cohortId) return bad('That bed is already occupied.','LOCATION_OCCUPIED');
-      const c=demoAssignableCohorts[ci];
-      bed.cohortId=c.cohortId; bed.cropName=c.cropName; bed.cohortStatus='PRE_PLANTING'; bed.currentStage='';
-      demoAssignableCohorts.splice(ci,1);
-      return ok({done:true});
+    case 'change-assignment-bed': {
+      const src=demoAssign.proposed.find(x=>x.cohortId===p.cohortId)||demoAssign.exceptions.find(x=>x.cohortId===p.cohortId);
+      if(!src) return bad('No open recommendation for that cohort.','QUEUE_ROW_NOT_FOUND');
+      const bed=demoBeds.find(b=>b.id===p.newLocationId); if(!bed) return bad('Bed not found.','LOCATION_NOT_FOUND');
+      if(bed.cohortId) return bad(bed.id+' is already reserved during this cohort\'s window.','LOCATION_UNAVAILABLE');
+      src.recommendedBed=bed.id; src.blockId=bed.blockId; src.status='PROPOSED'; src.exceptionType='';
+      src.reasons=['✓ Location changed by manager to '+bed.id].concat(demoReasons(bed.blockId));
+      const ei=demoAssign.exceptions.indexOf(src); if(ei>=0){ demoAssign.exceptions.splice(ei,1); demoAssign.proposed.push(src); }
+      return ok({ cohortId:p.cohortId, recommendedBed:bed.id, status:'PROPOSED' });
+    }
+    case 'reject-assignment': {
+      if(!String(p.reason||'').trim()) return bad('A reason is required.','REASON_REQUIRED');
+      let hit=false; [demoAssign.proposed,demoAssign.exceptions].forEach(l=>{ const i=l.findIndex(x=>x.cohortId===p.cohortId); if(i>=0){ l.splice(i,1); hit=true; } });
+      if(!hit) return bad('No open recommendation for that cohort.','QUEUE_ROW_NOT_FOUND');
+      demoRejected++; return ok({ cohortId:p.cohortId, status:'REJECTED' });
     }
     case 'verify-planting': {
       const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
