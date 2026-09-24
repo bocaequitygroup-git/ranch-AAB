@@ -62,7 +62,12 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .chip-ok{background:#E4F1E5;color:var(--ok);} .chip-warn{background:#FBEBD6;color:var(--warn);} .chip-danger{background:#F7DEDB;color:var(--danger);} .chip-neutral{background:var(--line);color:var(--ink-soft);}
 .btn{display:block;width:100%;text-align:center;padding:11px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:700;border:none;cursor:pointer;margin-bottom:8px;}
 .btn-primary{background:var(--forest);color:#fff;} .btn-outline{background:transparent;color:var(--forest);border:1.5px solid var(--forest);}
-.btn-danger{background:var(--danger);color:#fff;} .btn-reject{background:transparent;color:var(--danger);border:1.5px solid var(--danger);} .btn-ghost{background:transparent;color:var(--ink-soft);font-weight:600;}
+.btn-danger{background:var(--danger);color:#fff;} .btn-cta{padding:10px 20px;font-size:14px;box-shadow:0 1px 0 rgba(0,0,0,.15);}
+.proposal{border-left:4px solid var(--warn);} .proposal .plabel{font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--warn);margin-bottom:6px;}
+.proposal .pname{font-size:15px;font-weight:800;} .proposal .pcode{font-size:12px;color:var(--ink-soft);margin-bottom:6px;}
+.qfocus{outline:3px solid var(--forest);outline-offset:2px;}
+.note{font-size:12px;color:var(--ink-soft);margin:8px 0 10px;line-height:1.45;}
+.btn-reject{background:transparent;color:var(--danger);border:1.5px solid var(--danger);} .btn-ghost{background:transparent;color:var(--ink-soft);font-weight:600;}
 .empty{text-align:center;color:var(--ink-soft);font-size:12.5px;padding:24px 10px;}
 .field{margin-bottom:12px;} .field label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:5px;}
 .loginwrap{max-width:380px;margin:60px auto;padding:0 16px;}
@@ -110,7 +115,7 @@ const COHORT_STATUS_LABEL = { PLANNED:'Planned', PRE_PLANTING:'Assigned · await
 const state = { managerId:null, name:null, role:null, token:null, beds:[], sessions:[], exceptions:[], harvestReady:[], queueByBed:{}, workers:[], eligibleLocations:[],
   aq:{ loaded:false, error:'', counts:{}, proposed:[], exceptions:[], plantingReady:[], generatedDate:'' }, candidates:{ locations:[] },
   todayById:{}, board:{ loaded:false, year:null, beds:[], cohorts:[], byKey:{}, unplaced:[], stats:{} } };
-const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', generating:false, resetScroll:false, filter:'ALL', year:new Date().getFullYear(), loading:false };
+const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', focusCohort:null, focusPending:false, generating:false, resetScroll:false, filter:'ALL', year:new Date().getFullYear(), loading:false };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
 function toast(msg){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},3200); }
@@ -183,7 +188,8 @@ async function loadToday(){
  * BED_MASTER grid. Location_ID is parsed here and the cohort tile is placed on the matching bed.
  * Accepted forms: B1-04 / BLK1-04 / BLOCK1-04 -> Block 1, Bed 04;  Z5-03 / ZONE5-03 -> Zone 5, Bed 03.
  * No stage math here: Current_Stage and Cohort_Status are displayed exactly as the backend sends them. */
-const FILTERS = [['ALL','All'],['PRE_PLANTING','Pre planting'],['GROWING','Growing'],['HARVEST_READY','Harvest ready'],['HARVEST_COMPLETE','Harvest complete'],['TERMINATED','Terminated'],['EXCEPTION','Exception']];
+/* Bed-map filters count BEDS (physical locations). Crop-lifecycle counts belong on the production dashboard. */
+const FILTERS = [['ALL','All'],['OCCUPIED','Occupied'],['AVAILABLE','Available'],['EXCEPTION','Exceptions']];
 const DARK_FILLS = ['#2E7D32','#7C8B98','#B3261E','#C77700','#5B8FC9'];
 function parseLocationId(id){
   const t=String(id==null?'':id).trim().toUpperCase().replace(/\s+/g,'');
@@ -217,7 +223,7 @@ function gridBeds(){
   return state.board.beds.length ? state.board.beds.map(x=>({ id:x.bedId, blockId:x.blockId, locationType:x.locationType })) : state.beds;
 }
 function bedView(b){
-  const v = Object.assign({}, state.todayById[b.id]||{}, { id:b.id, blockId:b.blockId });
+  const v = Object.assign({}, state.todayById[b.id]||{}, { id:b.id, blockId:b.blockId, locationType:b.locationType||(state.todayById[b.id]||{}).locationType||'' });
   if(!state.board.loaded) return v;
   const p=parseLocationId(b.id), c = p ? pickCohort(state.board.byKey[locKey(p)]) : null;
   if(c){
@@ -232,13 +238,14 @@ function bedViewById(id){ const b=gridBeds().find(x=>x.id===id); return b?bedVie
 function bedMatches(v){
   if(ui.filter==='ALL') return true;
   if(ui.filter==='EXCEPTION') return bedExceptions(v.id).some(x=>x.status!=='RESOLVED');
-  return !!v.cohortId && v.currentStage===ui.filter;
+  if(ui.filter==='OCCUPIED') return !!v.cohortId;
+  if(ui.filter==='AVAILABLE') return !v.cohortId;
+  return true;
 }
 function filterCounts(views){
-  const n={ ALL:views.length };
-  FILTERS.forEach(([k])=>{ if(k!=='ALL') n[k]=0; });
+  const n={ ALL:views.length, OCCUPIED:0, AVAILABLE:0, EXCEPTION:0 };
   views.forEach(v=>{
-    if(v.cohortId && n[v.currentStage]!==undefined) n[v.currentStage]++;
+    if(v.cohortId) n.OCCUPIED++; else n.AVAILABLE++;
     if(bedExceptions(v.id).some(x=>x.status!=='RESOLVED')) n.EXCEPTION++;
   });
   return n;
@@ -296,7 +303,8 @@ async function loadAssignmentQueue(){
   try{ const d=await apiCall('get-assignment-queue', { year: ui.year }); state.aq=Object.assign({ loaded:true, error:'' }, d); }
   catch(e){ state.aq.error=(e.code?('['+e.code+'] '):'')+e.message; throw e; }
 }
-function openQueue(tab){
+function openQueue(tab, focusCohortId){
+  ui.focusCohort=focusCohortId||null; ui.focusPending=!!focusCohortId;
   const c=state.aq.counts||{};
   ui.queueTab = tab ? tab : c.proposed ? 'proposed' : c.exceptions ? 'exceptions' : (c.plantingReady ? 'assigned' : 'proposed');
   openModal('queue');
@@ -383,12 +391,12 @@ async function doTerminateCohort(cohortId, reason){
 }
 
 /* ============================== UI HELPERS ============================== */
-function selectBed(bedId){ ui.selectedBed=bedId; ui.tab='overview'; render(); }
+function selectBed(bedId){ ui.selectedBed=bedId; ui.tab='overview'; render(); }  // always opens on Overview
 function closePanel(){ ui.selectedBed=null; render(); }
 function setOverlay(mode){ ui.overlay=mode; render(); }
 function setTab(t){ ui.tab=t; render(); }
 function openModal(name, draft){ ui.modal=name; ui.modalDraft=draft||{}; render(); }
-function closeModal(){ ui.modal=null; ui.modalDraft={}; render(); }
+function closeModal(){ ui.modal=null; ui.modalDraft={}; ui.focusCohort=null; ui.focusPending=false; render(); }
 
 function bedFill(bed){
   if(ui.overlay==='queue'){ const q=state.queueByBed[bed.id]; return QUEUE_COLOR[q||'NONE']; }
@@ -398,7 +406,7 @@ function bedExceptions(bedId){ return state.exceptions.filter(x=>x.bedId===bedId
 function bedSessions(bedId){ return state.sessions.filter(x=>x.bedId===bedId && x.status!=='COMPLETED'); }
 
 /* ============================== RENDER ============================== */
-function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0; ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : boardScreen(); attachMapEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const idEl=$('#in-id'); if(idEl) idEl.focus(); setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
+function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0; ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : boardScreen(); attachMapEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
 
 function loginScreen(){
   return `<div class="loginwrap">
@@ -422,12 +430,12 @@ function boardScreen(){
   <div class="wrap">
     <div class="mapcol">
       <div class="toolbar">
+        ${assignmentsButton()}
         <div class="seg">
           <button class="${ui.overlay==='stage'?'active':''}" onclick="setOverlay('stage')">Current stage</button>
           <button class="${ui.overlay==='queue'?'active':''}" onclick="setOverlay('queue')">Queue</button>
         </div>
         <select onchange="setYear(this.value)" aria-label="Planning year">${[ui.year-1,ui.year,ui.year+1].map(y=>`<option value="${y}" ${y===ui.year?'selected':''}>${y}</option>`).join('')}</select>
-        <button class="btn btn-primary" style="width:auto;margin:0;" onclick="openQueue()">Assignments${(state.aq.counts&&(state.aq.counts.proposed+state.aq.counts.exceptions))?`<span class="pill">${state.aq.counts.proposed+state.aq.counts.exceptions}</span>`:''}</button>
         <button class="btn btn-ghost" style="width:auto;margin:0;" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing…':'↻ Refresh'}</button>
       </div>
       ${assignStrip()}
@@ -442,6 +450,8 @@ function boardScreen(){
   ${modalHTML()}`;
 }
 
+function pendingAssignments(){ const c=state.aq.counts||{}; return (c.proposed||0)+(c.exceptions||0); }
+function assignmentsButton(){ const n=pendingAssignments(); return `<button class="btn btn-primary btn-cta" style="width:auto;margin:0;" onclick="openQueue()">Assignments${n?` (${n})`:''}</button>`; }
 function legendHTML(){
   if(ui.overlay==='queue') return Object.entries(QUEUE_COLOR).filter(([k])=>k!=='NONE').map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace('_',' ')}</span>`).join('');
   return Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
@@ -458,7 +468,8 @@ function assignStrip(){
 }
 function filterBar(){
   const n=filterCounts(gridBeds().map(bedView));
-  return `<div class="toolbar" style="padding-top:6px;padding-bottom:6px;"><div class="seg" style="flex-wrap:wrap;">${FILTERS.map(([k,l])=>`<button class="${ui.filter===k?'active':''}" onclick="setFilter('${k}')">${l}<span class="n">${n[k]||0}</span></button>`).join('')}</div></div>`;
+  const list=FILTERS.filter(([k])=>k!=='EXCEPTION'||n.EXCEPTION>0||ui.filter==='EXCEPTION');
+  return `<div class="toolbar astrip"><span class="alabel">Bed map status</span><span class="qsub" style="margin-right:6px;"><b style="color:var(--ink);font-size:15px;">${n.ALL}</b> total locations</span><div class="seg" style="flex-wrap:wrap;">${list.map(([k,l])=>`<button class="${ui.filter===k?'active':''}" onclick="setFilter('${k}')">${l}${k==='ALL'?'':`<span class="n">${n[k]||0}</span>`}</button>`).join('')}</div></div>`;
 }
 function noticeStrip(){
   const views=gridBeds().map(bedView), b=state.board, m=b.error?'':boardNotice(views);
@@ -504,12 +515,12 @@ function attachMapEvents(){ document.querySelectorAll('[data-bed]').forEach(el=>
 function panelHTML(){
   const b = bedViewById(ui.selectedBed); if(!b) return '';
   const sess=bedSessions(b.id), exc=bedExceptions(b.id), hr=state.harvestReady.find(h=>h.bedId===b.id);
-  return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}</div></div><button onclick="closePanel()">✕</button></div>
+  return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${b.cohortId?`${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}`:`${esc(b.blockId)} · ${esc(String(b.locationType||'field').toLowerCase())} bed · Available`}</div></div><button onclick="closePanel()">✕</button></div>
   <div class="tabs">
     <button class="${ui.tab==='overview'?'active':''}" onclick="setTab('overview')">Overview</button>
-    <button class="${ui.tab==='activity'?'active':''}" onclick="setTab('activity')">Activity</button>
-    <button class="${ui.tab==='exceptions'?'active':''}" onclick="setTab('exceptions')">Exceptions${exc.length?` (${exc.length})`:''}</button>
-    <button class="${ui.tab==='harvest'?'active':''}" onclick="setTab('harvest')">Harvest</button>
+    ${b.cohortId?`<button class="${ui.tab==='activity'?'active':''}" onclick="setTab('activity')">Activity</button>`:''}
+    ${(b.cohortId||exc.length)?`<button class="${ui.tab==='exceptions'?'active':''}" onclick="setTab('exceptions')">Exceptions${exc.length?` (${exc.length})`:''}</button>`:''}
+    ${b.cohortId?`<button class="${ui.tab==='harvest'?'active':''}" onclick="setTab('harvest')">Harvest</button>`:''}
   </div>
   <div class="panelbody">${
     ui.tab==='overview' ? overviewTab(b,sess) :
@@ -519,14 +530,14 @@ function panelHTML(){
 }
 function overviewTab(b,sess){
   const cs=b.cohortStatus||'';
-  return `<div class="card">
+  return `${b.cohortId?`<div class="card">
     <div class="row"><span>Crop</span><span>${esc(b.cropName)}</span></div>
     <div class="row"><span>Cohort</span><span>${esc(b.cohortId)}</span></div>
     <div class="row"><span>Current stage</span><span><span class="chip chip-neutral">${esc((b.currentStage||'—').replace(/_/g,' '))}</span></span></div>
     <div class="row"><span>Cohort status</span><span><span class="chip chip-neutral">${esc(COHORT_STATUS_LABEL[cs]||cs||'—')}</span></span></div>
     <div class="row"><span>Planted</span><span>${esc(b.plantingDate||'—')}</span></div>
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
-  </div>
+  </div>`:''}
   ${b.cohortId?cohortActionButtons(b):emptyBedBlock(b)}
   <h2 style="font-size:13px;">Live sessions</h2>
   ${sess.length? sess.map(s=>`<div class="card"><div class="row"><span>${esc(s.workerName)}</span><span class="chip ${s.status==='ACTIVE'?'chip-ok':'chip-warn'}">${esc(s.status)}</span></div>
@@ -541,11 +552,25 @@ function overviewTab(b,sess){
  * completeCohort / terminateCohort). No crop-day or stage math happens here;
  * this board only ever displays what the backend already computed.
  */
+function confidenceOf(p){ return (p.reasons||[]).some(r=>String(r).startsWith('⚠')) ? ['Review needed','chip-warn'] : ['Match','chip-ok']; }
+/* An empty bed shows PHYSICAL facts only. A proposal is an engine suggestion sitting in the assignment queue:
+ * it is labelled as such and never presented as something this bed has. Assigning happens only from the queue. */
 function emptyBedBlock(b){
-  const rec=(state.aq.proposed||[]).filter(p=>p.recommendedBed===b.id);
-  return `<div class="card"><div style="font-size:12.5px;color:var(--ink-soft);">No cohort in this bed right now.</div>
-    ${rec.map(p=>`<div class="row"><span>Recommended</span><span>${esc(p.cropName)} · ${esc(p.cohortId)} · DOB ${esc(p.plannedDob)}</span></div>`).join('')}</div>
-    <button class="btn btn-outline" onclick="openQueue()">Open assignment queue</button>`;
+  const recs=(state.aq.proposed||[]).filter(p=>p.recommendedBed===b.id);
+  return `<div class="card">
+      <div class="row"><span>Status</span><span><span class="chip chip-ok">Available</span></span></div>
+      <div class="row"><span>Crop</span><span>No crop assigned</span></div></div>
+    <div class="card"><div class="row"><span>Next action</span><span>Review recommended assignments</span></div>
+      <button class="btn btn-outline" style="margin:8px 0 0;" onclick="openQueue()">Open Assignments${pendingAssignments()?` (${pendingAssignments()})`:''}</button></div>
+    ${recs.length?`<h2 style="font-size:13px;margin:14px 0 6px;">Recommended assignments</h2>
+      <div class="note" style="margin-top:0;">Proposals only. Nothing is assigned to ${esc(b.id)} until a manager approves it in Assignments.</div>
+      ${recs.map(p=>{ const cf=confidenceOf(p); return `<div class="card proposal"><div class="plabel">Recommended assignment</div>
+        <div class="pname">${esc(p.cropName)}</div><div class="pcode">${esc(p.cohortId)}</div>
+        <div class="row"><span>Proposed location</span><span>${esc(p.recommendedBed)}</span></div>
+        <div class="row"><span>Planting date</span><span>${esc(p.plannedDob||'—')}</span></div>
+        <div class="row"><span>Confidence</span><span><span class="chip ${cf[1]}">${cf[0]}</span></span></div>
+        <button class="btn btn-primary" style="margin:8px 0 0;" onclick="openQueue('proposed','${esc(p.cohortId)}')">Review Assignment</button></div>`; }).join('')}`
+      :`<div class="note">No pending recommendations for this bed.</div>`}`;
 }
 function cohortActionButtons(b){
   const cs=b.cohortStatus||'';
@@ -644,7 +669,7 @@ function proposedList(){
   const groups={}; list.forEach(p=>{ const g=p.blockId||'Unplaced'; (groups[g]=groups[g]||[]).push(p); });
   return Object.keys(groups).sort().map(g=>{ const items=groups[g];
     return `<div class="qgh"><span><b>${esc(g)}</b> · ${items.length}</span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="doApproveBatch(${esc(JSON.stringify(items.map(p=>p.cohortId)))})">Approve all ${items.length}</button></div>`
-      + items.map(p=>`<div class="card ${(p.reasons||[]).some(r=>String(r).startsWith('⚠'))?'qwarn':''}">${cohortHead(p)}
+      + items.map(p=>`<div id="qc-${esc(p.cohortId)}" class="card ${(p.reasons||[]).some(r=>String(r).startsWith('⚠'))?'qwarn':''} ${ui.focusCohort===p.cohortId?'qfocus':''}">${cohortHead(p)}
         <div class="qrec"><span>Recommended location</span><b>${esc(p.recommendedBed)}</b><span class="chip chip-neutral">${esc(p.blockId)}</span></div>
         ${reasonList(p)}
         <div class="qbtns"><button class="btn btn-primary" onclick="approveAssignment('${esc(p.cohortId)}')">Approve</button><button class="btn btn-outline" onclick="openChangeAssignmentBed('${esc(p.cohortId)}')">Change</button><button class="btn btn-reject" onclick="openRejectModal('${esc(p.cohortId)}')">Reject</button></div></div>`).join('');
