@@ -189,10 +189,13 @@ function cohortStage(c){
 const isLive = c => !['TERMINATED','COMPLETE'].includes(String(c.cohortStatus||'').toUpperCase());
 function pickCohort(list){ if(!list||!list.length) return null; return list.find(isLive) || list[list.length-1]; }
 async function loadCohortBoard(){
-  const d = await apiCall('get-cohort-board', { year: ui.year });
+  let d;
+  try{ d = await apiCall('get-cohort-board', { year: ui.year }); }
+  catch(e){ state.board.error = (e.code?('['+e.code+'] '):'')+e.message; throw e; }
+  state.board.error = '';
   const cohorts=(d&&d.cohorts)||[], byKey={}, unplaced=[];
   cohorts.forEach(c=>{ const p=parseLocationId(c.locationId); if(!p){ unplaced.push(c); return; } (byKey[locKey(p)]=byKey[locKey(p)]||[]).push(c); });
-  state.board = { loaded:true, year:ui.year, beds:(d&&d.beds)||[], cohorts, byKey, unplaced, stats:(d&&d.stats)||{} };
+  state.board = { error:'', loaded:true, year:ui.year, beds:(d&&d.beds)||[], cohorts, byKey, unplaced, stats:(d&&d.stats)||{} };
 }
 function gridBeds(){
   return state.board.beds.length ? state.board.beds.map(x=>({ id:x.bedId, blockId:x.blockId, locationType:x.locationType })) : state.beds;
@@ -388,8 +391,9 @@ function filterBar(){
   return `<div class="toolbar" style="padding-top:6px;padding-bottom:6px;"><div class="seg" style="flex-wrap:wrap;">${FILTERS.map(([k,l])=>`<button class="${ui.filter===k?'active':''}" onclick="setFilter('${k}')">${l}<span class="n">${n[k]||0}</span></button>`).join('')}</div></div>`;
 }
 function noticeStrip(){
-  const views=gridBeds().map(bedView), m=boardNotice(views), b=state.board;
+  const views=gridBeds().map(bedView), b=state.board, m=b.error?'':boardNotice(views);
   if(m) return `<div class="notice">${m}</div>`;
+  if(b.error) return `<div class="notice" style="background:#F7DEDB;color:var(--danger);">Cohort board failed to load: ${esc(b.error)}. No cohort data is being read from COHORT_PRODUCTION.</div>`;
   if(!b.loaded) return `<div class="notice">Cohort board not loaded yet.</div>`;
   const st=b.stats||{};
   return `<div class="notice" style="background:transparent;color:var(--ink-soft);font-size:11.5px;">COHORT_PRODUCTION ${ui.year}: ${st.yearRows!=null?st.yearRows:'?'} rows · ${b.cohorts.length} with a Location_ID · ${views.filter(v=>v.cohortId).length} placed on the grid</div>`;
