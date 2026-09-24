@@ -70,6 +70,13 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;display:flex;align-items:center;justify-content:center;}
 .sheet{background:var(--paper);width:100%;max-width:420px;border-radius:14px;padding:18px;max-height:86vh;overflow-y:auto;margin:16px;}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--sand);padding:11px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:100;}
+.sheet.wide{max-width:720px;}
+.pill{display:inline-block;min-width:18px;padding:1px 6px;border-radius:99px;background:#fff;color:var(--forest);font-size:11px;font-weight:800;margin-left:4px;}
+.qgh{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;margin:14px 0 6px;position:sticky;top:-18px;background:var(--paper);padding:6px 0;z-index:1;}
+.qtop{display:flex;justify-content:space-between;gap:10px;} .qsub{font-size:12px;color:var(--ink-soft);} .qdates{font-size:11.5px;color:var(--ink-soft);text-align:right;}
+.qrec{margin:10px 0 6px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;} .qrec>span:first-child{color:var(--ink-soft);font-size:11.5px;} .qrec b{font-size:19px;color:var(--forest);}
+.checks{list-style:none;margin:6px 0 10px;padding:0;font-size:12px;} .checks li{padding:2px 0;} .checks li.ok{color:var(--ok);} .checks li.w{color:var(--warn);font-weight:600;}
+.qbtns{display:flex;gap:8px;} .qbtns .btn{margin:0;} .qwarn{border-color:var(--warn);}
 @media (max-width:760px){ .wrap{flex-direction:column;} .panel{width:100%;border-left:none;border-top:1px solid var(--line);max-height:60vh;} }
 </style>
 </head>
@@ -92,26 +99,29 @@ const CROPS = [['Lettuce','LET'],['Kale','KAL'],['Arugula','ARU'],['Radish','RAD
 const CURRENT_STAGES = ['PRE_PLANTING','GROWING','HARVEST_READY','HARVEST_COMPLETE','TERMINATED'];
 const STAGE_COLOR = { PRE_PLANTING:'#D8CFAE', GROWING:'#8FBF8A', HARVEST_READY:'#2E7D32', HARVEST_COMPLETE:'#7C8B98', TERMINATED:'#C9C2AE' };
 const QUEUE_COLOR = { MUST_DO:'#B3261E', ATTENTION:'#C77700', ROUTINE:'#5B8FC9', NONE:'transparent' };
+const EXC_LABEL = { NO_BLOCK_RULE:'No block rule for this crop', NO_BED_AVAILABLE:'No suitable bed available', NO_LOCATIONS_OF_TYPE:'No beds of this type', MISSING_DATES:'Missing planting / harvest dates', OUTSIDE_PLANTING_WINDOW:'Outside planting window' };
+const APPROVE_CHUNK = 5;   // approvals per request: each one re-validates against the live sheets
 const COHORT_STATUS_LABEL = { PLANNED:'Planned', PRE_PLANTING:'Assigned · awaiting planting', ACTIVE:'Active', COMPLETE:'Complete', TERMINATED:'Terminated' };
 
 /* ============================== STATE ============================== */
 const state = { managerId:null, name:null, role:null, token:null, beds:[], sessions:[], exceptions:[], harvestReady:[], queueByBed:{}, workers:[], assignableCohorts:[], eligibleLocations:[],
+  aq:{ loaded:false, error:'', counts:{}, proposed:[], exceptions:[], plantingReady:[], generatedDate:'' }, candidates:{ locations:[] },
   todayById:{}, board:{ loaded:false, year:null, beds:[], cohorts:[], byKey:{}, unplaced:[], stats:{} } };
-const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', filter:'ALL', year:new Date().getFullYear(), loading:false };
+const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', generating:false, resetScroll:false, filter:'ALL', year:new Date().getFullYear(), loading:false };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
 function toast(msg){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},3200); }
 
 /* ============================== API ============================== */
 function apiError(message, code){ const e=new Error(message); e.code=code; e.isApiError=true; return e; }
-async function apiCall(action, payload={}){
+async function apiCall(action, payload={}, timeoutMs){
   const body=Object.assign({}, payload);
   if(state.token && body.token===undefined) body.token=state.token;
   let json;
   try{
     if(IS_DEMO){ json = await mockBackend(action, body); }
     else{
-      const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), REQUEST_TIMEOUT_MS);
+      const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), timeoutMs||REQUEST_TIMEOUT_MS);
       let resp;
       try{ resp=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({action},body)),redirect:'follow',signal:ctrl.signal}); }
       finally{ clearTimeout(timer); }
@@ -150,7 +160,7 @@ function logout(){ apiCall('logout',{}).catch(()=>{}); Object.assign(state,{mana
 /* ============================== DATA LOAD ============================== */
 async function loadToday(){
   ui.loading=true; render();
-  const [today, board] = await Promise.allSettled([ apiCall('get-manager-today-view', {}), loadCohortBoard() ]);
+  const [today, board, aq] = await Promise.allSettled([ apiCall('get-manager-today-view', {}), loadCohortBoard(), loadAssignQueue() ]);
   ui.loading=false;
   if(today.status==='fulfilled'){
     const d=today.value||{};
@@ -161,6 +171,7 @@ async function loadToday(){
   setConn(IS_DEMO?'demo':'online'); render();
   if(today.status==='rejected') toast(today.reason.message);
   else if(board.status==='rejected') toast('Cohort board: '+board.reason.message);
+  else if(aq.status==='rejected') toast('Assignment queue: '+aq.reason.message);
 }
 
 /* ============================== COHORT BOARD: COHORT_PRODUCTION -> BEDS ==============================
@@ -187,7 +198,9 @@ function cohortStage(c){
   return st || (cs==='PRE_PLANTING' ? 'PRE_PLANTING' : '');
 }
 const isLive = c => !['TERMINATED','COMPLETE'].includes(String(c.cohortStatus||'').toUpperCase());
-function pickCohort(list){ if(!list||!list.length) return null; return list.find(isLive) || list[list.length-1]; }
+const cohortStart = c => c.actualDob||c.plannedDob||'9999';
+// A bed is a timeline: show the earliest LIVE cohort (the one in the bed now), else the latest finished one.
+function pickCohort(list){ if(!list||!list.length) return null; const live=list.filter(isLive); return live.length ? live.slice().sort((a,b)=>cohortStart(a).localeCompare(cohortStart(b)))[0] : list[list.length-1]; }
 async function loadCohortBoard(){
   let d;
   try{ d = await apiCall('get-cohort-board', { year: ui.year }); }
@@ -237,7 +250,7 @@ function boardNotice(views){
   if(orphans.length) return `${orphans.length} cohort(s) have a Location_ID that matches no bed: ${orphans.slice(0,6).map(c=>esc(c.cohortId+' → '+c.locationId)).join(', ')}${orphans.length>6?'…':''}`;
   if(!b.cohorts.length){
     const un=b.stats&&b.stats.unassigned, tot=b.stats&&b.stats.yearRows;
-    return `No cohorts in ${ui.year} have a Location_ID yet${tot!=null?` (${tot} cohort rows in COHORT_PRODUCTION, ${un!=null?un:tot} unassigned)`:''}. Use “+ Assign cohort to bed” to place them.`;
+    return `No cohorts in ${ui.year} have a Location_ID yet${tot!=null?` (${tot} cohort rows in COHORT_PRODUCTION, ${un!=null?un:tot} unassigned)`:''}. Open “Assignments” to review the recommended beds.`;
   }
   return '';
 }
@@ -273,28 +286,55 @@ async function verifyHarvestComplete(cohortId){
  * completeCohort / terminateCohort. No stage or crop-day math lives here - the
  * board only refreshes and re-renders whatever the backend sends back.
  */
-async function openAssignModal(){
-  try{
-    const cohorts = await apiCall('get-assignable-cohorts', {});
-    state.assignableCohorts = cohorts||[];
-    openModal('assign', { cohortId:'', locationId:'' });
-  }catch(e){ toast(e.message); }
+/* Bed assignment is a proposal/approval workflow: BedAssignmentEngine.gs recommends a bed for every
+ * planned cohort (crop block rule, bed availability over time, rotation, planting window); the manager
+ * approves or changes it. Nothing here asks the manager to pick from the full bed list. */
+async function loadAssignQueue(){
+  try{ const d=await apiCall('get-assignment-queue', { year: ui.year }); state.aq=Object.assign({ loaded:true, error:'' }, d); }
+  catch(e){ state.aq.error=(e.code?('['+e.code+'] '):'')+e.message; throw e; }
 }
-async function onAssignCohortChange(cohortId){
-  ui.modalDraft.cohortId = cohortId; ui.modalDraft.locationId = '';
-  state.eligibleLocations = [];
-  if(!cohortId){ render(); return; }
-  try{
-    const res = await apiCall('get-eligible-locations', { cohortId });
-    state.eligibleLocations = res.locations||[];
-    if(!state.eligibleLocations.length) toast('No eligible beds for this cohort right now.');
-  }catch(e){ toast(e.message); }
-  render();
+function openQueue(){
+  const c=state.aq.counts||{};
+  ui.queueTab = c.proposed ? 'proposed' : c.exceptions ? 'exceptions' : (c.plantingReady ? 'assigned' : 'proposed');
+  openModal('queue');
 }
-async function doAssignBed(cohortId, locationId){
-  if(!cohortId||!locationId){ toast('Choose a cohort and a bed.'); return; }
-  try{ await apiCall('assign-bed', { cohortId, locationId }); toast('Bed assigned. Cohort is now PRE_PLANTING.'); closeModal(); await loadToday(); }
+function setQueueTab(t){ ui.queueTab=t; ui.resetScroll=true; render(); }
+async function doGenerate(){
+  ui.generating=true; render();
+  try{
+    const r=await apiCall('generate-bed-recommendations', { year: ui.year }, 90000);
+    await loadAssignQueue();
+    ui.queueTab = r.proposed ? 'proposed' : 'exceptions'; ui.resetScroll=true;
+    toast(r.proposed+' recommended · '+r.exceptions+' need review');
+  }catch(e){ toast(e.message); }
+  ui.generating=false; render();
+}
+async function doApprove(cohortId, overrideBedId){
+  try{ const r=await apiCall('approve-assignment', { cohortId, overrideBedId: overrideBedId||'' }, 60000); toast('Approved → '+r.locationId+'. Ready for planting.'); }
   catch(e){ toast(e.message); }
+  await loadToday();
+}
+async function doApproveBatch(ids){
+  if(!ids||!ids.length) return;
+  if(!confirm('Approve '+ids.length+' recommended assignments?')) return;
+  let ok=0, failed=0;
+  for(let i=0;i<ids.length;i+=APPROVE_CHUNK){
+    toast('Approving '+Math.min(i+APPROVE_CHUNK,ids.length)+' of '+ids.length+'…');
+    try{ const r=await apiCall('approve-assignments', { cohortIds: ids.slice(i,i+APPROVE_CHUNK) }, 120000); ok+=r.approved; failed+=r.failed; }
+    catch(e){ failed+=ids.length-i; break; }
+  }
+  toast(ok+' approved'+(failed?(' · '+failed+' need attention - regenerate or change location'):''));
+  await loadToday();
+}
+async function openChangeLocation(cohortId){
+  try{ state.candidates = await apiCall('get-bed-candidates', { cohortId }); openModal('change-loc', { cohortId }); }
+  catch(e){ toast(e.message); }
+}
+async function doChangeApprove(cohortId){
+  const bed=($('#md-newbed')||{}).value;
+  if(!bed){ toast('Choose a location.'); return; }
+  ui.modal='queue'; ui.modalDraft={};
+  await doApprove(cohortId, bed);
 }
 async function doVerifyPlanting(cohortId, actualDob){
   if(!actualDob){ toast('Enter the actual planting date.'); return; }
@@ -338,7 +378,7 @@ function bedExceptions(bedId){ return state.exceptions.filter(x=>x.bedId===bedId
 function bedSessions(bedId){ return state.sessions.filter(x=>x.bedId===bedId && x.status!=='COMPLETED'); }
 
 /* ============================== RENDER ============================== */
-function render(){ $('#app').innerHTML = ui.screen==='login' ? loginScreen() : boardScreen(); attachMapEvents(); const idEl=$('#in-id'); if(idEl) idEl.focus(); setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
+function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0; ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : boardScreen(); attachMapEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const idEl=$('#in-id'); if(idEl) idEl.focus(); setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
 
 function loginScreen(){
   return `<div class="loginwrap">
@@ -367,7 +407,7 @@ function boardScreen(){
           <button class="${ui.overlay==='queue'?'active':''}" onclick="setOverlay('queue')">Queue</button>
         </div>
         <select onchange="setYear(this.value)" aria-label="Planning year">${[ui.year-1,ui.year,ui.year+1].map(y=>`<option value="${y}" ${y===ui.year?'selected':''}>${y}</option>`).join('')}</select>
-        <button class="btn btn-outline" style="width:auto;margin:0;" onclick="openAssignModal()">+ Assign cohort to bed</button>
+        <button class="btn btn-primary" style="width:auto;margin:0;" onclick="openQueue()">Assignments${(state.aq.counts&&(state.aq.counts.proposed+state.aq.counts.exceptions))?`<span class="pill">${state.aq.counts.proposed+state.aq.counts.exceptions}</span>`:''}</button>
         <button class="btn btn-ghost" style="width:auto;margin:0;" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing…':'↻ Refresh'}</button>
       </div>
       ${filterBar()}
@@ -457,7 +497,7 @@ function overviewTab(b,sess){
     <div class="row"><span>Planted</span><span>${esc(b.plantingDate||'—')}</span></div>
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>
-  ${cohortActionButtons(b)}
+  ${b.cohortId?cohortActionButtons(b):emptyBedBlock(b)}
   <h2 style="font-size:13px;">Live sessions</h2>
   ${sess.length? sess.map(s=>`<div class="card"><div class="row"><span>${esc(s.workerName)}</span><span class="chip ${s.status==='ACTIVE'?'chip-ok':'chip-warn'}">${esc(s.status)}</span></div>
     <div class="row"><span>Task</span><span>${esc(s.activity)}</span></div>
@@ -471,6 +511,12 @@ function overviewTab(b,sess){
  * completeCohort / terminateCohort). No crop-day or stage math happens here;
  * this board only ever displays what the backend already computed.
  */
+function emptyBedBlock(b){
+  const rec=(state.aq.proposed||[]).filter(p=>p.recommendedBed===b.id);
+  return `<div class="card"><div style="font-size:12.5px;color:var(--ink-soft);">No cohort in this bed right now.</div>
+    ${rec.map(p=>`<div class="row"><span>Recommended</span><span>${esc(p.cropName)} · ${esc(p.cohortId)} · DOB ${esc(p.plannedDob)}</span></div>`).join('')}</div>
+    <button class="btn btn-outline" onclick="openQueue()">Open assignment queue</button>`;
+}
 function cohortActionButtons(b){
   const cs=b.cohortStatus||'';
   const btns=[];
@@ -516,11 +562,12 @@ function modalHTML(){
   if(ui.modal==='dispatch') inner=dispatchModal();
   else if(ui.modal==='reassign') inner=reassignModal();
   else if(ui.modal==='resolve') inner=resolveModal();
-  else if(ui.modal==='assign') inner=assignModal();
+  else if(ui.modal==='queue') inner=queueModal();
+  else if(ui.modal==='change-loc') inner=changeLocModal();
   else if(ui.modal==='verify-planting') inner=verifyPlantingModal();
   else if(ui.modal==='move') inner=moveModal();
   else if(ui.modal==='terminate') inner=terminateModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet">${inner}</div></div>`;
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'?' wide':''}">${inner}</div></div>`;
 }
 function dispatchModal(){
   const d=ui.modalDraft;
@@ -545,20 +592,60 @@ function resolveModal(){
   <button class="btn btn-primary" onclick="resolveException('${esc(d.exceptionId)}', document.getElementById('md-rnote').value)">Mark resolved</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
-function assignModal(){
-  const d=ui.modalDraft;
-  const cohortOpts = `<option value="">Select a planned cohort…</option>` + state.assignableCohorts.map(c=>
-    `<option value="${esc(c.cohortId)}" ${d.cohortId===c.cohortId?'selected':''}>${esc(c.cohortId)} · ${esc(c.cropName)} · wave ${esc(c.waveNumber)} · ${esc(c.productionPath)}</option>`).join('');
-  const locOpts = d.cohortId
-    ? (state.eligibleLocations.length
-        ? `<option value="">Select a bed…</option>` + state.eligibleLocations.map(l=>`<option value="${esc(l.locationId)}">${esc(l.locationId)} · ${esc(l.blockId)}</option>`).join('')
-        : `<option value="">No eligible beds</option>`)
-    : `<option value="">Choose a cohort first</option>`;
-  return `<h2 style="font-size:15px;">Assign cohort to bed</h2>
-  <div class="field"><label>Cohort (PLANNED, unassigned)</label><select id="md-cohort" onchange="onAssignCohortChange(this.value)">${cohortOpts}</select></div>
-  <div class="field"><label>Bed</label><select id="md-loc" ${d.cohortId?'':'disabled'}>${locOpts}</select></div>
-  <button class="btn btn-primary" onclick="doAssignBed(document.getElementById('md-cohort').value, document.getElementById('md-loc').value)">Assign bed</button>
-  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+function queueModal(){
+  const a=state.aq, c=a.counts||{}, tab=ui.queueTab||'proposed', has=(c.proposed||0)+(c.exceptions||0)>0;
+  const tabs=[['proposed','Recommended',c.proposed||0],['exceptions','Exceptions',c.exceptions||0],['assigned','Assigned',c.plantingReady||0]];
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;">
+      <div><h2 style="font-size:16px;margin:0;">Bed assignments · ${esc(ui.year)}</h2>
+      <div style="font-size:12px;color:var(--ink-soft);margin-top:3px;">${c.unassigned||0} unassigned cohorts${a.generatedDate?` · recommendations generated ${esc(a.generatedDate)}`:''}</div></div>
+      <button onclick="closeModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ink-soft);">✕</button></div>
+    ${a.error?`<div class="error">${esc(a.error)}</div>`:''}
+    <button class="btn btn-primary" ${ui.generating?'disabled':''} onclick="doGenerate()">${ui.generating?'Generating…':(has?'Regenerate bed recommendations':'Generate bed recommendations')}</button>
+    ${(c.notYetProposed>0&&has)?`<div class="notice" style="border-radius:8px;margin-bottom:10px;">${c.notYetProposed} cohort(s) have no recommendation yet. Regenerate to include them.</div>`:''}
+    <div class="seg" style="margin-bottom:6px;">${tabs.map(([k,l,n])=>`<button class="${tab===k?'active':''}" onclick="setQueueTab('${k}')">${l}<span class="n">${n}</span></button>`).join('')}</div>
+    ${tab==='proposed'?proposedList():tab==='exceptions'?exceptionList():assignedList()}`;
+}
+function reasonList(p){ return `<ul class="checks">${(p.reasons||[]).map(r=>`<li class="${String(r).startsWith('⚠')?'w':'ok'}">${esc(r)}</li>`).join('')}</ul>`; }
+function cohortHead(p){ return `<div class="qtop"><div><b>${esc(p.cropName)}</b><div class="qsub">Wave ${esc(p.waveNumber)} · ${esc(p.cohortId)}</div></div><div class="qdates">DOB ${esc(p.plannedDob)}<br>ends ${esc(p.endDate||'—')}</div></div>`; }
+function proposedList(){
+  const list=state.aq.proposed||[];
+  if(!list.length) return `<div class="empty">${(state.aq.counts&&state.aq.counts.unassigned)?'Nothing is waiting for approval. Generate bed recommendations to propose a location for each unassigned cohort.':'Every cohort has a bed.'}</div>`;
+  const groups={}; list.forEach(p=>{ const g=p.blockId||'Unplaced'; (groups[g]=groups[g]||[]).push(p); });
+  return Object.keys(groups).sort().map(g=>{ const items=groups[g];
+    return `<div class="qgh"><span><b>${esc(g)}</b> · ${items.length}</span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="doApproveBatch(${esc(JSON.stringify(items.map(p=>p.cohortId)))})">Approve all ${items.length}</button></div>`
+      + items.map(p=>`<div class="card ${(p.reasons||[]).some(r=>String(r).startsWith('⚠'))?'qwarn':''}">${cohortHead(p)}
+        <div class="qrec"><span>Recommended location</span><b>${esc(p.recommendedBed)}</b><span class="chip chip-neutral">${esc(p.blockId)}</span></div>
+        ${reasonList(p)}
+        <div class="qbtns"><button class="btn btn-primary" onclick="doApprove('${esc(p.cohortId)}')">Approve</button><button class="btn btn-outline" onclick="openChangeLocation('${esc(p.cohortId)}')">Change location</button></div></div>`).join('');
+  }).join('');
+}
+function exceptionList(){
+  const list=state.aq.exceptions||[];
+  if(!list.length) return `<div class="empty">No exceptions. Every cohort has a recommendation.</div>`;
+  return list.map(p=>`<div class="card qwarn">${cohortHead(p)}
+    <div class="qrec"><span class="chip chip-danger">${esc(EXC_LABEL[p.exceptionType]||p.exceptionType||'Exception')}</span></div>
+    <ul class="checks">${(p.reasons||[]).map(r=>`<li class="w">${esc(r)}</li>`).join('')}</ul>
+    ${p.exceptionType==='MISSING_DATES'?'':`<button class="btn btn-outline" onclick="openChangeLocation('${esc(p.cohortId)}')">Choose a location</button>`}</div>`).join('');
+}
+function assignedList(){
+  const list=state.aq.plantingReady||[];
+  if(!list.length) return `<div class="empty">No approved cohorts are waiting to be planted.</div>`;
+  return list.map(p=>`<div class="card"><div class="qtop"><div><b>${esc(p.cropName)}</b><div class="qsub">Wave ${esc(p.waveNumber)} · ${esc(p.cohortId)}</div></div><div class="qdates">Planned DOB<br>${esc(p.plannedDob)}</div></div>
+    <div class="qrec"><span>Planting ready in</span><b>${esc(p.locationId)}</b></div>
+    <button class="btn btn-outline" onclick="openModal('verify-planting',{cohortId:'${esc(p.cohortId)}',bedId:'${esc(p.locationId)}'})">Verify planting</button></div>`).join('');
+}
+function changeLocModal(){
+  const d=ui.modalDraft, r=state.candidates||{locations:[]}, locs=r.locations||[];
+  const item=[].concat(state.aq.proposed||[],state.aq.exceptions||[]).find(x=>x.cohortId===d.cohortId)||{};
+  const groups={}; locs.forEach(l=>{ (groups[l.blockId]=groups[l.blockId]||[]).push(l); });
+  const pref=r.recommendedBlocks||[];
+  const opts=Object.keys(groups).sort((a,b)=>(pref.includes(a)?0:1)-(pref.includes(b)?0:1)||a.localeCompare(b)).map(g=>
+    `<optgroup label="${esc(g)}${pref.includes(g)?' (approved block)':''}">${groups[g].map(l=>`<option value="${esc(l.locationId)}">${esc(l.locationId)} · ${esc(l.note)}</option>`).join('')}</optgroup>`).join('');
+  return `<h2 style="font-size:15px;">Change location</h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">${esc(item.cropName||'')} · ${esc(d.cohortId)}${item.plannedDob?` · ${esc(item.plannedDob)} → ${esc(item.endDate||'?')}`:''}${item.recommendedBed?` · engine recommended ${esc(item.recommendedBed)}`:''}<br>Only beds that are free for these dates and pass rotation are listed.${pref.length?` Approved block: ${esc(pref.join(', '))}.`:''}</p>
+  <div class="field"><label>Location</label><select id="md-newbed">${opts?`<option value="">Select a location…</option>${opts}`:`<option value="">No free bed for these dates</option>`}</select></div>
+  <button class="btn btn-primary" onclick="doChangeApprove('${esc(d.cohortId)}')">Approve this location</button>
+  <button class="btn btn-ghost" onclick="openModal('queue')">Back</button>`;
 }
 function verifyPlantingModal(){
   const d=ui.modalDraft;
@@ -630,6 +717,14 @@ const demoAssignableCohorts = [
   { cohortId:'RAD-C03', cropId:'RAD', cropName:'Radish', waveNumber:3, productionPath:'FIELD', plannedDob:'2026-10-02' },
   { cohortId:'SPN-C02', cropId:'SPN', cropName:'Spinach', waveNumber:2, productionPath:'FIELD', plannedDob:'2026-10-05' }
 ];
+const demoVacant = demoBeds.filter(b=>!b.cohortId);
+const demoReasons = blk => ['✓ Approved for '+blk, '✓ Planting window OK', '✓ Bed free for these dates - no other cohort planned in this bed', '✓ Rotation OK'];
+const demoAssign = {
+  proposed: demoAssignableCohorts.map((c,i)=>({ cohortId:c.cohortId, cropId:c.cropId, cropName:c.cropName, waveNumber:c.waveNumber, plannedDob:c.plannedDob, endDate:'2026-12-01',
+    recommendedBed:demoVacant[i].id, blockId:demoVacant[i].blockId, status:'PROPOSED', exceptionType:'', reasons:demoReasons(demoVacant[i].blockId) })),
+  exceptions: [{ cohortId:'ONI-C01', cropId:'ONI', cropName:'Onions', waveNumber:1, plannedDob:'2026-10-10', endDate:'2027-02-01', recommendedBed:'', blockId:'', status:'EXCEPTION',
+    exceptionType:'NO_BLOCK_RULE', reasons:['No approved block for Onions. Add Preferred_Block to this crop on CROP_REFERENCE (e.g. B2).'] }]
+};
 const demoSessionsByToken = {};
 async function mockBackend(action, p){
   await new Promise(r=>setTimeout(r,150));
@@ -674,10 +769,26 @@ async function mockBackend(action, p){
     case 'get-cohort-board': {
       const cohorts = demoBeds.filter(b=>b.cohortId).map(b=>({ cohortId:b.cohortId, cropId:b.cohortId.slice(0,3), cropName:b.cropName, locationId:b.id,
         cohortStatus:b.cohortStatus, currentStage:b.currentStage, planningYear:p.year||new Date().getFullYear(), actualDob:b.plantingDate||'', harvestWindowStart:'', harvestWindowEnd:'' }));
-      return ok({ year:p.year, beds:demoBeds.map(b=>({ bedId:b.id, blockId:b.blockId, locationType:b.locationType })), cohorts, stats:{ yearRows:cohorts.length+demoAssignableCohorts.length, unassigned:demoAssignableCohorts.length } });
+      return ok({ year:p.year, beds:demoBeds.map(b=>({ bedId:b.id, blockId:b.blockId, locationType:b.locationType })), cohorts, stats:{ yearRows:cohorts.length+demoAssign.proposed.length+demoAssign.exceptions.length, unassigned:demoAssign.proposed.length+demoAssign.exceptions.length } });
     }
-    case 'get-assignable-cohorts':
-      return ok(demoAssignableCohorts.slice());
+    case 'get-assignment-queue':
+      return ok({ year:p.year, generatedDate:'demo', counts:{ unassigned:demoAssign.proposed.length+demoAssign.exceptions.length, proposed:demoAssign.proposed.length, exceptions:demoAssign.exceptions.length, notYetProposed:0, plantingReady:demoBeds.filter(b=>b.cohortStatus==='PRE_PLANTING').length },
+        proposed:demoAssign.proposed, exceptions:demoAssign.exceptions,
+        plantingReady:demoBeds.filter(b=>b.cohortStatus==='PRE_PLANTING').map(b=>({ cohortId:b.cohortId, cropName:b.cropName, waveNumber:'', locationId:b.id, plannedDob:'' })) });
+    case 'generate-bed-recommendations':
+      return ok({ ok:true, year:p.year, proposed:demoAssign.proposed.length, exceptions:demoAssign.exceptions.length, total:demoAssign.proposed.length+demoAssign.exceptions.length });
+    case 'get-bed-candidates':
+      return ok({ ok:true, cohortId:p.cohortId, recommendedBlocks:['Block 1'], locations:demoBeds.filter(b=>!b.cohortId).map(b=>({ locationId:b.id, blockId:b.blockId, outOfRule:b.blockId!=='Block 1', note:b.blockId!=='Block 1'?'Outside approved block':'Empty in this window' })) });
+    case 'approve-assignment': case 'approve-assignments': {
+      const ids = action==='approve-assignments' ? p.cohortIds : [p.cohortId]; let approved=0;
+      ids.forEach(id=>{
+        const list = demoAssign.proposed.some(x=>x.cohortId===id) ? demoAssign.proposed : demoAssign.exceptions, i=list.findIndex(x=>x.cohortId===id); if(i<0) return;
+        const q=list[i], bed=demoBeds.find(b=>b.id===(p.overrideBedId||q.recommendedBed)); if(!bed||bed.cohortId) return;
+        bed.cohortId=q.cohortId; bed.cropName=q.cropName; bed.cohortStatus='PRE_PLANTING'; bed.currentStage=''; list.splice(i,1); approved++;
+      });
+      if(action==='approve-assignment') return approved ? ok({ cohortId:p.cohortId, locationId:p.overrideBedId||'assigned' }) : bad('That bed is no longer free for this cohort\'s dates. Regenerate recommendations or pick another bed.','LOCATION_OCCUPIED');
+      return ok({ approved, failed:ids.length-approved, results:[] });
+    }
     case 'get-eligible-locations': {
       const vacant = demoBeds.filter(b=>!b.cohortId).map(b=>({ locationId:b.id, blockId:b.blockId, locationType:b.locationType }));
       return ok({ cohortId:p.cohortId, productionPath:'FIELD', locations:vacant });
