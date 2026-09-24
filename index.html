@@ -71,6 +71,9 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .sheet{background:var(--paper);width:100%;max-width:420px;border-radius:14px;padding:18px;max-height:86vh;overflow-y:auto;margin:16px;}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--sand);padding:11px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:100;}
 .sheet.wide{max-width:720px;}
+.astrip{gap:6px;padding-top:6px;padding-bottom:6px;} .alabel{font-size:11px;font-weight:800;color:var(--ink-soft);margin-right:4px;text-transform:uppercase;letter-spacing:.03em;}
+.astat{display:inline-flex;align-items:baseline;gap:6px;border:1.5px solid var(--line);background:var(--paper);color:var(--ink);border-radius:9px;padding:5px 10px;font-family:inherit;font-size:12px;cursor:pointer;}
+.astat b{font-size:15px;} .astat span{color:var(--ink-soft);font-weight:600;} .astat.warn{border-color:var(--warn);}
 .pill{display:inline-block;min-width:18px;padding:1px 6px;border-radius:99px;background:#fff;color:var(--forest);font-size:11px;font-weight:800;margin-left:4px;}
 .qgh{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;margin:14px 0 6px;position:sticky;top:-18px;background:var(--paper);padding:6px 0;z-index:1;}
 .qtop{display:flex;justify-content:space-between;gap:10px;} .qsub{font-size:12px;color:var(--ink-soft);} .qdates{font-size:11.5px;color:var(--ink-soft);text-align:right;}
@@ -293,20 +296,20 @@ async function loadAssignQueue(){
   try{ const d=await apiCall('get-assignment-queue', { year: ui.year }); state.aq=Object.assign({ loaded:true, error:'' }, d); }
   catch(e){ state.aq.error=(e.code?('['+e.code+'] '):'')+e.message; throw e; }
 }
-function openQueue(){
+function openQueue(tab){
   const c=state.aq.counts||{};
-  ui.queueTab = c.proposed ? 'proposed' : c.exceptions ? 'exceptions' : (c.plantingReady ? 'assigned' : 'proposed');
+  ui.queueTab = tab ? tab : c.proposed ? 'proposed' : c.exceptions ? 'exceptions' : (c.plantingReady ? 'assigned' : 'proposed');
   openModal('queue');
 }
 function setQueueTab(t){ ui.queueTab=t; ui.resetScroll=true; render(); }
 async function doGenerate(){
-  ui.generating=true; render();
+  ui.generating=true; state.aq.error=''; render();
   try{
     const r=await apiCall('generate-bed-recommendations', { year: ui.year }, 90000);
     await loadAssignQueue();
     ui.queueTab = r.proposed ? 'proposed' : 'exceptions'; ui.resetScroll=true;
     toast(r.proposed+' recommended · '+r.exceptions+' need review');
-  }catch(e){ toast(e.message); }
+  }catch(e){ state.aq.error='Generate failed: '+(e.code?('['+e.code+'] '):'')+e.message; toast(e.message); }
   ui.generating=false; render();
 }
 async function doApprove(cohortId, overrideBedId){
@@ -410,6 +413,7 @@ function boardScreen(){
         <button class="btn btn-primary" style="width:auto;margin:0;" onclick="openQueue()">Assignments${(state.aq.counts&&(state.aq.counts.proposed+state.aq.counts.exceptions))?`<span class="pill">${state.aq.counts.proposed+state.aq.counts.exceptions}</span>`:''}</button>
         <button class="btn btn-ghost" style="width:auto;margin:0;" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing…':'↻ Refresh'}</button>
       </div>
+      ${assignStrip()}
       ${filterBar()}
       ${noticeStrip()}
       <div class="legend">${legendHTML()}</div>
@@ -426,6 +430,15 @@ function legendHTML(){
   return Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
 }
 
+/* Assignment status (where cohorts are in the approval workflow) is a different dimension from the
+ * stage filter below (what growth stage the cohorts ON BEDS are in). Counts come from COHORT_PRODUCTION
+ * via get-assignment-queue, so they are correct even while no cohort has a bed. */
+function assignStrip(){
+  if(!state.aq.loaded) return '';
+  const c=state.aq.counts||{};
+  const cell=(l,n,tab,warn)=>`<button class="astat ${warn&&n?'warn':''}" onclick="openQueue('${tab}')"><b>${n||0}</b><span>${l}</span></button>`;
+  return `<div class="toolbar astrip"><span class="alabel">Assignment status</span>${cell('Not yet proposed',c.notYetProposed,'proposed',true)}${cell('Recommended · awaiting approval',c.proposed,'proposed')}${cell('Exceptions',c.exceptions,'exceptions',true)}${cell('Approved · awaiting planting',c.plantingReady,'assigned')}</div>`;
+}
 function filterBar(){
   const n=filterCounts(gridBeds().map(bedView));
   return `<div class="toolbar" style="padding-top:6px;padding-bottom:6px;"><div class="seg" style="flex-wrap:wrap;">${FILTERS.map(([k,l])=>`<button class="${ui.filter===k?'active':''}" onclick="setFilter('${k}')">${l}<span class="n">${n[k]||0}</span></button>`).join('')}</div></div>`;
@@ -600,7 +613,7 @@ function queueModal(){
       <div style="font-size:12px;color:var(--ink-soft);margin-top:3px;">${c.unassigned||0} unassigned cohorts${a.generatedDate?` · recommendations generated ${esc(a.generatedDate)}`:''}</div></div>
       <button onclick="closeModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ink-soft);">✕</button></div>
     ${a.error?`<div class="error">${esc(a.error)}</div>`:''}
-    <button class="btn btn-primary" ${ui.generating?'disabled':''} onclick="doGenerate()">${ui.generating?'Generating…':(has?'Regenerate bed recommendations':'Generate bed recommendations')}</button>
+    <button class="btn btn-primary" ${ui.generating?'disabled':''} onclick="doGenerate()">${ui.generating?'Generating…':(has?'Regenerate assignments':'Generate assignments')}</button>
     ${(c.notYetProposed>0&&has)?`<div class="notice" style="border-radius:8px;margin-bottom:10px;">${c.notYetProposed} cohort(s) have no recommendation yet. Regenerate to include them.</div>`:''}
     <div class="seg" style="margin-bottom:6px;">${tabs.map(([k,l,n])=>`<button class="${tab===k?'active':''}" onclick="setQueueTab('${k}')">${l}<span class="n">${n}</span></button>`).join('')}</div>
     ${tab==='proposed'?proposedList():tab==='exceptions'?exceptionList():assignedList()}`;
@@ -609,7 +622,7 @@ function reasonList(p){ return `<ul class="checks">${(p.reasons||[]).map(r=>`<li
 function cohortHead(p){ return `<div class="qtop"><div><b>${esc(p.cropName)}</b><div class="qsub">Wave ${esc(p.waveNumber)} · ${esc(p.cohortId)}</div></div><div class="qdates">DOB ${esc(p.plannedDob)}<br>ends ${esc(p.endDate||'—')}</div></div>`; }
 function proposedList(){
   const list=state.aq.proposed||[];
-  if(!list.length) return `<div class="empty">${(state.aq.counts&&state.aq.counts.unassigned)?'Nothing is waiting for approval. Generate bed recommendations to propose a location for each unassigned cohort.':'Every cohort has a bed.'}</div>`;
+  if(!list.length) return `<div class="empty">${(state.aq.counts&&state.aq.counts.unassigned)?'Nothing is waiting for approval yet. Click “Generate assignments” and the system will propose a bed for each unassigned cohort.':'Every cohort has a bed.'}</div>`;
   const groups={}; list.forEach(p=>{ const g=p.blockId||'Unplaced'; (groups[g]=groups[g]||[]).push(p); });
   return Object.keys(groups).sort().map(g=>{ const items=groups[g];
     return `<div class="qgh"><span><b>${esc(g)}</b> · ${items.length}</span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="doApproveBatch(${esc(JSON.stringify(items.map(p=>p.cohortId)))})">Approve all ${items.length}</button></div>`
