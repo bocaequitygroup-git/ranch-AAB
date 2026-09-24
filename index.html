@@ -80,13 +80,20 @@ const REQUEST_TIMEOUT_MS = 20000;
 const N_BLOCKS = 6, BEDS_PER_ROW = 8;   // 6 blocks laid out as grids; ~231 beds total (last block trimmed)
 const TOTAL_BEDS = 231;
 const CROPS = [['Lettuce','LET'],['Kale','KAL'],['Arugula','ARU'],['Radish','RAD'],['Mesclun Mix','MCH'],['Spinach','SPN']];
-const STATES = ['PRE_PLANTING','GROWING','HARVEST_READY','HARVEST_COMPLETE','TERMINATED'];
-const STATE_COLOR = { PRE_PLANTING:'#D8CFAE', GROWING:'#8FBF8A', HARVEST_READY:'#2E7D32', HARVEST_COMPLETE:'#7C8B98', TERMINATED:'#C9C2AE' };
+// These values are COHORT_PRODUCTION.Current_Stage exactly as ActivityEngine.gs
+// writes them (its biology clock: Actual_DOB -> Crop_Day -> Current_Stage).
+// This file never computes a stage itself - it only displays what the
+// backend sends as bed.currentStage. Cohort_Status (PLANNED/PRE_PLANTING/
+// ACTIVE/COMPLETE/TERMINATED) is a separate, manager-driven field written by
+// AssignmentEngine.gs and shown alongside it, not conflated with it.
+const CURRENT_STAGES = ['PRE_PLANTING','GROWING','HARVEST_READY','HARVEST_COMPLETE','TERMINATED'];
+const STAGE_COLOR = { PRE_PLANTING:'#D8CFAE', GROWING:'#8FBF8A', HARVEST_READY:'#2E7D32', HARVEST_COMPLETE:'#7C8B98', TERMINATED:'#C9C2AE' };
 const QUEUE_COLOR = { MUST_DO:'#B3261E', ATTENTION:'#C77700', ROUTINE:'#5B8FC9', NONE:'transparent' };
+const COHORT_STATUS_LABEL = { PLANNED:'Planned', PRE_PLANTING:'Assigned · awaiting planting', ACTIVE:'Active', COMPLETE:'Complete', TERMINATED:'Terminated' };
 
 /* ============================== STATE ============================== */
-const state = { managerId:null, name:null, role:null, token:null, beds:[], sessions:[], exceptions:[], harvestReady:[], queueByBed:{}, workers:[] };
-const ui = { screen:'login', loginErr:'', overlay:'state', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'' };
+const state = { managerId:null, name:null, role:null, token:null, beds:[], sessions:[], exceptions:[], harvestReady:[], queueByBed:{}, workers:[], assignableCohorts:[], eligibleLocations:[] };
+const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'' };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
 function toast(msg){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},3200); }
@@ -172,6 +179,60 @@ async function verifyHarvestComplete(cohortId){
   catch(e){ toast(e.message); }
 }
 
+/* ==================== ASSIGNMENT ENGINE WRITE-BACK ACTIONS ====================
+ * These call AssignmentEngine.gs only: assignBed / verifyPlanting / moveCohort /
+ * completeCohort / terminateCohort. No stage or crop-day math lives here - the
+ * board only refreshes and re-renders whatever the backend sends back.
+ */
+async function openAssignModal(){
+  try{
+    const cohorts = await apiCall('get-assignable-cohorts', {});
+    state.assignableCohorts = cohorts||[];
+    openModal('assign', { cohortId:'', locationId:'' });
+  }catch(e){ toast(e.message); }
+}
+async function onAssignCohortChange(cohortId){
+  ui.modalDraft.cohortId = cohortId; ui.modalDraft.locationId = '';
+  state.eligibleLocations = [];
+  if(!cohortId){ render(); return; }
+  try{
+    const res = await apiCall('get-eligible-locations', { cohortId });
+    state.eligibleLocations = res.locations||[];
+    if(!state.eligibleLocations.length) toast('No eligible beds for this cohort right now.');
+  }catch(e){ toast(e.message); }
+  render();
+}
+async function doAssignBed(cohortId, locationId){
+  if(!cohortId||!locationId){ toast('Choose a cohort and a bed.'); return; }
+  try{ await apiCall('assign-bed', { cohortId, locationId }); toast('Bed assigned. Cohort is now PRE_PLANTING.'); closeModal(); await loadToday(); }
+  catch(e){ toast(e.message); }
+}
+async function doVerifyPlanting(cohortId, actualDob){
+  if(!actualDob){ toast('Enter the actual planting date.'); return; }
+  try{ await apiCall('verify-planting', { cohortId, actualDob }); toast('Planting verified. Cohort is now ACTIVE.'); closeModal(); await loadToday(); }
+  catch(e){ toast(e.message); }
+}
+async function openMoveModal(cohortId){
+  try{
+    const res = await apiCall('get-eligible-locations', { cohortId });
+    state.eligibleLocations = res.locations||[];
+    openModal('move', { cohortId, locationId:'' });
+  }catch(e){ toast(e.message); }
+}
+async function doMoveCohort(cohortId, newLocationId){
+  if(!newLocationId){ toast('Choose a bed to move to.'); return; }
+  try{ await apiCall('move-cohort', { cohortId, newLocationId }); toast('Cohort moved.'); closeModal(); await loadToday(); }
+  catch(e){ toast(e.message); }
+}
+async function doCompleteCohort(cohortId){
+  try{ await apiCall('complete-cohort', { cohortId }); toast('Cohort marked complete.'); closePanel(); await loadToday(); }
+  catch(e){ toast(e.message); }
+}
+async function doTerminateCohort(cohortId, reason){
+  try{ await apiCall('terminate-cohort', { cohortId, reason }); toast('Cohort terminated.'); closeModal(); closePanel(); await loadToday(); }
+  catch(e){ toast(e.message); }
+}
+
 /* ============================== UI HELPERS ============================== */
 function selectBed(bedId){ ui.selectedBed=bedId; ui.tab='overview'; render(); }
 function closePanel(){ ui.selectedBed=null; render(); }
@@ -182,7 +243,7 @@ function closeModal(){ ui.modal=null; ui.modalDraft={}; render(); }
 
 function bedFill(bed){
   if(ui.overlay==='queue'){ const q=state.queueByBed[bed.id]; return QUEUE_COLOR[q||'NONE']; }
-  return STATE_COLOR[bed.state] || '#EEE';
+  return STAGE_COLOR[bed.currentStage] || '#EEE';
 }
 function bedExceptions(bedId){ return state.exceptions.filter(x=>x.bedId===bedId); }
 function bedSessions(bedId){ return state.sessions.filter(x=>x.bedId===bedId && x.status!=='COMPLETED'); }
@@ -213,9 +274,10 @@ function boardScreen(){
     <div class="mapcol">
       <div class="toolbar">
         <div class="seg">
-          <button class="${ui.overlay==='state'?'active':''}" onclick="setOverlay('state')">Cohort state</button>
+          <button class="${ui.overlay==='stage'?'active':''}" onclick="setOverlay('stage')">Current stage</button>
           <button class="${ui.overlay==='queue'?'active':''}" onclick="setOverlay('queue')">Queue</button>
         </div>
+        <button class="btn btn-outline" style="width:auto;margin:0;" onclick="openAssignModal()">+ Assign cohort to bed</button>
         <button class="btn btn-ghost" style="width:auto;margin:0;" onclick="loadToday()">↻ Refresh</button>
       </div>
       <div class="legend">${legendHTML()}</div>
@@ -229,7 +291,7 @@ function boardScreen(){
 
 function legendHTML(){
   if(ui.overlay==='queue') return Object.entries(QUEUE_COLOR).filter(([k])=>k!=='NONE').map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace('_',' ')}</span>`).join('');
-  return Object.entries(STATE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
+  return Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
 }
 
 function mapSVG(){
@@ -280,19 +342,45 @@ function panelHTML(){
   }</div>`;
 }
 function overviewTab(b,sess){
+  const cs=b.cohortStatus||'';
   return `<div class="card">
     <div class="row"><span>Crop</span><span>${esc(b.cropName)}</span></div>
     <div class="row"><span>Cohort</span><span>${esc(b.cohortId)}</span></div>
-    <div class="row"><span>State</span><span><span class="chip chip-neutral">${esc((b.state||'').replace(/_/g,' '))}</span></span></div>
+    <div class="row"><span>Current stage</span><span><span class="chip chip-neutral">${esc((b.currentStage||'—').replace(/_/g,' '))}</span></span></div>
+    <div class="row"><span>Cohort status</span><span><span class="chip chip-neutral">${esc(COHORT_STATUS_LABEL[cs]||cs||'—')}</span></span></div>
     <div class="row"><span>Planted</span><span>${esc(b.plantingDate||'—')}</span></div>
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>
+  ${cohortActionButtons(b)}
   <h2 style="font-size:13px;">Live sessions</h2>
   ${sess.length? sess.map(s=>`<div class="card"><div class="row"><span>${esc(s.workerName)}</span><span class="chip ${s.status==='ACTIVE'?'chip-ok':'chip-warn'}">${esc(s.status)}</span></div>
     <div class="row"><span>Task</span><span>${esc(s.activity)}</span></div>
     <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>
     <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`).join('')
     : `<div class="empty">No active session.</div><button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(b.id)}'})">Start session on behalf of worker</button>`}`;
+}
+/**
+ * Manager write-back actions, gated on Cohort_Status - these call
+ * AssignmentEngine.gs only (assignBed / verifyPlanting / moveCohort /
+ * completeCohort / terminateCohort). No crop-day or stage math happens here;
+ * this board only ever displays what the backend already computed.
+ */
+function cohortActionButtons(b){
+  const cs=b.cohortStatus||'';
+  const btns=[];
+  if(cs==='PRE_PLANTING'){
+    btns.push(`<button class="btn btn-primary" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`);
+  }
+  if(cs==='PRE_PLANTING' || cs==='ACTIVE'){
+    btns.push(`<button class="btn btn-outline" onclick="openMoveModal('${esc(b.cohortId)}')">Move to another bed</button>`);
+  }
+  if(cs==='ACTIVE'){
+    btns.push(`<button class="btn btn-outline" onclick="doCompleteCohort('${esc(b.cohortId)}')">Mark cohort complete</button>`);
+  }
+  if(cs==='PRE_PLANTING' || cs==='ACTIVE'){
+    btns.push(`<button class="btn btn-danger" onclick="openModal('terminate',{cohortId:'${esc(b.cohortId)}'})">Terminate cohort</button>`);
+  }
+  return btns.length? `<div style="margin:10px 0;">${btns.join('')}</div>` : '';
 }
 function activityTab(b){
   const rows=(b.activityLog||[]);
@@ -322,6 +410,10 @@ function modalHTML(){
   if(ui.modal==='dispatch') inner=dispatchModal();
   else if(ui.modal==='reassign') inner=reassignModal();
   else if(ui.modal==='resolve') inner=resolveModal();
+  else if(ui.modal==='assign') inner=assignModal();
+  else if(ui.modal==='verify-planting') inner=verifyPlantingModal();
+  else if(ui.modal==='move') inner=moveModal();
+  else if(ui.modal==='terminate') inner=terminateModal();
   return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet">${inner}</div></div>`;
 }
 function dispatchModal(){
@@ -347,6 +439,49 @@ function resolveModal(){
   <button class="btn btn-primary" onclick="resolveException('${esc(d.exceptionId)}', document.getElementById('md-rnote').value)">Mark resolved</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
+function assignModal(){
+  const d=ui.modalDraft;
+  const cohortOpts = `<option value="">Select a planned cohort…</option>` + state.assignableCohorts.map(c=>
+    `<option value="${esc(c.cohortId)}" ${d.cohortId===c.cohortId?'selected':''}>${esc(c.cohortId)} · ${esc(c.cropName)} · wave ${esc(c.waveNumber)} · ${esc(c.productionPath)}</option>`).join('');
+  const locOpts = d.cohortId
+    ? (state.eligibleLocations.length
+        ? `<option value="">Select a bed…</option>` + state.eligibleLocations.map(l=>`<option value="${esc(l.locationId)}">${esc(l.locationId)} · ${esc(l.blockId)}</option>`).join('')
+        : `<option value="">No eligible beds</option>`)
+    : `<option value="">Choose a cohort first</option>`;
+  return `<h2 style="font-size:15px;">Assign cohort to bed</h2>
+  <div class="field"><label>Cohort (PLANNED, unassigned)</label><select id="md-cohort" onchange="onAssignCohortChange(this.value)">${cohortOpts}</select></div>
+  <div class="field"><label>Bed</label><select id="md-loc" ${d.cohortId?'':'disabled'}>${locOpts}</select></div>
+  <button class="btn btn-primary" onclick="doAssignBed(document.getElementById('md-cohort').value, document.getElementById('md-loc').value)">Assign bed</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+function verifyPlantingModal(){
+  const d=ui.modalDraft;
+  const today=new Date().toISOString().slice(0,10);
+  return `<h2 style="font-size:15px;">Verify planting</h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock.</p>
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(today)}"></div>
+  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">Verify planting</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+function moveModal(){
+  const d=ui.modalDraft;
+  const locOpts = state.eligibleLocations.length
+    ? `<option value="">Select a bed…</option>` + state.eligibleLocations.map(l=>`<option value="${esc(l.locationId)}">${esc(l.locationId)} · ${esc(l.blockId)}</option>`).join('')
+    : `<option value="">No eligible beds</option>`;
+  return `<h2 style="font-size:15px;">Move cohort to another bed</h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)}</p>
+  <div class="field"><label>New bed</label><select id="md-newloc">${locOpts}</select></div>
+  <button class="btn btn-primary" onclick="doMoveCohort('${esc(d.cohortId)}', document.getElementById('md-newloc').value)">Move</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+function terminateModal(){
+  const d=ui.modalDraft;
+  return `<h2 style="font-size:15px;">Terminate cohort</h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · this frees the bed and cannot be undone from this board.</p>
+  <div class="field"><label>Reason</label><textarea id="md-treason" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;"></textarea></div>
+  <button class="btn btn-danger" onclick="doTerminateCohort('${esc(d.cohortId)}', document.getElementById('md-treason').value)">Terminate cohort</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
 
 /* ============================== DEMO BACKEND (only used when WEB_APP_URL is empty) ============================== */
 const demoUsers = { 'USR-MANAGER1':{pin:'1234',name:'Maya Ortiz',role:'Manager'}, 'USR-FOUNDER1':{pin:'1234',name:'Sam Reyes',role:'Founder'}, 'USR-WORKER1':{pin:'1234',name:'Jo Lindqvist',role:'Worker'} };
@@ -357,9 +492,16 @@ function buildDemoBeds(){
   for(let blk=1; blk<=N_BLOCKS && n<TOTAL_BEDS; blk++){
     const countThisBlock = Math.min(BEDS_PER_ROW*7, TOTAL_BEDS-n, 40);
     for(let i=1;i<=countThisBlock && n<TOTAL_BEDS;i++,n++){
-      const crop=CROPS[Math.floor(rnd()*CROPS.length)], state_=STATES[Math.floor(rnd()*rnd()*STATES.length)];
-      beds.push({ id:`B${blk}-${String(i).padStart(2,'0')}`, blockId:'Block '+blk, cropName:crop[0], cohortId:crop[1]+'-C0'+((n%4)+1),
-        state:state_, plantingDate:'', harvestWindow:'', activityLog:[] });
+      const crop=CROPS[Math.floor(rnd()*CROPS.length)];
+      // ~6% of beds start vacant (no cohort assigned yet) so "Assign cohort to
+      // bed" has somewhere to go in demo mode; the rest are ACTIVE cohorts
+      // mid-cycle at a random Current_Stage.
+      const vacant = (n%17===4);
+      const stage = vacant? '' : CURRENT_STAGES[Math.floor(rnd()*rnd()*CURRENT_STAGES.length)];
+      beds.push({ id:`B${blk}-${String(i).padStart(2,'0')}`, blockId:'Block '+blk, locationType:'FIELD',
+        cropName: vacant? '' : crop[0], cohortId: vacant? '' : crop[1]+'-C0'+((n%4)+1),
+        currentStage: stage, cohortStatus: vacant? '' : 'ACTIVE',
+        plantingDate:'', harvestWindow:'', activityLog:[] });
     }
   }
   return beds;
@@ -373,9 +515,15 @@ const demoExceptions = [
   { id:'EXC-0012', bedId:demoBeds[3].id, type:'PestPressure', severity:'HIGH', worker:'Ana Prieto', workerName:'Ana Prieto', notes:'Aphids on outer leaves', status:'OPEN' },
   { id:'EXC-0013', bedId:demoBeds[10].id, type:'PlantCondition', severity:'CRITICAL', worker:'Ben Okafor', workerName:'Ben Okafor', notes:'Wilting after transplant', status:'OPEN' }
 ];
-const hrBeds = demoBeds.filter(b=>b.state==='HARVEST_READY').slice(0,5);
+const hrBeds = demoBeds.filter(b=>b.currentStage==='HARVEST_READY').slice(0,5);
 const demoHarvestReady = hrBeds.map(b=>({ bedId:b.id, cohortId:b.cohortId, targetQty:'25 kg', targetDate:'in 3 days', notes:'' }));
 const demoQueue = {}; demoBeds.forEach((b,i)=>{ demoQueue[b.id] = i%11===0?'MUST_DO': i%7===0?'ATTENTION': i%3===0?'ROUTINE':'NONE'; });
+// Cohorts still in PRODUCTION_WAVE_PLAN -> COHORT_PRODUCTION with no bed yet
+// (Cohort_Status PLANNED, Location_ID blank) - what assignBed() targets.
+const demoAssignableCohorts = [
+  { cohortId:'RAD-C03', cropId:'RAD', cropName:'Radish', waveNumber:3, productionPath:'FIELD', plannedDob:'2026-10-02' },
+  { cohortId:'SPN-C02', cropId:'SPN', cropName:'Spinach', waveNumber:2, productionPath:'FIELD', plannedDob:'2026-10-05' }
+];
 const demoSessionsByToken = {};
 async function mockBackend(action, p){
   await new Promise(r=>setTimeout(r,150));
@@ -413,7 +561,47 @@ async function mockBackend(action, p){
       return ok({done:true});
     }
     case 'verify-harvest-complete': {
-      demoBeds.filter(b=>b.cohortId===p.cohortId).forEach(b=>b.state='HARVEST_COMPLETE');
+      demoBeds.filter(b=>b.cohortId===p.cohortId).forEach(b=>b.currentStage='HARVEST_COMPLETE');
+      return ok({done:true});
+    }
+    // ---- AssignmentEngine.gs mirrors: manager write-back actions only ----
+    case 'get-assignable-cohorts':
+      return ok(demoAssignableCohorts.slice());
+    case 'get-eligible-locations': {
+      const vacant = demoBeds.filter(b=>!b.cohortId).map(b=>({ locationId:b.id, blockId:b.blockId, locationType:b.locationType }));
+      return ok({ cohortId:p.cohortId, productionPath:'FIELD', locations:vacant });
+    }
+    case 'assign-bed': {
+      const ci=demoAssignableCohorts.findIndex(c=>c.cohortId===p.cohortId); if(ci<0) return bad('Cohort not found or already assigned.','COHORT_NOT_FOUND');
+      const bed=demoBeds.find(b=>b.id===p.locationId); if(!bed) return bad('Bed not found.','LOCATION_NOT_FOUND');
+      if(bed.cohortId) return bad('That bed is already occupied.','LOCATION_OCCUPIED');
+      const c=demoAssignableCohorts[ci];
+      bed.cohortId=c.cohortId; bed.cropName=c.cropName; bed.cohortStatus='PRE_PLANTING'; bed.currentStage='';
+      demoAssignableCohorts.splice(ci,1);
+      return ok({done:true});
+    }
+    case 'verify-planting': {
+      const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
+      if(bed.cohortStatus!=='PRE_PLANTING') return bad('This cohort is not awaiting planting verification.','WRONG_STATUS');
+      bed.cohortStatus='ACTIVE'; bed.currentStage='PRE_PLANTING'; bed.plantingDate=p.actualDob;
+      return ok({done:true});
+    }
+    case 'move-cohort': {
+      const oldBed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!oldBed) return bad('Cohort not found.','COHORT_NOT_FOUND');
+      const newBed=demoBeds.find(b=>b.id===p.newLocationId); if(!newBed) return bad('Bed not found.','LOCATION_NOT_FOUND');
+      if(newBed.cohortId) return bad('That bed is already occupied.','LOCATION_OCCUPIED');
+      newBed.cohortId=oldBed.cohortId; newBed.cropName=oldBed.cropName; newBed.cohortStatus=oldBed.cohortStatus; newBed.currentStage=oldBed.currentStage;
+      oldBed.cohortId=''; oldBed.cropName=''; oldBed.cohortStatus=''; oldBed.currentStage='';
+      return ok({done:true});
+    }
+    case 'complete-cohort': {
+      const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
+      bed.cohortStatus='COMPLETE'; bed.cohortId=''; bed.cropName=''; bed.currentStage='';
+      return ok({done:true});
+    }
+    case 'terminate-cohort': {
+      const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
+      bed.cohortStatus='TERMINATED'; bed.cohortId=''; bed.cropName=''; bed.currentStage='';
       return ok({done:true});
     }
     default: return bad('That action is not available.','UNKNOWN_ACTION');
