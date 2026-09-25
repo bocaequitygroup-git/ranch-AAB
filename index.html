@@ -1030,27 +1030,33 @@ function ppRightHTML(){
   }
 
   // Bed selected, read view -> the same bed-card the Daily Board uses, populated from BED_PLANTING_PLAN
+  // cross-referenced with the live execution data (COHORT_PRODUCTION / FIELD_LIVE_SESSION / FIELD_ACTIVITY_LOG)
+  // that loadToday() already pulled into state.board / state.sessions / state.todayById at login.
   if(ui.ppSelectedBed){
     const bed=ctx.plan.beds.find(b=>b.bedId===ui.ppSelectedBed);
     if(!bed) return `<div class="panelhead"><h2>${esc(ui.ppSelectedBed)}</h2></div><div class="panelbody"><div class="empty">This bed has no plan row yet. Generate the plan first.</div></div>`;
-    return `<div class="panelhead"><div><h2>${esc(bed.bedId)}</h2><div class="meta">${esc(BLOCK_LABELS[ui.pBlock])} · ${esc(bed.cropFamily||ctx.rotation.cropFamily||'')}</div></div><button onclick="clearPPSelection()">✕</button></div>
+    const pb=(ctx.physicalBeds||[]).find(p=>p.bedId===bed.bedId)||{};
+    const v=bedViewById(bed.bedId)||{};
+    const sess=bedSessions(bed.bedId);
+    const hist=(v.activityLog||[]).slice(0,10);
+    return `<div class="panelhead"><div><h2>${esc(bed.bedId)}</h2><div class="meta">${esc(BLOCK_LABELS[ui.pBlock])} · ${esc(bed.cropFamily||ctx.rotation.cropFamily||'')} · <span class="chip ${ppStatusChip(bed.status)}">${esc(bed.status)}</span></div></div><button onclick="clearPPSelection()">✕</button></div>
     <div class="panelbody">
       <div class="card">
-        <div class="row"><span>State</span><span><span class="chip ${ppStatusChip(bed.status)}">${esc(bed.status)}</span></span></div>
-        <div class="row"><span>Crop</span><span>${esc(bed.cropName)}</span></div>
-        <div class="row"><span>Cohort</span><span>—</span></div>
-        <div class="row"><span>Planting</span><span>${esc(bed.plantingDate||'—')}</span></div>
-        <div class="row"><span>Wave</span><span>${bed.wave!=null?bed.wave:'—'}</span></div>
-        <div class="row"><span>Method</span><span>${esc(bed.plantingType||'—')}</span></div>
-        <div class="row"><span>Expected harvest</span><span>— (from production schedule)</span></div>
-        <div class="row"><span>Irrigation zone</span><span>—</span></div>
-        <div class="row"><span>Worker on this bed</span><span>No open session</span></div>
+        <div class="row"><span>State</span><span>${esc(pb.bedStatus||'—')}</span></div>
+        <div class="row"><span>Crop</span><span>${esc(v.cropName||bed.cropName||'—')}</span></div>
+        <div class="row"><span>Cohort</span><span>${esc(pb.currentCohortId||v.cohortId||'—')}</span></div>
+        <div class="row"><span>Last planting</span><span>${esc(v.plantingDate||'—')}</span></div>
+        <div class="row"><span>Expected harvest</span><span>${esc(v.harvestWindow||'—')}</span></div>
+        <div class="row"><span>Irrigation zone</span><span>${esc(pb.zone||'—')}</span></div>
+        <div class="row"><span>Worker on this bed</span><span>${sess.length?esc(sess.map(s=>s.workerName).join(', ')):'No open session'}</span></div>
       </div>
       <div class="qgh" style="cursor:pointer;" onclick="togglePPHistory()"><span>${ui.ppHistoryOpen?'▾':'▸'} Bed History</span></div>
-      ${ui.ppHistoryOpen?`<div class="empty" style="padding:10px 0;">No recorded activity yet. This bed's history accrues once planting execution begins.</div>`:''}
+      ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history logged for this bed yet.</div>`):''}
       <h2 style="font-size:13px;margin:14px 0 6px;">Actions</h2>
+      <button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(bed.bedId)}'})">New Activity</button>
+      <button class="btn btn-outline" ${sess.length?'':'disabled title="No worker currently on this bed."'} onclick="openModal('reassign',{sessionId:'${sess.length?esc(sess[0].id):''}',mode:'reassign'})">Reassign worker</button>
       <button class="btn btn-outline" ${ui.ppBusy?'disabled':''} onclick="startBedModify()">Modify Bed</button>
-      <div class="note">Cohort linkage happens behind the scenes once planting execution begins — you don't need to select a cohort to plan this bed.</div>
+      <div class="note">Cohort, session and history above reflect live execution data once planting begins — you don't need to select a cohort to plan this bed.</div>
     </div>`;
   }
 
