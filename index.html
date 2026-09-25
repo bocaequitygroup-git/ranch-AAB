@@ -1199,7 +1199,7 @@ function ppRightHTML(){
       ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history recorded for this bed.</div>`):''}
 
       <h2 style="font-size:13px;margin:14px 0 6px;">Actions</h2>
-      <button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(bedId)}'})">New Activity</button>
+      <button class="btn btn-primary" ${v.cohortId?'':'disabled title="No active cohort on this bed yet — activities can only be logged once planting has started (see Current Production above)."'} onclick="openModal('dispatch',{bedId:'${esc(bedId)}'})">New Activity</button>
       <button class="btn btn-outline" ${sess.length?'':'disabled title="No worker currently on this bed."'} onclick="openModal('reassign',{sessionId:'${sess.length?esc(sess[0].id):''}',mode:'reassign'})">Reassign worker</button>
       <button class="btn btn-outline" ${(ui.ppBusy||!bed)?'disabled':''} ${bed?'':'title="This bed has no BED_PLANTING_PLAN row yet — generate the plan first."'} onclick="startBedModify()">Modify Bed</button>
       <div class="note">Bed Profile above comes from BED_MASTER and always renders, whether or not this bed currently has a plan, cohort, session or history.</div>
