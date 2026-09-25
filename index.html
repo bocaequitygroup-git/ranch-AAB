@@ -1033,7 +1033,7 @@ function productionTypeLabel(lt){ const k=String(lt||'').toUpperCase(); return P
  * inferred from "no cohort" alone (section 4). A bed with no cohort can still be Reserved (a plan or
  * proposal exists) or Blocked (physical status isn't Active, or the bed carries an open exception). */
 function bedAvailability(pb, cohortId, proposals, openExceptions){
-  const ps=String((pb&&pb.bedStatus)||'').toUpperCase();
+  const ps=String(pbBedStatus(pb)||'').toUpperCase();
   if(ps && ps!=='ACTIVE') return 'BLOCKED';
   if(openExceptions && openExceptions.length) return 'BLOCKED';
   if(cohortId) return 'OCCUPIED';
@@ -1041,6 +1041,20 @@ function bedAvailability(pb, cohortId, proposals, openExceptions){
   return 'AVAILABLE';
 }
 function availabilityChip(a){ return {AVAILABLE:'chip-ok',RESERVED:'chip-warn',OCCUPIED:'chip-neutral',BLOCKED:'chip-danger'}[a]||'chip-neutral'; }
+
+/* get-planning-context is a backend (Apps Script) response whose exact key casing for BED_MASTER
+ * fields isn't visible from this file. Read each attribute defensively across the reasonable variants
+ * a server could use, so a key-name mismatch never gets misread as "BED_MASTER has no value" and shown
+ * as CONFIGURATION REQUIRED. This does NOT invent a value — if none of the keys are present, the field
+ * genuinely wasn't returned. If Physical Status still shows CONFIGURATION REQUIRED after this, the
+ * BED_MASTER.Bed_Status cell for that bed is empty at the source and needs to be filled in there. */
+function pbField(pb, keys){ for(const k of keys){ if(pb && pb[k]!=null && pb[k]!=='') return pb[k]; } return ''; }
+function pbBedStatus(pb){ return pbField(pb, ['bedStatus','Bed_Status','status','physicalStatus']); }
+function pbZone(pb){ return pbField(pb, ['zone','Zone','irrigationZone']); }
+function pbLocationType(pb){ return pbField(pb, ['locationType','Location_Type']); }
+function pbBedLength(pb){ return pbField(pb, ['bedLength','Bed_Length']); }
+function pbHealthStatus(pb){ return pbField(pb, ['bedHealthStatus','Bed_Health_Status','healthStatus']); }
+function pbIrrigationStatus(pb){ return pbField(pb, ['bedIrrigationStatus','Bed_Irrigation_Status','irrigationStatus']); }
 
 function ppLeftHTML(){
   const ctx=ppCurrent();
@@ -1140,13 +1154,13 @@ function ppRightHTML(){
 
       <h2 style="font-size:13px;margin:0 0 6px;">Bed Profile</h2>
       <div class="card">
-        ${profRowOr('Physical Status', pb.bedStatus, 'CONFIGURATION REQUIRED')}
-        ${profRow('Production Type', productionTypeLabel(pb.locationType))}
-        ${profRow('Location Type', locationTypeLabel(pb.locationType))}
-        ${profRow('Irrigation Zone', pb.zone)}
-        ${profRow('Bed Length', pb.bedLength!=null&&pb.bedLength!==''?(pb.bedLength+' ft'):'')}
-        ${profRow('Bed Health Status', pb.bedHealthStatus)}
-        ${profRow('Irrigation Status', pb.bedIrrigationStatus)}
+        ${profRowOr('Physical Status', pbBedStatus(pb), 'CONFIGURATION REQUIRED')}
+        ${profRow('Production Type', productionTypeLabel(pbLocationType(pb)))}
+        ${profRow('Location Type', locationTypeLabel(pbLocationType(pb)))}
+        ${profRow('Irrigation Zone', pbZone(pb))}
+        ${profRow('Bed Length', pbBedLength(pb)!==''?(pbBedLength(pb)+' ft'):'')}
+        ${profRow('Bed Health Status', pbHealthStatus(pb))}
+        ${profRow('Irrigation Status', pbIrrigationStatus(pb))}
       </div>
 
       <h2 style="font-size:13px;margin:14px 0 6px;">Availability</h2>
