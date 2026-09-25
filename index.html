@@ -958,7 +958,16 @@ async function loadPlanningContext(force){
 }
 function ensurePlanLoaded(){ if(!state.pp[ppKey(ui.pYear,ui.pBlock)] && !ui.ppBusy) loadPlanningContext(); }
 
-function selectPPCrop(key){ ui.ppSelectedKey=key; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
+function selectPPCrop(key){
+  // Clicking a crop card in Season Planning opens that crop's Crop Profile (identity record),
+  // not the in-plan bed-assignment popup — Season Planning's own "where is this crop planted"
+  // view is still reachable by clicking a bed on the map.
+  const cropId=(key||'').split('|')[0];
+  ui.pMode='cropref';
+  ui.crSelectedId=cropId;
+  ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false;
+  render();
+}
 function selectPPBed(bedId){ ui.ppSelectedBed=bedId; ui.ppBedModify=false; ui.ppHistoryOpen=false;
   const ctx=ppCurrent(); const bed=ctx&&ctx.plan.beds.find(b=>b.bedId===bedId);
   ui.ppSelectedKey = bed ? bed.cropId+'|'+(bed.wave||'') : null;
