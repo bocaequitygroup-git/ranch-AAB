@@ -1030,14 +1030,17 @@ function locationTypeLabel(lt){ const k=String(lt||'').toUpperCase(); return LOC
 function productionTypeLabel(lt){ const k=String(lt||'').toUpperCase(); return PRODUCTION_TYPE_LABEL[k] || (lt||''); }
 
 /* Availability is calculated from the existing planning/assignment/operational data - it is never
- * inferred from "no cohort" alone (section 4). A bed with no cohort can still be Reserved (a plan or
- * proposal exists) or Blocked (physical status isn't Active, or the bed carries an open exception). */
-function bedAvailability(pb, cohortId, proposals, openExceptions){
+ * inferred from "no cohort" alone (section 4). A bed with no cohort can still be Reserved (a
+ * BED_PLANTING_PLAN row already exists for it) or Blocked (physical status isn't Active, or the bed
+ * carries an open exception). Deliberately does NOT read COHORT_ASSIGNMENT_QUEUE/state.aq here: that
+ * queue is loaded for the Daily Board's own year (ui.year), a different selector than the Season
+ * Planning year (ui.pYear) this profile is showing - mixing the two produced wrong-season proposals. */
+function bedAvailability(pb, cohortId, hasPlan, openExceptions){
   const ps=String(pbBedStatus(pb)||'').toUpperCase();
   if(ps && ps!=='ACTIVE') return 'BLOCKED';
   if(openExceptions && openExceptions.length) return 'BLOCKED';
   if(cohortId) return 'OCCUPIED';
-  if(proposals && proposals.length) return 'RESERVED';
+  if(hasPlan) return 'RESERVED';
   return 'AVAILABLE';
 }
 function availabilityChip(a){ return {AVAILABLE:'chip-ok',RESERVED:'chip-warn',OCCUPIED:'chip-neutral',BLOCKED:'chip-danger'}[a]||'chip-neutral'; }
@@ -1133,9 +1136,8 @@ function ppRightHTML(){
     const v=bedViewById(bedId)||{ id:bedId, proposals:[] };             // COHORT_PRODUCTION (cohort board) — may legitimately be empty
     const sess=bedSessions(bedId);                                      // FIELD_LIVE_SESSION
     const hist=(v.activityLog||[]).slice(0,10);                         // historical activity
-    const proposals=v.proposals||[];
     const openExc=bedExceptions(bedId).filter(x=>x.status==='OPEN');
-    const avail=bedAvailability(pb, v.cohortId, proposals, openExc);
+    const avail=bedAvailability(pb, v.cohortId, !!bed, openExc);
 
     if(!pb){
       // No BED_MASTER record at all for this bed ID. This is a genuine configuration problem, not an
@@ -1191,7 +1193,6 @@ function ppRightHTML(){
         <div class="row"><span>Current Stage</span><span>${v.cohortId?esc((v.currentStage||'—').replace(/_/g,' ')):'Not Started'}</span></div>
         <div class="row"><span>Worker</span><span>${sess.length?esc(sess.map(s=>s.workerName).join(', ')):'None'}</span></div>
       </div>
-      ${pendingBlock(v, !!v.cohortId)}
 
       <h2 style="font-size:13px;margin:14px 0 6px;">History</h2>
       <div class="qgh" style="cursor:pointer;" onclick="togglePPHistory()"><span>${ui.ppHistoryOpen?'▾':'▸'} ${hist.length?(hist.length+' record'+(hist.length===1?'':'s')):'No history'}</span></div>
