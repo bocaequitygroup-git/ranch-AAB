@@ -126,7 +126,7 @@ const state = { managerId:null, name:null, role:null, token:null, beds:[], sessi
   pp:{} /* Planting Plan cache, keyed "year|blockId" -> getPlanningContext() result, or {error} */ };
 const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', focusCohort:null, focusPending:false, generating:false, resetScroll:false, filter:'ALL', year:new Date().getFullYear(), loading:false,
   pMode:'plan', pBlock:'B1', pYear:2027, pSelectedCrop:null, pModifying:false, pSelBeds:[], pAdvOpen:false, pEditingRotation:false, pRotDraft:{},
-  ppSelectedKey:null /* selected crop group key "cropId|wave" in real Planting Plan mode */, ppSelectedBed:null, ppBedModify:false, ppBedDraftCrop:'', ppBusy:false };
+  ppSelectedKey:null /* selected crop group key "cropId|wave" in real Planting Plan mode */, ppSelectedBed:null, ppBedModify:false, ppBedDraftCrop:'', ppBusy:false, ppHistoryOpen:false };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
 function toast(msg){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},3200); }
@@ -792,7 +792,7 @@ function terminateModal(){
  * plug in get/set calls to a real backend (Apps Script actions get-planting-plan / confirm-planting-layout /
  * modify-planting-layout / reset-planting-plan / mark-crop-planted / mark-bed-planted / mark-harvest-complete /
  * apply-cover-crop / get-rotation-plan / edit-rotation / approve-rotation) once those exist server-side. */
-const PLAN_MODES=[['plan','Planting Plan'],['exec','Planting Execution'],['harvest','Harvest'],['cover','Cover Crop'],['rotation','Rotation']];
+const PLAN_MODES=[['plan','Season Planning'],['exec','Planting Execution'],['harvest','Harvest'],['cover','Cover Crop'],['rotation','Rotation']];
 const PLAN_BLOCKS=['B1','B2','B3','B4','Z5']; // canonical short Block_ID, matches BLOCK_ROTATION_PLAN / BED_PLANTING_PLAN / BED_MASTER Bed_ID prefix
 const BLOCK_LABELS={B1:'Block 1',B2:'Block 2',B3:'Block 3',B4:'Block 4',Z5:'Zone 5'};
 const PLAN_YEARS=[2026,2027,2028];
@@ -845,9 +845,9 @@ function harvestStatusOf(c){ return c.harvestStatus==='Complete'?'Complete':(c.p
 function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete:'chip-ok',Modified:'chip-warn','In progress':'chip-warn',Pending:'chip-neutral','Not planted':'chip-neutral','Not started':'chip-neutral'}[s]||'chip-neutral'; }
 
 /* ---- nav / selection ---- */
-function setPMode(m){ ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; render(); }
-function setPBlock(b){ ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; render(); }
-function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; render(); }
+function setPMode(m){ ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
+function setPBlock(b){ ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
+function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function refreshPlanning(){ if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
 function selectCrop(id){ ui.pSelectedCrop=id; ui.pModifying=false; render(); }
 function selectCropByBed(n){ const c=getPlan(ui.pBlock,ui.pYear).crops.find(x=>x.bedNums.includes(n)); if(c){ ui.pSelectedCrop=c.id; render(); } }
@@ -921,13 +921,14 @@ async function loadPlanningContext(force){
 }
 function ensurePlanLoaded(){ if(!state.pp[ppKey(ui.pYear,ui.pBlock)] && !ui.ppBusy) loadPlanningContext(); }
 
-function selectPPCrop(key){ ui.ppSelectedKey=key; ui.ppSelectedBed=null; ui.ppBedModify=false; render(); }
-function selectPPBed(bedId){ ui.ppSelectedBed=bedId; ui.ppBedModify=false;
+function selectPPCrop(key){ ui.ppSelectedKey=key; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
+function selectPPBed(bedId){ ui.ppSelectedBed=bedId; ui.ppBedModify=false; ui.ppHistoryOpen=false;
   const ctx=ppCurrent(); const bed=ctx&&ctx.plan.beds.find(b=>b.bedId===bedId);
   ui.ppSelectedKey = bed ? bed.cropId+'|'+(bed.wave||'') : null;
   render();
 }
-function clearPPSelection(){ ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; render(); }
+function clearPPSelection(){ ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
+function togglePPHistory(){ ui.ppHistoryOpen=!ui.ppHistoryOpen; render(); }
 
 async function generatePlanReal(){
   ui.ppBusy=true; render();
@@ -1018,30 +1019,38 @@ function ppRightHTML(){
   if(ui.ppSelectedBed && ui.ppBedModify){
     const bed=ctx.plan.beds.find(b=>b.bedId===ui.ppSelectedBed);
     const options=(ctx.template.crops||[]).map(c=>`<option value="${esc(c.cropId)}" ${c.cropId===ui.ppBedDraftCrop?'selected':''}>${esc(c.cropName)} (${esc(c.cropId)})</option>`).join('');
-    return `<div class="panelhead"><div><h2>${esc(ui.ppSelectedBed)}</h2><div class="meta">Modify bed</div></div><button onclick="cancelBedModify()">✕</button></div>
+    return `<div class="panelhead"><div><h2>${esc(ui.ppSelectedBed)}</h2><div class="meta">Modify Bed · exception workflow</div></div><button onclick="cancelBedModify()">✕</button></div>
     <div class="panelbody">
-      <div class="note">Choose a replacement crop for this bed. Only crops approved on this block's template (${esc(ctx.template.templateId||'')}) can be assigned here. To use a different crop, update BLOCK_TEMPLATE and regenerate the plan.</div>
+      <div class="note">Select an allowed crop for this physical bed. Choices are restricted to crops approved on this block's template (${esc(ctx.template.templateId||'')}) — not the full ranch crop list. To approve a crop the template doesn't include, update BLOCK_TEMPLATE and regenerate the plan instead.</div>
       <div class="field"><label>Crop</label><select onchange="ui.ppBedDraftCrop=this.value;">${options||'<option value="">No template crops available</option>'}</select></div>
       <button class="btn btn-primary" ${ui.ppBusy?'disabled':''} onclick="saveBedModifyReal()">Save</button>
       <button class="btn btn-ghost" onclick="cancelBedModify()">Cancel</button>
+      <div class="note">Saving sets this bed's Layout Status to MODIFIED. The original template assignment stays in BLOCK_TEMPLATE, so it's always traceable.</div>
     </div>`;
   }
 
-  // Bed selected, read view -> detail + Modify action
+  // Bed selected, read view -> the same bed-card the Daily Board uses, populated from BED_PLANTING_PLAN
   if(ui.ppSelectedBed){
     const bed=ctx.plan.beds.find(b=>b.bedId===ui.ppSelectedBed);
     if(!bed) return `<div class="panelhead"><h2>${esc(ui.ppSelectedBed)}</h2></div><div class="panelbody"><div class="empty">This bed has no plan row yet. Generate the plan first.</div></div>`;
-    return `<div class="panelhead"><div><h2>${esc(bed.bedId)}</h2><div class="meta">${esc(bed.cropName)} · ${ui.pYear}</div></div><button onclick="clearPPSelection()">✕</button></div>
+    return `<div class="panelhead"><div><h2>${esc(bed.bedId)}</h2><div class="meta">${esc(BLOCK_LABELS[ui.pBlock])} · ${esc(bed.cropFamily||ctx.rotation.cropFamily||'')}</div></div><button onclick="clearPPSelection()">✕</button></div>
     <div class="panelbody">
       <div class="card">
-        <div class="row"><span>Crop</span><span>${esc(bed.cropName)} (${esc(bed.cropId)})</span></div>
-        <div class="row"><span>Family</span><span>${esc(bed.cropFamily||'—')}</span></div>
-        <div class="row"><span>Planting date</span><span>${esc(bed.plantingDate||'—')}</span></div>
+        <div class="row"><span>State</span><span><span class="chip ${ppStatusChip(bed.status)}">${esc(bed.status)}</span></span></div>
+        <div class="row"><span>Crop</span><span>${esc(bed.cropName)}</span></div>
+        <div class="row"><span>Cohort</span><span>—</span></div>
+        <div class="row"><span>Planting</span><span>${esc(bed.plantingDate||'—')}</span></div>
         <div class="row"><span>Wave</span><span>${bed.wave!=null?bed.wave:'—'}</span></div>
-        <div class="row"><span>Planting type</span><span>${esc(bed.plantingType||'—')}</span></div>
-        <div class="row"><span>Layout status</span><span class="chip ${ppStatusChip(bed.status)}">${esc(bed.status)}</span></div>
+        <div class="row"><span>Method</span><span>${esc(bed.plantingType||'—')}</span></div>
+        <div class="row"><span>Expected harvest</span><span>— (from production schedule)</span></div>
+        <div class="row"><span>Irrigation zone</span><span>—</span></div>
+        <div class="row"><span>Worker on this bed</span><span>No open session</span></div>
       </div>
-      <button class="btn btn-outline" ${ui.ppBusy?'disabled':''} onclick="startBedModify()">Modify this bed</button>
+      <div class="qgh" style="cursor:pointer;" onclick="togglePPHistory()"><span>${ui.ppHistoryOpen?'▾':'▸'} Bed History</span></div>
+      ${ui.ppHistoryOpen?`<div class="empty" style="padding:10px 0;">No recorded activity yet. This bed's history accrues once planting execution begins.</div>`:''}
+      <h2 style="font-size:13px;margin:14px 0 6px;">Actions</h2>
+      <button class="btn btn-outline" ${ui.ppBusy?'disabled':''} onclick="startBedModify()">Modify Bed</button>
+      <div class="note">Cohort linkage happens behind the scenes once planting execution begins — you don't need to select a cohort to plan this bed.</div>
     </div>`;
   }
 
@@ -1061,23 +1070,30 @@ function ppRightHTML(){
     </div>`;
   }
 
-  // Nothing selected -> block-level summary + Generate/Confirm
+  // Nothing selected -> block-level summary + Confirm Layout / Modify Bed as the primary Season Planning actions
   const st=ctx.status;
+  const planned = st.pending + st.confirmed + st.modified;
+  const allConfirmed = ctx.plan.found && st.physicalBedCount>0 && st.confirmed>=st.physicalBedCount;
+  const statusLabel = !ctx.plan.found ? 'Not generated' : allConfirmed ? 'Confirmed' : (st.confirmed>0 ? 'Partially confirmed' : 'Pending Confirmation');
+  const statusChip = allConfirmed?'chip-ok':(!ctx.plan.found?'chip-neutral':'chip-warn');
   return `<div class="panelhead"><div><h2>${esc(BLOCK_LABELS[ui.pBlock])}</h2><div class="meta">${ui.pYear} · ${esc(ctx.rotation.cropFamily||'No rotation set')}</div></div></div>
   <div class="panelbody">
     <div class="card">
-      <div class="row"><span>Physical beds</span><span>${st.physicalBedCount}</span></div>
-      <div class="row"><span>Pending</span><span>${st.pending}</span></div>
-      <div class="row"><span>Confirmed</span><span>${st.confirmed}</span></div>
-      <div class="row"><span>Modified</span><span>${st.modified}</span></div>
+      <div class="row"><span>Beds</span><span>${st.physicalBedCount}</span></div>
+      <div class="row"><span>Planned</span><span>${planned}</span></div>
       <div class="row"><span>Empty</span><span>${st.empty}</span></div>
+      <div class="row"><span>Modified</span><span>${st.modified}</span></div>
+      <div class="row"><span>Confirmed</span><span>${st.confirmed}</span></div>
+      <div class="row"><span>Status</span><span><span class="chip ${statusChip}">${esc(statusLabel)}</span></span></div>
     </div>
     ${!ctx.plan.found ? `
       ${ctx.generationException?`<div class="note" style="color:var(--danger);">${esc(ctx.generationException)}</div>`
         :`<div class="note">No plan generated yet. The approved template (${esc(ctx.template.templateId||'')}) will determine bed-by-bed layout — nothing to choose here.</div>`}
       <button class="btn btn-primary" ${(ui.ppBusy||ctx.generationException)?'disabled':''} onclick="generatePlanReal()">${ui.ppBusy?'Generating…':'Generate Plan'}</button>
     ` : `
-      <button class="btn btn-primary" ${(ui.ppBusy||st.confirmed>=st.physicalBedCount)?'disabled':''} onclick="confirmLayoutReal()">${st.confirmed>=st.physicalBedCount?'Confirmed ✓':'Confirm Planting Layout'}</button>
+      <h2 style="font-size:13px;margin:14px 0 6px;">Actions</h2>
+      <button class="btn btn-primary" ${(ui.ppBusy||allConfirmed)?'disabled':''} onclick="confirmLayoutReal()">${allConfirmed?'Confirmed ✓':'Confirm Layout'}</button>
+      <div class="note" style="margin-top:0;">Click a bed on the map, or a crop on the left, to open it and use Modify Bed — the exception workflow for when the standard template needs to change for one bed.</div>
       <button class="btn btn-ghost" onclick="ui.pAdvOpen=!ui.pAdvOpen;render();">${ui.pAdvOpen?'▾':'▸'} Advanced</button>
       ${ui.pAdvOpen?`<button class="btn btn-outline" ${ui.ppBusy?'disabled':''} onclick="generatePlanReal()">Regenerate from template</button>`:''}
     `}
