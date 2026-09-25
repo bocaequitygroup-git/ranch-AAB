@@ -672,12 +672,33 @@ function modalHTML(){
   else if(ui.modal==='terminate') inner=terminateModal();
   return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'?' wide':''}">${inner}</div></div>`;
 }
+/* Activity taxonomy for the New Activity picker. Mirrors ACTIVITY_REFERENCE's grouping
+ * (Field Prep / Planting / Crop Care / Scouting-Protection / Harvest / Turnover) at display
+ * level; wire to a live get-activity-catalog action if/when the sheet-backed list needs to
+ * drive this instead of this static reference list. */
+const ACTIVITY_CATALOG=[
+  ['Field Preparation',['Land Prep','Tillage','Bed Forming','Solarization']],
+  ['Planting / Establishment',['Seeding','Transplanting','Thinning','Replanting']],
+  ['Crop Maintenance',['Cultivation','Weeding','Trellising','Pruning','Fertilization','Irrigation','Irrigation Check']],
+  ['Scouting / Protection',['Pest Scouting','Disease Scouting','Pest Control','Disease Control','Crop Inspection','Maturity Inspection']],
+  ['Harvest',['Harvest Prep','Harvest']],
+  ['Turnover',['Crop Cleanup','Field Turnover']]
+];
+function setDispatchActivity(name){ ui.modalDraft.activity=name; render(); }
+function setDispatchWorker(id){ ui.modalDraft.workerId=id; }
 function dispatchModal(){
   const d=ui.modalDraft;
-  return `<h2 style="font-size:15px;">Start session</h2>
-  <div class="field"><label>Activity</label><input id="md-act" placeholder="e.g. Weeding" value="${esc(d.activity||'')}"></div>
-  <div class="field"><label>Worker</label><select id="md-worker">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.name)}</option>`).join('')}</select></div>
-  <button class="btn btn-primary" onclick="startSessionFor('${esc(d.bedId)}', document.getElementById('md-act').value, document.getElementById('md-worker').value)">Start</button>
+  return `<h2 style="font-size:15px;">New Activity</h2>
+  <div class="field"><label>Activity</label>
+    ${ACTIVITY_CATALOG.map(([cat,items])=>`
+      <div class="qsub" style="margin:8px 0 4px;font-weight:700;">${esc(cat)}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${items.map(name=>
+        `<button type="button" class="btn ${d.activity===name?'btn-primary':'btn-outline'}" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="setDispatchActivity('${esc(name)}')">${esc(name)}</button>`
+      ).join('')}</div>`).join('')}
+  </div>
+  <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
+  <p style="font-size:12px;color:var(--ink-soft);">Starts immediately for the worker — appears in their My Active Sessions right away.</p>
+  <button class="btn btn-primary" ${d.activity?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Create</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function reassignModal(){
@@ -1126,7 +1147,8 @@ function planningScreen(){
     ui.pMode==='cover' ? planLayout(blockListHTML(), planBedGridSVG('cover'), planLegend('cover'), coverProfile()) :
     planLayout(rotationLeftHTML(), rotationMatrixHTML(), '', rotationEditorHTML())
   }</div>
-  ${ui.toast?`<div class="toast">${esc(ui.toast)}</div>`:''}`;
+  ${ui.toast?`<div class="toast">${esc(ui.toast)}</div>`:''}
+  ${modalHTML()}`;
 }
 function planLayout(left,center,legend,right){
   return `<div class="leftpanel">${left}</div>
