@@ -1010,6 +1010,38 @@ async function saveBedModifyReal(){
 
 function ppStatusChip(status){ const s=String(status||'').toUpperCase(); return {PENDING:'chip-neutral',CONFIRMED:'chip-ok',MODIFIED:'chip-warn',MIXED:'chip-warn',EMPTY:'chip-neutral'}[s]||'chip-neutral'; }
 
+/* ============================== BED PROFILE ARCHITECTURE ==============================
+ * The Bed Profile is a stack of independently-sourced layers, read and rendered in this order:
+ *   BED_MASTER (physical bed) -> calculated Availability -> BED_PLANTING_PLAN (planning) ->
+ *   BLOCK_ROTATION_PLAN (rotation) -> COHORT_PRODUCTION/FIELD_LIVE_SESSION (current production) -> history.
+ * A missing plan row, cohort, session or history record must never blank a layer above it -
+ * only BED_MASTER itself (the physical bed) is a hard requirement to render anything at all.
+ * See "Bed Profile Architecture Fix" spec, sections 1-13. */
+
+/* Optional BED_MASTER attribute: shown only when the backend actually returned a value for it
+ * ("where already defined" - section 2). Never rendered as a placeholder dash. */
+function profRow(label,val){ return (val==null||val==='')? '' : `<div class="row"><span>${esc(label)}</span><span>${esc(val)}</span></div>`; }
+/* Field that must always show *some* explicit state (never a bare em-dash - section 11). */
+function profRowOr(label,val,fallback){ return `<div class="row"><span>${esc(label)}</span><span>${esc((val!=null&&val!=='')?val:fallback)}</span></div>`; }
+
+const LOCATION_TYPE_LABEL = { FIELD:'Field Bed', GREENHOUSE:'Greenhouse Bed', NURSERY:'Nursery Bed', HOOPHOUSE:'Hoophouse Bed' };
+const PRODUCTION_TYPE_LABEL = { FIELD:'Field', GREENHOUSE:'Greenhouse', NURSERY:'Nursery', HOOPHOUSE:'Hoophouse' };
+function locationTypeLabel(lt){ const k=String(lt||'').toUpperCase(); return LOCATION_TYPE_LABEL[k] || (lt?lt+' Bed':''); }
+function productionTypeLabel(lt){ const k=String(lt||'').toUpperCase(); return PRODUCTION_TYPE_LABEL[k] || (lt||''); }
+
+/* Availability is calculated from the existing planning/assignment/operational data - it is never
+ * inferred from "no cohort" alone (section 4). A bed with no cohort can still be Reserved (a plan or
+ * proposal exists) or Blocked (physical status isn't Active, or the bed carries an open exception). */
+function bedAvailability(pb, cohortId, proposals, openExceptions){
+  const ps=String((pb&&pb.bedStatus)||'').toUpperCase();
+  if(ps && ps!=='ACTIVE') return 'BLOCKED';
+  if(openExceptions && openExceptions.length) return 'BLOCKED';
+  if(cohortId) return 'OCCUPIED';
+  if(proposals && proposals.length) return 'RESERVED';
+  return 'AVAILABLE';
+}
+function availabilityChip(a){ return {AVAILABLE:'chip-ok',RESERVED:'chip-warn',OCCUPIED:'chip-neutral',BLOCKED:'chip-danger'}[a]||'chip-neutral'; }
+
 function ppLeftHTML(){
   const ctx=ppCurrent();
   if(!ctx) return `<div class="empty">Loading…</div>`;
@@ -1075,34 +1107,87 @@ function ppRightHTML(){
     </div>`;
   }
 
-  // Bed selected, read view -> the same bed-card the Daily Board uses, populated from BED_PLANTING_PLAN
-  // cross-referenced with the live execution data (COHORT_PRODUCTION / FIELD_LIVE_SESSION / FIELD_ACTIVITY_LOG)
-  // that loadToday() already pulled into state.board / state.sessions / state.todayById at login.
+  // Bed selected, read view -> the layered Bed Profile. BED_MASTER (the physical bed) is read and
+  // rendered first and unconditionally; BED_PLANTING_PLAN, rotation, current execution (COHORT_PRODUCTION /
+  // FIELD_LIVE_SESSION / FIELD_ACTIVITY_LOG, already pulled into state.board / state.sessions / state.todayById
+  // at login) and history are each read and rendered as their own separate layer underneath it. None of them
+  // being empty ever blanks the Bed Profile itself - see the Bed Profile Architecture Fix spec.
   if(ui.ppSelectedBed){
-    const bed=ctx.plan.beds.find(b=>b.bedId===ui.ppSelectedBed);
-    if(!bed) return `<div class="panelhead"><h2>${esc(ui.ppSelectedBed)}</h2></div><div class="panelbody"><div class="empty">This bed has no plan row yet. Generate the plan first.</div></div>`;
-    const pb=(ctx.physicalBeds||[]).find(p=>p.bedId===bed.bedId)||{};
-    const v=bedViewById(bed.bedId)||{};
-    const sess=bedSessions(bed.bedId);
-    const hist=(v.activityLog||[]).slice(0,10);
-    return `<div class="panelhead"><div><h2>${esc(bed.bedId)}</h2><div class="meta">${esc(BLOCK_LABELS[ui.pBlock])} · ${esc(bed.cropFamily||ctx.rotation.cropFamily||'')} · <span class="chip ${ppStatusChip(bed.status)}">${esc(bed.status)}</span></div></div><button onclick="clearPPSelection()">✕</button></div>
+    const bedId=ui.ppSelectedBed;
+    const pb=(ctx.physicalBeds||[]).find(p=>p.bedId===bedId);          // BED_MASTER — the physical bed
+    const bed=ctx.plan.beds.find(b=>b.bedId===bedId);                   // BED_PLANTING_PLAN — may legitimately be absent
+    const v=bedViewById(bedId)||{ id:bedId, proposals:[] };             // COHORT_PRODUCTION (cohort board) — may legitimately be empty
+    const sess=bedSessions(bedId);                                      // FIELD_LIVE_SESSION
+    const hist=(v.activityLog||[]).slice(0,10);                         // historical activity
+    const proposals=v.proposals||[];
+    const openExc=bedExceptions(bedId).filter(x=>x.status==='OPEN');
+    const avail=bedAvailability(pb, v.cohortId, proposals, openExc);
+
+    if(!pb){
+      // No BED_MASTER record at all for this bed ID. This is a genuine configuration problem, not an
+      // empty-but-legitimate state, so it is labelled as one rather than rendered as a blank/em-dash bed.
+      return `<div class="panelhead"><div><h2>${esc(bedId)}</h2><div class="meta">${esc(BLOCK_LABELS[ui.pBlock])} · BED</div></div><button onclick="clearPPSelection()">✕</button></div>
+      <div class="panelbody">
+        <div class="card">
+          <div class="row"><span>Bed Profile</span><span class="chip chip-danger">CONFIGURATION REQUIRED</span></div>
+          <div class="row"><span>Issue</span><span>No BED_MASTER record found for ${esc(bedId)}.</span></div>
+        </div>
+      </div>`;
+    }
+
+    return `<div class="panelhead"><div><h2>${esc(bedId)}</h2><div class="meta">${esc(BLOCK_LABELS[ui.pBlock])} · BED</div></div><button onclick="clearPPSelection()">✕</button></div>
     <div class="panelbody">
+
+      <h2 style="font-size:13px;margin:0 0 6px;">Bed Profile</h2>
       <div class="card">
-        <div class="row"><span>State</span><span>${esc(pb.bedStatus||'—')}</span></div>
-        <div class="row"><span>Crop</span><span>${esc(v.cropName||bed.cropName||'—')}</span></div>
-        <div class="row"><span>Cohort</span><span>${esc(pb.currentCohortId||v.cohortId||'—')}</span></div>
-        <div class="row"><span>Last planting</span><span>${esc(v.plantingDate||'—')}</span></div>
-        <div class="row"><span>Expected harvest</span><span>${esc(v.harvestWindow||'—')}</span></div>
-        <div class="row"><span>Irrigation zone</span><span>${esc(pb.zone||'—')}</span></div>
-        <div class="row"><span>Worker on this bed</span><span>${sess.length?esc(sess.map(s=>s.workerName).join(', ')):'No open session'}</span></div>
+        ${profRowOr('Physical Status', pb.bedStatus, 'CONFIGURATION REQUIRED')}
+        ${profRow('Production Type', productionTypeLabel(pb.locationType))}
+        ${profRow('Location Type', locationTypeLabel(pb.locationType))}
+        ${profRow('Irrigation Zone', pb.zone)}
+        ${profRow('Bed Length', pb.bedLength!=null&&pb.bedLength!==''?(pb.bedLength+' ft'):'')}
+        ${profRow('Bed Health Status', pb.bedHealthStatus)}
+        ${profRow('Irrigation Status', pb.bedIrrigationStatus)}
       </div>
-      <div class="qgh" style="cursor:pointer;" onclick="togglePPHistory()"><span>${ui.ppHistoryOpen?'▾':'▸'} Bed History</span></div>
-      ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history logged for this bed yet.</div>`):''}
+
+      <h2 style="font-size:13px;margin:14px 0 6px;">Availability</h2>
+      <div class="card">
+        <div class="row"><span>Status</span><span><span class="chip ${availabilityChip(avail)}">${avail}</span></span></div>
+      </div>
+
+      <h2 style="font-size:13px;margin:14px 0 6px;">Planning</h2>
+      <div class="card">${bed ? `
+        <div class="row"><span>Crop</span><span>${esc(bed.cropName||v.cropName||'Not set')}</span></div>
+        <div class="row"><span>Wave</span><span>${esc(bed.wave!=null&&bed.wave!==''?bed.wave:'Not set')}</span></div>
+        <div class="row"><span>Planting Date</span><span>${esc(bed.plantingDate||'Not set')}</span></div>
+        <div class="row"><span>Layout Status</span><span><span class="chip ${ppStatusChip(bed.status)}">${esc(bed.status||'Not set')}</span></span></div>
+      ` : `
+        <div class="row"><span>Current Plan</span><span>No current plan</span></div>
+      `}</div>
+
+      <h2 style="font-size:13px;margin:14px 0 6px;">Rotation</h2>
+      <div class="card">
+        <div class="row"><span>Current Family</span><span>${esc((bed&&bed.cropFamily)||ctx.rotation.cropFamily||'Not set')}</span></div>
+        <div class="row"><span>Previous Year Family</span><span>${esc(ctx.rotation.previousFamily||'Not tracked')}</span></div>
+        <div class="row"><span>Rotation Result</span><span>${esc(ctx.rotation.result||'Not calculated')}</span></div>
+      </div>
+
+      <h2 style="font-size:13px;margin:14px 0 6px;">Current Production</h2>
+      <div class="card">
+        <div class="row"><span>Current Cohort</span><span>${esc(v.cohortId||'None')}</span></div>
+        <div class="row"><span>Current Stage</span><span>${v.cohortId?esc((v.currentStage||'—').replace(/_/g,' ')):'Not Started'}</span></div>
+        <div class="row"><span>Worker</span><span>${sess.length?esc(sess.map(s=>s.workerName).join(', ')):'None'}</span></div>
+      </div>
+      ${pendingBlock(v, !!v.cohortId)}
+
+      <h2 style="font-size:13px;margin:14px 0 6px;">History</h2>
+      <div class="qgh" style="cursor:pointer;" onclick="togglePPHistory()"><span>${ui.ppHistoryOpen?'▾':'▸'} ${hist.length?(hist.length+' record'+(hist.length===1?'':'s')):'No history'}</span></div>
+      ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history recorded for this bed.</div>`):''}
+
       <h2 style="font-size:13px;margin:14px 0 6px;">Actions</h2>
-      <button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(bed.bedId)}'})">New Activity</button>
+      <button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(bedId)}'})">New Activity</button>
       <button class="btn btn-outline" ${sess.length?'':'disabled title="No worker currently on this bed."'} onclick="openModal('reassign',{sessionId:'${sess.length?esc(sess[0].id):''}',mode:'reassign'})">Reassign worker</button>
-      <button class="btn btn-outline" ${ui.ppBusy?'disabled':''} onclick="startBedModify()">Modify Bed</button>
-      <div class="note">Cohort, session and history above reflect live execution data once planting begins — you don't need to select a cohort to plan this bed.</div>
+      <button class="btn btn-outline" ${(ui.ppBusy||!bed)?'disabled':''} ${bed?'':'title="This bed has no BED_PLANTING_PLAN row yet — generate the plan first."'} onclick="startBedModify()">Modify Bed</button>
+      <div class="note">Bed Profile above comes from BED_MASTER and always renders, whether or not this bed currently has a plan, cohort, session or history.</div>
     </div>`;
   }
 
