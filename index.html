@@ -66,6 +66,7 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .chip{display:inline-block;padding:2px 9px;border-radius:99px;font-size:10.5px;font-weight:700;}
 .chip-ok{background:#E4F1E5;color:var(--ok);} .chip-warn{background:#FBEBD6;color:var(--warn);} .chip-danger{background:#F7DEDB;color:var(--danger);} .chip-neutral{background:var(--line);color:var(--ink-soft);}
 .btn{display:block;width:100%;text-align:center;padding:11px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:700;border:none;cursor:pointer;margin-bottom:8px;}
+.sheet .btn:disabled{opacity:.38;cursor:not-allowed;background:transparent;border-style:dashed;} .sheet .btn-primary:disabled{background:var(--forest);border-style:solid;}
 .btn-primary{background:var(--forest);color:#fff;} .btn-outline{background:transparent;color:var(--forest);border:1.5px solid var(--forest);}
 .btn-danger{background:var(--danger);color:#fff;} .btn-cta{padding:10px 20px;font-size:14px;box-shadow:0 1px 0 rgba(0,0,0,.15);}
 .proposal{border-left:4px solid var(--warn);} .proposal .plabel{font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--warn);margin-bottom:6px;}
@@ -734,7 +735,7 @@ function dispatchModal(){
   ${hasCohort?(stageLabel?`<div class="note" style="margin-top:0;">Cohort stage: <b>${esc(stageLabel)}</b>. Activities outside this stage are greyed out — hover one to see when it becomes available.</div>`:''):`<div class="note" style="margin-top:0;">No cohort is assigned to this bed yet, so only Prep activities (field/bed work ahead of planting) can be dispatched. Everything else is disabled until a cohort is assigned to this bed.</div>`}
   <div class="field"><label>Activity</label>
     ${groups.map(([cat,items])=>`
-      <div class="qsub" style="margin:8px 0 4px;font-weight:700;">${esc(cat)}</div>
+      <div class="qsub" style="margin:8px 0 4px;font-weight:700;">${esc(cat)}${!hasCohort&&items.every(a=>a.domain!=='Prep')?' <span style="font-weight:400;color:var(--ink-soft);">— locked: needs a cohort on this bed</span>':''}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">${items.map(a=>{
         const why=activityGate(a,bed,hasCohort,known);
         const tip=esc((a.description?a.description+(why?' — ':''):'')+why);
