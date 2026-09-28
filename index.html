@@ -91,6 +91,7 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .qrec{margin:10px 0 6px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;} .qrec>span:first-child{color:var(--ink-soft);font-size:11.5px;} .qrec b{font-size:19px;color:var(--forest);}
 .checks{list-style:none;margin:6px 0 10px;padding:0;font-size:12px;} .checks li{padding:2px 0;} .checks li.ok{color:var(--ok);} .checks li.w{color:var(--warn);font-weight:600;}
 .qbtns{display:flex;gap:8px;} .qbtns .btn{margin:0;} .qwarn{border-color:var(--warn);}
+.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0 10px;} .vcell{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:11.5px;line-height:1.3;} .vcell .vh{display:flex;justify-content:space-between;align-items:center;gap:6px;font-weight:700;font-size:12px;margin-bottom:2px;} .vcell .vd{color:var(--ink-soft);} .vcell.ok{border-color:#B9D9BC;background:#F3FAF3;} .vcell.w{border-color:var(--warn);background:#FFF8EE;}
 .leftpanel{width:280px;max-width:80vw;overflow-y:auto;padding:12px;border-right:1px solid var(--line);background:var(--paper);}
 .leftpanel .card{cursor:pointer;}
 table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
@@ -355,7 +356,7 @@ async function doGenerate(){
   ui.generating=false; render();
 }
 async function approveAssignment(cohortId){
-  try{ const r=await apiCall('approve-assignment', { cohortId }, 60000); toast('Approved → '+r.locationId+'. Ready for planting.'); }
+  try{ const r=await apiCall('approve-assignment', { cohortId }, 60000); toast('Approved → '+r.locationId+'. Bed is live: assign activities from Assigned.'); ui.queueTab='assigned'; }
   catch(e){ toast(e.message); }
   await loadToday();
 }
@@ -783,6 +784,26 @@ function queueModal(){
     <div class="seg" style="margin-bottom:6px;">${tabs.map(([k,l,n])=>`<button class="${tab===k?'active':''}" onclick="setQueueTab('${k}')">${l} (${n})</button>`).join('')}</div>
     ${tab==='proposed'?proposedList():tab==='exceptions'?exceptionList():assignedList()}`;
 }
+/* Approval dashboard: turns the queue row's Reason lines into the four validation checks the manager needs to see. */
+const VCHECKS=[['Approved block',/approved for|crop_block_map|block rule/i],['Planting window',/window/i],['Bed availability',/bed free|occupied|overlap|conflict|not free/i],['Rotation',/rotation/i]];
+function validationChecks(p){
+  let lines=p.reasons||[]; if(typeof lines==='string') lines=lines.split('\n');
+  lines=lines.map(x=>String(x).trim()).filter(Boolean);
+  const used=new Set();
+  const cells=VCHECKS.map(([label,re])=>{
+    const i=lines.findIndex((l,idx)=>!used.has(idx)&&re.test(l));
+    if(i<0) return {label,state:'none',detail:'Not checked'};
+    used.add(i); const l=lines[i];
+    return {label,state:/^(⚠|✗|✖|!)/.test(l)?'w':'ok',detail:l.replace(/^[✓✔⚠✗✖!]\s*/,'')};
+  });
+  const extra=lines.filter((l,idx)=>!used.has(idx));
+  return {cells,extra};
+}
+function checkGrid(p){
+  const v=validationChecks(p);
+  return `<div class="vgrid">${v.cells.map(c=>`<div class="vcell ${c.state==='none'?'':c.state}"><div class="vh"><span>${esc(c.label)}</span><span class="chip ${c.state==='ok'?'chip-ok':c.state==='w'?'chip-warn':'chip-neutral'}">${c.state==='ok'?'✓ Pass':c.state==='w'?'⚠ Review':'—'}</span></div><div class="vd">${esc(c.detail)}</div></div>`).join('')}</div>`
+    + (v.extra.length?`<ul class="checks">${v.extra.map(r=>`<li class="${/^(⚠|✗)/.test(r)?'w':'ok'}">${esc(r)}</li>`).join('')}</ul>`:'');
+}
 function reasonList(p){ return `<ul class="checks">${(p.reasons||[]).map(r=>`<li class="${String(r).startsWith('⚠')?'w':'ok'}">${esc(r)}</li>`).join('')}</ul>`; }
 function cohortHead(p){ return `<div class="qtop"><div><b>${esc(p.cropName)}</b><div class="qsub">Wave ${esc(p.waveNumber)} · ${esc(p.cohortId)}</div></div><div class="qdates">DOB ${esc(p.plannedDob)}<br>ends ${esc(p.endDate||'—')}</div></div>`; }
 function proposedList(){
@@ -793,8 +814,8 @@ function proposedList(){
     return `<div class="qgh"><span><b>${esc(g)}</b> · ${items.length}</span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="doApproveBatch(${esc(JSON.stringify(items.map(p=>p.cohortId)))})">Approve all ${items.length}</button></div>`
       + items.map(p=>`<div id="qc-${esc(p.cohortId)}" class="card ${(p.reasons||[]).some(r=>String(r).startsWith('⚠'))?'qwarn':''} ${ui.focusCohort===p.cohortId?'qfocus':''}">${cohortHead(p)}
         <div class="qrec"><span>Recommended location</span><b>${esc(p.recommendedBed)}</b><span class="chip chip-neutral">${esc(p.blockId)}</span></div>
-        ${reasonList(p)}
-        <div class="qbtns"><button class="btn btn-primary" onclick="approveAssignment('${esc(p.cohortId)}')">Approve</button><button class="btn btn-outline" onclick="openChangeAssignmentBed('${esc(p.cohortId)}')">Change</button><button class="btn btn-reject" onclick="openRejectModal('${esc(p.cohortId)}')">Reject</button></div></div>`).join('');
+        ${checkGrid(p)}
+        <div class="qbtns"><button class="btn btn-primary" onclick="approveAssignment('${esc(p.cohortId)}')">Approve Assignment</button><button class="btn btn-outline" onclick="openChangeAssignmentBed('${esc(p.cohortId)}')">Change</button><button class="btn btn-reject" onclick="openRejectModal('${esc(p.cohortId)}')">Reject</button></div></div>`).join('');
   }).join('');
 }
 function exceptionList(){
@@ -810,7 +831,7 @@ function assignedList(){
   if(!list.length) return `<div class="empty">No approved cohorts are waiting to be planted.</div>`;
   return list.map(p=>`<div class="card"><div class="qtop"><div><b>${esc(p.cropName)}</b><div class="qsub">Wave ${esc(p.waveNumber)} · ${esc(p.cohortId)}</div></div><div class="qdates">Planned DOB<br>${esc(p.plannedDob)}</div></div>
     <div class="qrec"><span>Planting ready in</span><b>${esc(p.locationId)}</b></div>
-    <button class="btn btn-outline" onclick="openModal('verify-planting',{cohortId:'${esc(p.cohortId)}',bedId:'${esc(p.locationId)}'})">Verify planting</button></div>`).join('');
+    <div class="qbtns"><button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(p.locationId)}',hasCohort:true})">New Activity</button><button class="btn btn-outline" onclick="openModal('verify-planting',{cohortId:'${esc(p.cohortId)}',bedId:'${esc(p.locationId)}'})">Verify planting</button></div></div>`).join('');
 }
 function changeLocModal(){
   const d=ui.modalDraft, r=state.candidates||{locations:[]}, locs=r.locations||[];
