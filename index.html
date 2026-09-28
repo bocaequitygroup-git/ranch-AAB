@@ -1103,12 +1103,13 @@ const PRODUCTION_TYPE_LABEL = { FIELD:'Field', GREENHOUSE:'Greenhouse', NURSERY:
 function locationTypeLabel(lt){ const k=String(lt||'').toUpperCase(); return LOCATION_TYPE_LABEL[k] || (lt?lt+' Bed':''); }
 function productionTypeLabel(lt){ const k=String(lt||'').toUpperCase(); return PRODUCTION_TYPE_LABEL[k] || (lt||''); }
 
-/* Availability is calculated from the existing planning/assignment/operational data - it is never
- * inferred from "no cohort" alone (section 4). A bed with no cohort can still be Reserved (a
- * BED_PLANTING_PLAN row already exists for it) or Blocked (physical status isn't Active, or the bed
- * carries an open exception). Deliberately does NOT read COHORT_ASSIGNMENT_QUEUE/state.aq here: that
- * queue is loaded for the Daily Board's own year (ui.year), a different selector than the Season
- * Planning year (ui.pYear) this profile is showing - mixing the two produced wrong-season proposals. */
+/* Availability is BED_MASTER.Bed_Status (BED_STATUS_RULES), never inferred from planning data. A
+ * BED_PLANTING_PLAN row (even CONFIRMED) does not make a bed Reserved: RESERVED requires the manager to
+ * confirm a specific cohort-to-bed assignment (R02). Blocked is the only override (non-Active physical
+ * status or an open exception). "No cohort" alone falls back to OCCUPIED/AVAILABLE only when Bed_Status
+ * is blank. Deliberately does NOT read COHORT_ASSIGNMENT_QUEUE/state.aq here: that queue is loaded for
+ * the Daily Board's own year (ui.year), a different selector than the Season Planning year (ui.pYear)
+ * this profile is showing - mixing the two produced wrong-season proposals. */
 function bedAvailability(pb, cohortId, hasPlan, openExceptions, bedStatus){
   const ps=String(pbBedStatus(pb)||'').toUpperCase();
   if(ps && ps!=='ACTIVE') return 'BLOCKED';
