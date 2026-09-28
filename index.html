@@ -677,7 +677,7 @@ function modalHTML(){
  * (getActivityCatalog_(), ActivityEngine.gs). There is no hard-coded activity list in this file: if the
  * backend sends no catalog the picker says so instead of showing a stale copy. The server
  * (validateActivity_) remains the final judge of every dispatch. */
-const ACTIVITY_GROUP_ORDER=['Prep','Planting','CropCare','Harvest','State'];
+const ACTIVITY_GROUP_ORDER=['Prep','Planting','CropCare','Harvest','Post-Harvest','State'];
 /* 'HARVESTCOMPLETE' (buildTodayView_ upper-cases it), 'HarvestComplete' (sheet) and 'PRE_PLANTING' all compare equal. */
 function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); }
 function activityGroups(){
@@ -690,19 +690,8 @@ function activityGroups(){
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
   return Object.keys(groups).sort((a,b)=>rank(a)-rank(b)).map(k=>[k,groups[k]]);
 }
-/* Returns '' when the activity can be dispatched on this bed, otherwise the reason it can't (shown as the tooltip).
- * Mirrors validateActivity_ (ActivityEngine.gs): no cohort -> Prep only; otherwise the cohort's Current_Stage must be
- * in the activity's Allowed_Lifecycle_Stages. If the bed's stage isn't one the rules know about (e.g. a raw
- * biology-clock value like FIELD_PRODUCTION), don't guess - leave it enabled and let the server decide. */
-function activityGate(a, bed, hasCohort, knownStages){
-  if(!hasCohort) return a.domain==='Prep' ? '' : 'Requires a cohort assigned to this bed first.';
-  const allowed=a.allowedStages||[];
-  if(!allowed.length) return '';
-  const cur=stageKey(bed&&bed.currentStage);
-  if(!cur || !knownStages.has(cur)) return '';
-  if(allowed.some(x=>stageKey(x)===cur)) return '';
-  return 'Only available when the cohort is at: '+allowed.join(', ')+'. This cohort is at '+String(bed.currentStage).replace(/_/g,' ').toLowerCase()+'.';
-}
+/* The picker lists EVERY activity from ACTIVITY_REFERENCE, grouped by Activity_Domain. It does not hide or disable anything
+ * (no cohort / crop / stage / bed-status gating here). The server (validateActivity_) applies each activity's own rules. */
 function setDispatchActivity(name){ ui.modalDraft.activity=name; render(); }
 function setDispatchWorker(id){ ui.modalDraft.workerId=id; }
 /* Controlled bed turnover (Post-Harvest, ACTIVITY_REFERENCE.Post_Harvest_Sequence). NOT a picker: the manager sees ONLY the
@@ -741,22 +730,15 @@ function turnoverBlock(b,sess){
 function dispatchModal(){
   const d=ui.modalDraft;
   if(d.fixedActivity) return fixedDispatchModal(d);
-  const hasCohort=!!d.hasCohort;
-  const bed=(state.todayById&&state.todayById[d.bedId])||null;
   const groups=activityGroups();
-  const known=new Set(); (state.activityCatalog||[]).forEach(a=>(a.allowedStages||[]).forEach(x=>known.add(stageKey(x))));
-  groups.forEach(([,items])=>items.forEach(a=>(a.allowedStages||[]).forEach(x=>known.add(stageKey(x)))));
-  const stageLabel=hasCohort&&bed&&bed.currentStage?String(bed.currentStage).replace(/_/g,' ').toLowerCase():'';
   return `<h2 style="font-size:15px;">New Activity</h2>
-  ${hasCohort?(stageLabel?`<div class="note" style="margin-top:0;">Cohort stage: <b>${esc(stageLabel)}</b>. Activities outside this stage are greyed out — hover one to see when it becomes available.</div>`:''):`<div class="note" style="margin-top:0;">No cohort is assigned to this bed yet, so only Prep activities (field/bed work ahead of planting) can be dispatched. Everything else is disabled until a cohort is assigned to this bed.</div>`}
   <div class="field"><label>Activity</label>
     ${groups.length?'':`<div class="note" style="margin:0;">The activity list could not be loaded from ACTIVITY_REFERENCE. Close this, tap Refresh and try again.</div>`}
     ${groups.map(([cat,items])=>`
-      <div class="qsub" style="margin:8px 0 4px;font-weight:700;">${esc(cat)}${!hasCohort&&items.every(a=>a.domain!=='Prep')?' <span style="font-weight:400;color:var(--ink-soft);">— locked: needs a cohort on this bed</span>':''}</div>
+      <div class="qsub" style="margin:8px 0 4px;font-weight:700;">${esc(cat)}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">${items.map(a=>{
-        const why=activityGate(a,bed,hasCohort,known);
-        const tip=esc((a.description?a.description+(why?' — ':''):'')+why);
-        return `<button type="button" class="btn ${d.activity===a.name?'btn-primary':'btn-outline'}" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" ${tip?`title="${tip}"`:''} ${why?'disabled':`onclick="setDispatchActivity('${esc(a.name)}')"`}>${esc(a.name)}</button>`;
+        const tip=esc(a.description||'');
+        return `<button type="button" class="btn ${d.activity===a.name?'btn-primary':'btn-outline'}" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" ${tip?`title="${tip}"`:''} onclick="setDispatchActivity('${esc(a.name)}')">${esc(a.name)}</button>`;
       }).join('')}</div>`).join('')}
 
   </div>
