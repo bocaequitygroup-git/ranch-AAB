@@ -419,27 +419,6 @@ async function doCompleteCohort(cohortId){
   try{ await apiCall('complete-cohort', { cohortId }); toast('Cohort marked complete.'); closePanel(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
-const PH_CHIP={COMPLETE:['✓ Complete','chip-ok'],OPEN:['In progress','chip-warn'],PENDING:['Pending','chip-neutral']};
-function stepLabel(n){ return String(n).replace(/([a-z])([A-Z])/g,'$1 $2').replace(/^Post Harvest/,'Post-harvest'); }
-/* Controlled bed turnover: Final harvest -> PostHarvestCleanup -> FieldTurnover -> CropCleanup -> manager verification.
- * Worker completion never releases the bed (BED_STATUS_RULES R10); only Verify Bed Ready does (R11). */
-function postHarvestPanel(v){
-  const ph=v&&v.postHarvest; if(!ph||!v.cohortId) return '';
-  const ready=!!ph.readyToVerify;
-  return `<h2 style="font-size:13px;margin:14px 0 6px;">Bed ${esc(v.id)} — ${ready?'Turnover Ready':'Post-Harvest Turnover'}</h2>
-  <div class="card">
-    <div class="row"><span>Final harvest</span><span class="chip chip-ok">✓ Complete</span></div>
-    ${ph.steps.map(st=>`<div class="row"><span>${esc(stepLabel(st.name))}</span><span class="chip ${PH_CHIP[st.status][1]}">${PH_CHIP[st.status][0]}</span></div>`).join('')}
-    <div class="row"><span><b>Manager verification</b></span><span class="chip ${ready?'chip-warn':'chip-neutral'}">${ready?'Pending — ready':'Waiting on steps'}</span></div>
-  </div>
-  ${ph.nextStep&&ph.nextStepOpen?`<button class="btn btn-outline" onclick="openModal('dispatch',{bedId:'${esc(v.id)}',hasCohort:true,activity:'${esc(ph.nextStep)}'})">Assign next step: ${esc(stepLabel(ph.nextStep))}</button>`:''}
-  <button class="btn btn-primary" ${ready?'':'disabled title="Every post-harvest step must be completed first."'} onclick="verifyBedReady('${esc(v.cohortId)}')">Verify Bed Ready</button>
-  <div class="note">Completing the steps does not release the bed. Verifying closes this cohort, clears the bed's current cohort and makes it available for a future cohort. Planning is unaffected.</div>`;
-}
-async function verifyBedReady(cohortId){
-  try{ await apiCall('complete-cohort', { cohortId }); toast('Bed verified ready and released.'); closePanel(); await loadToday(); }
-  catch(e){ toast(e.code==='POST_HARVEST_INCOMPLETE'?'Post-harvest steps are not all complete yet.':e.message); }
-}
 async function doTerminateCohort(cohortId, reason){
   try{ await apiCall('terminate-cohort', { cohortId, reason }); toast('Cohort terminated.'); closeModal(); closePanel(); await loadToday(); }
   catch(e){ toast(e.message); }
@@ -655,7 +634,7 @@ function cohortActionButtons(b){
   if(cs==='PRE_PLANTING' || cs==='ACTIVE'){
     btns.push(`<button class="btn btn-danger" onclick="openModal('terminate',{cohortId:'${esc(b.cohortId)}'})">Terminate cohort</button>`);
   }
-  return postHarvestPanel(b) + (btns.length? `<div style="margin:10px 0;">${btns.join('')}</div>` : '');
+  return btns.length? `<div style="margin:10px 0;">${btns.join('')}</div>` : '';
 }
 function activityTab(b){
   const rows=(b.activityLog||[]);
@@ -694,36 +673,17 @@ function modalHTML(){
   return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'?' wide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
- * This used to be a hardcoded list that stopped at ACT_023, so everything added to the sheet after
- * that (LandPrep, Tillage, HarvestPrep, MaturityInspection ... 13 rows) never appeared, and it had no
- * stage awareness, so post-harvest work sat next to Harvest looking identical to everything else.
- * Groups come from Activity_Domain, except activities whose ONLY allowed stages are HarvestComplete /
- * Terminated (PostHarvestCleanup, FieldTurnover, CropCleanup), which get their own "Post-harvest" group
- * so they're findable. The fallback below is used only if the backend sends no catalog (older deploy,
- * demo mode) and mirrors ACTIVITY_REFERENCE's worker-dispatchable rows; it carries no stage rules,
- * so the server (validateActivity_) remains the final judge either way. */
-const ACTIVITY_CATALOG_FALLBACK=[
-  ['Prep',['FieldPrep','BedShaping','Mulching','TrellisingSetup','IrrigationSetup','LandPrep','Tillage','BedForming','Solarization']],
-  ['Planting',['Planting','DirectSeeding','Transplanting','Replanting','Thinning','Seeding']],
-  ['CropCare',['Weeding','Fertilizing','IrrigationCheck','PestControl','DiseaseControl','Pruning','Trellising','Cultivation','Fertilization','Irrigation']],
-  ['Harvest',['HarvestPrep','Harvest']],
-  ['State',['Scouting','PestScouting','DiseaseScouting','CropInspection','MaturityInspection']]
-];
-const ACTIVITY_GROUP_ORDER=['Prep','Planting','CropCare','Harvest','Post-harvest','State'];
-const POST_HARVEST_STAGES=['harvestcomplete','terminated'];
+ * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
+ * (getActivityCatalog_(), ActivityEngine.gs). There is no hard-coded activity list in this file: if the
+ * backend sends no catalog the picker says so instead of showing a stale copy. The server
+ * (validateActivity_) remains the final judge of every dispatch. */
+const ACTIVITY_GROUP_ORDER=['Prep','Planting','CropCare','Harvest','State'];
 /* 'HARVESTCOMPLETE' (buildTodayView_ upper-cases it), 'HarvestComplete' (sheet) and 'PRE_PLANTING' all compare equal. */
 function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); }
 function activityGroups(){
   const cat=state.activityCatalog||[];
-  if(!cat.length) return ACTIVITY_CATALOG_FALLBACK.map(([g,names])=>[g,names.map(n=>({name:n,domain:g==='Post-harvest'?'Harvest':g,allowedStages:[],description:''}))]);
   const groups={};
   cat.forEach(a=>{
-    const st=(a.allowedStages||[]).map(stageKey);
-    /* PostHarvestCleanup -> FieldTurnover -> CropCleanup is a controlled bed-turnover sequence the system
-     * generates after harvest is verified complete (see postHarvestPanel / BedStatusEngine.gs). They are never
-     * offered as free-choice buttons: the worker/manager doesn't decide which comes next. */
-    const turnover=(a.postHarvestSequence>0) || (st.length>0 && st.every(x=>POST_HARVEST_STAGES.includes(x)));
-    if(turnover) return;
     const g=a.domain||'Other';
     (groups[g]=groups[g]||[]).push(a);
   });
@@ -752,11 +712,11 @@ function dispatchModal(){
   const groups=activityGroups();
   const known=new Set(); (state.activityCatalog||[]).forEach(a=>(a.allowedStages||[]).forEach(x=>known.add(stageKey(x))));
   groups.forEach(([,items])=>items.forEach(a=>(a.allowedStages||[]).forEach(x=>known.add(stageKey(x)))));
-  const ph=bed&&bed.postHarvest;
   const stageLabel=hasCohort&&bed&&bed.currentStage?String(bed.currentStage).replace(/_/g,' ').toLowerCase():'';
   return `<h2 style="font-size:15px;">New Activity</h2>
   ${hasCohort?(stageLabel?`<div class="note" style="margin-top:0;">Cohort stage: <b>${esc(stageLabel)}</b>. Activities outside this stage are greyed out — hover one to see when it becomes available.</div>`:''):`<div class="note" style="margin-top:0;">No cohort is assigned to this bed yet, so only Prep activities (field/bed work ahead of planting) can be dispatched. Everything else is disabled until a cohort is assigned to this bed.</div>`}
   <div class="field"><label>Activity</label>
+    ${groups.length?'':`<div class="note" style="margin:0;">The activity list could not be loaded from ACTIVITY_REFERENCE. Close this, tap Refresh and try again.</div>`}
     ${groups.map(([cat,items])=>`
       <div class="qsub" style="margin:8px 0 4px;font-weight:700;">${esc(cat)}${!hasCohort&&items.every(a=>a.domain!=='Prep')?' <span style="font-weight:400;color:var(--ink-soft);">— locked: needs a cohort on this bed</span>':''}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">${items.map(a=>{
@@ -764,12 +724,7 @@ function dispatchModal(){
         const tip=esc((a.description?a.description+(why?' — ':''):'')+why);
         return `<button type="button" class="btn ${d.activity===a.name?'btn-primary':'btn-outline'}" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" ${tip?`title="${tip}"`:''} ${why?'disabled':`onclick="setDispatchActivity('${esc(a.name)}')"`}>${esc(a.name)}</button>`;
       }).join('')}</div>`).join('')}
-    ${ph?`<div class="qsub" style="margin:12px 0 4px;font-weight:700;">Post-harvest workflow</div>
-      <div class="note" style="margin:0 0 6px;">These run in order. Only the next step can be assigned; the bed is released only after a manager verifies it.</div>
-      ${ph.steps.map((st,i)=>`<div class="row"><span>${i+1}. ${esc(stepLabel(st.name))}</span><span class="chip ${PH_CHIP[st.status][1]}">${PH_CHIP[st.status][0]}</span></div>`).join('')}
-      ${ph.nextStep?`<div style="margin-top:8px;"><button type="button" class="btn ${d.activity===ph.nextStep?'btn-primary':'btn-outline'}" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" ${ph.nextStepOpen?`onclick="setDispatchActivity('${esc(ph.nextStep)}')"`:'disabled title="Opens once harvest is verified complete."'}>Assign next step: ${esc(stepLabel(ph.nextStep))}</button></div>`
-        :`<div class="note" style="margin-top:8px;">All post-harvest steps are complete. A manager can now verify the bed ready.</div>`}`
-    :`<div class="note" style="margin:12px 0 0;">Post-harvest work (cleanup → field turnover → crop cleanup) is generated automatically once harvest is verified complete.</div>`}
+
   </div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
   <p style="font-size:12px;color:var(--ink-soft);">Starts immediately for the worker — appears in their My Active Sessions right away.</p>
@@ -1271,7 +1226,6 @@ function ppRightHTML(){
         <div class="row"><span>Worker</span><span>${sess.length?esc(sess.map(s=>s.workerName).join(', ')):'None'}</span></div>
       </div>
 
-      ${postHarvestPanel(v)}
       <h2 style="font-size:13px;margin:14px 0 6px;">History</h2>
       <div class="qgh" style="cursor:pointer;" onclick="togglePPHistory()"><span>${ui.ppHistoryOpen?'▾':'▸'} ${hist.length?(hist.length+' record'+(hist.length===1?'':'s')):'No history'}</span></div>
       ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history recorded for this bed.</div>`):''}
@@ -1684,6 +1638,13 @@ const demoAssign = {
   exceptions: [{ cohortId:'ONI-C01', cropId:'ONI', cropName:'Onions', waveNumber:1, plannedDob:'2026-10-10', endDate:'2027-02-01', recommendedBed:'', blockId:'', status:'EXCEPTION',
     exceptionType:'NO_BLOCK_RULE', reasons:['No approved block for Onions. Add Preferred_Block to this crop on CROP_REFERENCE (e.g. B2).'] }]
 };
+const demoCatalog = [
+  ['Prep',['Rebuild & Shape Beds','Firm the Seedbed','Deep-Pulverize Root Beds (Selective)','Reshape 30"/60" Footprint','Inject New Subsurface Drip','Lay Plastic Mulch (Selective)','Protect Perennials (Exception)']],
+  ['Planting',['Planting','DirectSeeding','Transplanting','Replanting','Thinning','Seeding','Seed the Forage Mix']],
+  ['CropCare',['Weeding','Fertilizing','IrrigationCheck','PestControl','DiseaseControl','Pruning','Trellising','Cultivation','Fertilization','Irrigation','Germination Irrigation']],
+  ['Harvest',['HarvestPrep','Harvest','Remove Irrigation & Plastic','Flail Mow Plant Debris','Incorporate Residue (Till)','Terminate Cover Crop (Mow)','Incorporate Biomass & Manure (Till)']],
+  ['State',['Scouting','PestScouting','DiseaseScouting','CropInspection','MaturityInspection']]
+].flatMap(([domain,names])=>names.map(name=>({ name, domain, description:'', allowedStages:[], requiresApproval:false })));  // demo only: same shape getActivityCatalog_() returns
 const demoSessionsByToken = {};
 let demoRejected = 0;
 async function mockBackend(action, p){
@@ -1702,7 +1663,7 @@ async function mockBackend(action, p){
   if(!me) return bad('Your session ended. Sign in again.','UNAUTHENTICATED');
   switch(action){
     case 'get-manager-today-view':
-      return ok({ beds:demoBeds, sessions:demoSessions, exceptions:demoExceptions, harvestReady:demoHarvestReady, queueByBed:demoQueue, workers:demoWorkers });
+      return ok({ activityCatalog:demoCatalog, beds:demoBeds, sessions:demoSessions, exceptions:demoExceptions, harvestReady:demoHarvestReady, queueByBed:demoQueue, workers:demoWorkers });
     case 'start-session': {
       demoSessions.push({ id:'S-'+Math.floor(Math.random()*9000+1000), bedId:p.bedId, workerId:p.workerId, workerName:(demoWorkers.find(w=>w.workerId===p.workerId)||{}).name||p.workerId, activity:p.activity||'Task', status:'ACTIVE' });
       return ok({done:true});
