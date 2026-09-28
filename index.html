@@ -419,6 +419,27 @@ async function doCompleteCohort(cohortId){
   try{ await apiCall('complete-cohort', { cohortId }); toast('Cohort marked complete.'); closePanel(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
+const PH_CHIP={COMPLETE:['✓ Complete','chip-ok'],OPEN:['In progress','chip-warn'],PENDING:['Pending','chip-neutral']};
+function stepLabel(n){ return String(n).replace(/([a-z])([A-Z])/g,'$1 $2').replace(/^Post Harvest/,'Post-harvest'); }
+/* Controlled bed turnover: Final harvest -> PostHarvestCleanup -> FieldTurnover -> CropCleanup -> manager verification.
+ * Worker completion never releases the bed (BED_STATUS_RULES R10); only Verify Bed Ready does (R11). */
+function postHarvestPanel(v){
+  const ph=v&&v.postHarvest; if(!ph||!v.cohortId) return '';
+  const ready=!!ph.readyToVerify;
+  return `<h2 style="font-size:13px;margin:14px 0 6px;">Bed ${esc(v.id)} — ${ready?'Turnover Ready':'Post-Harvest Turnover'}</h2>
+  <div class="card">
+    <div class="row"><span>Final harvest</span><span class="chip chip-ok">✓ Complete</span></div>
+    ${ph.steps.map(st=>`<div class="row"><span>${esc(stepLabel(st.name))}</span><span class="chip ${PH_CHIP[st.status][1]}">${PH_CHIP[st.status][0]}</span></div>`).join('')}
+    <div class="row"><span><b>Manager verification</b></span><span class="chip ${ready?'chip-warn':'chip-neutral'}">${ready?'Pending — ready':'Waiting on steps'}</span></div>
+  </div>
+  ${ph.nextStep&&ph.nextStepOpen?`<button class="btn btn-outline" onclick="openModal('dispatch',{bedId:'${esc(v.id)}',hasCohort:true,activity:'${esc(ph.nextStep)}'})">Assign next step: ${esc(stepLabel(ph.nextStep))}</button>`:''}
+  <button class="btn btn-primary" ${ready?'':'disabled title="Every post-harvest step must be completed first."'} onclick="verifyBedReady('${esc(v.cohortId)}')">Verify Bed Ready</button>
+  <div class="note">Completing the steps does not release the bed. Verifying closes this cohort, clears the bed's current cohort and makes it available for a future cohort. Planning is unaffected.</div>`;
+}
+async function verifyBedReady(cohortId){
+  try{ await apiCall('complete-cohort', { cohortId }); toast('Bed verified ready and released.'); closePanel(); await loadToday(); }
+  catch(e){ toast(e.code==='POST_HARVEST_INCOMPLETE'?'Post-harvest steps are not all complete yet.':e.message); }
+}
 async function doTerminateCohort(cohortId, reason){
   try{ await apiCall('terminate-cohort', { cohortId, reason }); toast('Cohort terminated.'); closeModal(); closePanel(); await loadToday(); }
   catch(e){ toast(e.message); }
@@ -631,13 +652,10 @@ function cohortActionButtons(b){
   if(cs==='PRE_PLANTING' || cs==='ACTIVE'){
     btns.push(`<button class="btn btn-outline" onclick="openMoveModal('${esc(b.cohortId)}')">Move to another bed</button>`);
   }
-  if(cs==='ACTIVE'){
-    btns.push(`<button class="btn btn-outline" onclick="doCompleteCohort('${esc(b.cohortId)}')">Mark cohort complete</button>`);
-  }
   if(cs==='PRE_PLANTING' || cs==='ACTIVE'){
     btns.push(`<button class="btn btn-danger" onclick="openModal('terminate',{cohortId:'${esc(b.cohortId)}'})">Terminate cohort</button>`);
   }
-  return btns.length? `<div style="margin:10px 0;">${btns.join('')}</div>` : '';
+  return postHarvestPanel(b) + (btns.length? `<div style="margin:10px 0;">${btns.join('')}</div>` : '');
 }
 function activityTab(b){
   const rows=(b.activityLog||[]);
@@ -689,7 +707,6 @@ const ACTIVITY_CATALOG_FALLBACK=[
   ['Planting',['Planting','DirectSeeding','Transplanting','Replanting','Thinning','Seeding']],
   ['CropCare',['Weeding','Fertilizing','IrrigationCheck','PestControl','DiseaseControl','Pruning','Trellising','Cultivation','Fertilization','Irrigation']],
   ['Harvest',['HarvestPrep','Harvest']],
-  ['Post-harvest',['PostHarvestCleanup','FieldTurnover','CropCleanup']],
   ['State',['Scouting','PestScouting','DiseaseScouting','CropInspection','MaturityInspection']]
 ];
 const ACTIVITY_GROUP_ORDER=['Prep','Planting','CropCare','Harvest','Post-harvest','State'];
@@ -702,8 +719,12 @@ function activityGroups(){
   const groups={};
   cat.forEach(a=>{
     const st=(a.allowedStages||[]).map(stageKey);
-    const post=st.length>0 && st.every(x=>POST_HARVEST_STAGES.includes(x));
-    const g=post?'Post-harvest':(a.domain||'Other');
+    /* PostHarvestCleanup -> FieldTurnover -> CropCleanup is a controlled bed-turnover sequence the system
+     * generates after harvest is verified complete (see postHarvestPanel / BedStatusEngine.gs). They are never
+     * offered as free-choice buttons: the worker/manager doesn't decide which comes next. */
+    const turnover=(a.postHarvestSequence>0) || (st.length>0 && st.every(x=>POST_HARVEST_STAGES.includes(x)));
+    if(turnover) return;
+    const g=a.domain||'Other';
     (groups[g]=groups[g]||[]).push(a);
   });
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
@@ -729,7 +750,9 @@ function dispatchModal(){
   const hasCohort=!!d.hasCohort;
   const bed=(state.todayById&&state.todayById[d.bedId])||null;
   const groups=activityGroups();
-  const known=new Set(); groups.forEach(([,items])=>items.forEach(a=>(a.allowedStages||[]).forEach(x=>known.add(stageKey(x)))));
+  const known=new Set(); (state.activityCatalog||[]).forEach(a=>(a.allowedStages||[]).forEach(x=>known.add(stageKey(x))));
+  groups.forEach(([,items])=>items.forEach(a=>(a.allowedStages||[]).forEach(x=>known.add(stageKey(x)))));
+  const ph=bed&&bed.postHarvest;
   const stageLabel=hasCohort&&bed&&bed.currentStage?String(bed.currentStage).replace(/_/g,' ').toLowerCase():'';
   return `<h2 style="font-size:15px;">New Activity</h2>
   ${hasCohort?(stageLabel?`<div class="note" style="margin-top:0;">Cohort stage: <b>${esc(stageLabel)}</b>. Activities outside this stage are greyed out — hover one to see when it becomes available.</div>`:''):`<div class="note" style="margin-top:0;">No cohort is assigned to this bed yet, so only Prep activities (field/bed work ahead of planting) can be dispatched. Everything else is disabled until a cohort is assigned to this bed.</div>`}
@@ -741,6 +764,12 @@ function dispatchModal(){
         const tip=esc((a.description?a.description+(why?' — ':''):'')+why);
         return `<button type="button" class="btn ${d.activity===a.name?'btn-primary':'btn-outline'}" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" ${tip?`title="${tip}"`:''} ${why?'disabled':`onclick="setDispatchActivity('${esc(a.name)}')"`}>${esc(a.name)}</button>`;
       }).join('')}</div>`).join('')}
+    ${ph?`<div class="qsub" style="margin:12px 0 4px;font-weight:700;">Post-harvest workflow</div>
+      <div class="note" style="margin:0 0 6px;">These run in order. Only the next step can be assigned; the bed is released only after a manager verifies it.</div>
+      ${ph.steps.map((st,i)=>`<div class="row"><span>${i+1}. ${esc(stepLabel(st.name))}</span><span class="chip ${PH_CHIP[st.status][1]}">${PH_CHIP[st.status][0]}</span></div>`).join('')}
+      ${ph.nextStep?`<div style="margin-top:8px;"><button type="button" class="btn ${d.activity===ph.nextStep?'btn-primary':'btn-outline'}" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" ${ph.nextStepOpen?`onclick="setDispatchActivity('${esc(ph.nextStep)}')"`:'disabled title="Opens once harvest is verified complete."'}>Assign next step: ${esc(stepLabel(ph.nextStep))}</button></div>`
+        :`<div class="note" style="margin-top:8px;">All post-harvest steps are complete. A manager can now verify the bed ready.</div>`}`
+    :`<div class="note" style="margin:12px 0 0;">Post-harvest work (cleanup → field turnover → crop cleanup) is generated automatically once harvest is verified complete.</div>`}
   </div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
   <p style="font-size:12px;color:var(--ink-soft);">Starts immediately for the worker — appears in their My Active Sessions right away.</p>
@@ -1080,15 +1109,17 @@ function productionTypeLabel(lt){ const k=String(lt||'').toUpperCase(); return P
  * carries an open exception). Deliberately does NOT read COHORT_ASSIGNMENT_QUEUE/state.aq here: that
  * queue is loaded for the Daily Board's own year (ui.year), a different selector than the Season
  * Planning year (ui.pYear) this profile is showing - mixing the two produced wrong-season proposals. */
-function bedAvailability(pb, cohortId, hasPlan, openExceptions){
+function bedAvailability(pb, cohortId, hasPlan, openExceptions, bedStatus){
   const ps=String(pbBedStatus(pb)||'').toUpperCase();
   if(ps && ps!=='ACTIVE') return 'BLOCKED';
   if(openExceptions && openExceptions.length) return 'BLOCKED';
-  if(cohortId) return 'OCCUPIED';
-  if(hasPlan) return 'RESERVED';
-  return 'AVAILABLE';
+  /* BED_MASTER.Bed_Status is the single source of truth (BED_STATUS_RULES). A confirmed plan is NOT a
+   * physical state: "Planning never changes physical bed status" (Key Principle 1), so hasPlan is ignored. */
+  const bs=String(bedStatus||'').trim().toUpperCase();
+  if(bs) return bs;
+  return cohortId?'OCCUPIED':'AVAILABLE';
 }
-function availabilityChip(a){ return {AVAILABLE:'chip-ok',RESERVED:'chip-warn',OCCUPIED:'chip-neutral',BLOCKED:'chip-danger'}[a]||'chip-neutral'; }
+function availabilityChip(a){ return {AVAILABLE:'chip-ok',RESERVED:'chip-warn','POST-HARVEST ACTIVITIES':'chip-warn',OCCUPIED:'chip-neutral',BLOCKED:'chip-danger'}[a]||'chip-neutral'; }
 
 /* get-planning-context is a backend (Apps Script) response whose exact key casing for BED_MASTER
  * fields isn't visible from this file. Read each attribute defensively across the reasonable variants
@@ -1182,7 +1213,7 @@ function ppRightHTML(){
     const sess=bedSessions(bedId);                                      // FIELD_LIVE_SESSION
     const hist=(v.activityLog||[]).slice(0,10);                         // historical activity
     const openExc=bedExceptions(bedId).filter(x=>x.status==='OPEN');
-    const avail=bedAvailability(pb, v.cohortId, !!bed, openExc);
+    const avail=bedAvailability(pb, v.cohortId, !!bed, openExc, v.bedStatus);
 
     if(!pb){
       // No BED_MASTER record at all for this bed ID. This is a genuine configuration problem, not an
@@ -1239,6 +1270,7 @@ function ppRightHTML(){
         <div class="row"><span>Worker</span><span>${sess.length?esc(sess.map(s=>s.workerName).join(', ')):'None'}</span></div>
       </div>
 
+      ${postHarvestPanel(v)}
       <h2 style="font-size:13px;margin:14px 0 6px;">History</h2>
       <div class="qgh" style="cursor:pointer;" onclick="togglePPHistory()"><span>${ui.ppHistoryOpen?'▾':'▸'} ${hist.length?(hist.length+' record'+(hist.length===1?'':'s')):'No history'}</span></div>
       ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history recorded for this bed.</div>`):''}
