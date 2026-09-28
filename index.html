@@ -579,7 +579,7 @@ function overviewTab(b,sess){
     ${b.plannedDob?`<div class="row"><span>DOB (planned)</span><span>${esc(b.plannedDob)}</span></div>`:''}
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>`:''}
-  ${b.cohortId?cohortActionButtons(b)+pendingBlock(b,true):emptyBedBlock(b)}
+  ${b.cohortId?cohortActionButtons(b)+turnoverBlock(b,sess)+pendingBlock(b,true):emptyBedBlock(b)}
   <h2 style="font-size:13px;">Live sessions</h2>
   ${sess.length? sess.map(s=>`<div class="card"><div class="row"><span>${esc(s.workerName)}</span><span class="chip ${s.status==='ACTIVE'?'chip-ok':'chip-warn'}">${esc(s.status)}</span></div>
     <div class="row"><span>Task</span><span>${esc(s.activity)}</span></div>
@@ -705,8 +705,42 @@ function activityGate(a, bed, hasCohort, knownStages){
 }
 function setDispatchActivity(name){ ui.modalDraft.activity=name; render(); }
 function setDispatchWorker(id){ ui.modalDraft.workerId=id; }
+/* Controlled bed turnover (Post-Harvest, ACTIVITY_REFERENCE.Post_Harvest_Sequence). NOT a picker: the manager sees ONLY the
+ * next required step; later steps stay locked until it completes. Time-based buffers are confirmed, not assigned. */
+function turnoverBlock(b,sess){
+  const p=b.postHarvest; if(!p) return '';
+  const head=`<h2 style="font-size:13px;">Post-harvest turnover</h2>`;
+  const chip=`<div class="row"><span>Bed status</span><span class="chip chip-warn">POST-HARVEST ACTIVITIES</span></div>`;
+  if(p.readyToVerify) return `${head}<div class="card">${chip}<div class="note" style="margin-top:8px;">${p.stepCount?`All ${p.stepCount} required steps are complete.`:'No post-harvest steps apply to this crop.'} Verify the bed is ready to release.</div></div>`;
+  if(!p.nextStep) return '';
+  const w=p.waiting;
+  if(w){
+    const when=w.eligibleDate?`${esc(w.eligibleDate)}${w.daysRemaining!=null?` · ${w.daysRemaining} day${w.daysRemaining===1?'':'s'} to go`:''}`:'';
+    const title=w.type==='WINDOW'?`Waiting for the ${esc(p.nextStep)} window`:`Waiting: ${esc(p.nextStep)}`;
+    return `${head}<div class="card">${chip}
+      <div class="row"><span>Step</span><span>${p.nextStepNumber} of ${p.stepCount}</span></div>
+      <div style="font-weight:700;margin:8px 0 2px;">${title}</div>
+      ${when?`<div class="row"><span>Unlocks</span><span>${when}</span></div>`:''}
+      ${w.targetDate?`<div class="row"><span>Target by</span><span>${esc(w.targetDate)}</span></div>`:''}
+      <div class="row"><span>Next activity</span><span>${esc(w.unlocksStep)}</span></div>
+      ${w.note?`<div class="note">${esc(w.note)}</div>`:''}
+      <div class="note">Automatic time gate — nothing to assign. The next activity unlocks on its own.</div></div>`;
+  }
+  const mine=(sess||[]).filter(s=>s.activity===p.nextStep)[0];
+  const action = !p.nextStepOpen ? `<div class="note">Not open yet — verify harvest complete first.</div>`
+    : mine ? `<div class="note">Assigned to ${esc(mine.workerName)} (${esc(mine.status)}).</div>`
+    : `<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:true,fixedActivity:'${esc(p.nextStep)}'})">Assign Worker</button>`;
+  return `${head}<div class="card">${chip}
+    <div class="row"><span>Step</span><span>${p.nextStepNumber} of ${p.stepCount}</span></div>
+    <div style="font-size:12px;color:var(--ink-soft);margin:8px 0 2px;">Next Required Activity</div>
+    <div style="font-weight:700;margin-bottom:4px;">${esc(p.nextStep)}</div>
+    ${p.nextStepDescription?`<div class="note" style="margin-top:0;">${esc(p.nextStepDescription)}</div>`:''}
+    ${action}
+    <div class="note">Later steps stay locked until this one is completed.</div></div>`;
+}
 function dispatchModal(){
   const d=ui.modalDraft;
+  if(d.fixedActivity) return fixedDispatchModal(d);
   const hasCohort=!!d.hasCohort;
   const bed=(state.todayById&&state.todayById[d.bedId])||null;
   const groups=activityGroups();
@@ -729,6 +763,14 @@ function dispatchModal(){
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
   <p style="font-size:12px;color:var(--ink-soft);">Starts immediately for the worker — appears in their My Active Sessions right away.</p>
   <button class="btn btn-primary" ${d.activity?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Create</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+function fixedDispatchModal(d){
+  return `<h2 style="font-size:15px;">Assign next required activity</h2>
+  <div class="note" style="margin-top:0;">Post-harvest turnover step. Later steps unlock as each one is completed.</div>
+  <div class="field"><label>Activity</label><div style="font-weight:700;">${esc(d.fixedActivity)}</div></div>
+  <div class="field"><label>Assign to worker</label><select id="md-worker">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
+  <button class="btn btn-primary" onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.fixedActivity)}', document.getElementById('md-worker').value)">Assign</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function reassignModal(){
@@ -1639,10 +1681,9 @@ const demoAssign = {
     exceptionType:'NO_BLOCK_RULE', reasons:['No approved block for Onions. Add Preferred_Block to this crop on CROP_REFERENCE (e.g. B2).'] }]
 };
 const demoCatalog = [
-  ['Prep',['Rebuild & Shape Beds','Firm the Seedbed','Deep-Pulverize Root Beds (Selective)','Reshape 30"/60" Footprint','Inject New Subsurface Drip','Lay Plastic Mulch (Selective)','Protect Perennials (Exception)']],
-  ['Planting',['Planting','DirectSeeding','Transplanting','Replanting','Thinning','Seeding','Seed the Forage Mix']],
-  ['CropCare',['Weeding','Fertilizing','IrrigationCheck','PestControl','DiseaseControl','Pruning','Trellising','Cultivation','Fertilization','Irrigation','Germination Irrigation']],
-  ['Harvest',['HarvestPrep','Harvest','Remove Irrigation & Plastic','Flail Mow Plant Debris','Incorporate Residue (Till)','Terminate Cover Crop (Mow)','Incorporate Biomass & Manure (Till)']],
+  ['Planting',['Planting','DirectSeeding','Transplanting','Replanting','Thinning','Seeding']],
+  ['CropCare',['Weeding','Fertilizing','IrrigationCheck','PestControl','DiseaseControl','Pruning','Trellising','Cultivation','Fertilization','Irrigation']],
+  ['Harvest',['HarvestPrep','Harvest']],
   ['State',['Scouting','PestScouting','DiseaseScouting','CropInspection','MaturityInspection']]
 ].flatMap(([domain,names])=>names.map(name=>({ name, domain, description:'', allowedStages:[], requiresApproval:false })));  // demo only: same shape getActivityCatalog_() returns
 const demoSessionsByToken = {};
