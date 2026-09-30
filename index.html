@@ -680,6 +680,7 @@ function modalHTML(){
   let inner='';
   if(ui.modal==='dispatch') inner=dispatchModal();
   else if(ui.modal==='reassign') inner=reassignModal();
+  else if(ui.modal==='override') inner=overrideModal();
   else if(ui.modal==='resolve') inner=resolveModal();
   else if(ui.modal==='queue') inner=queueModal();
   else if(ui.modal==='change-loc') inner=changeLocModal();
@@ -694,7 +695,7 @@ function modalHTML(){
  * (getActivityCatalog_(), ActivityEngine.gs). There is no hard-coded activity list in this file: if the
  * backend sends no catalog the picker says so instead of showing a stale copy. The server
  * (validateActivity_) remains the final judge of every dispatch. */
-const ACTIVITY_GROUP_ORDER=['Prep','Planting','CropCare','Harvest','Post-Harvest','State'];
+const ACTIVITY_GROUP_ORDER=['Prep','Planting','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
 /* 'HARVESTCOMPLETE' (buildTodayView_ upper-cases it), 'HarvestComplete' (sheet) and 'PRE_PLANTING' all compare equal. */
 function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); }
 function activityGroups(){
@@ -713,37 +714,77 @@ function setDispatchActivity(name){ ui.modalDraft.activity=name; render(); }
 function setDispatchWorker(id){ ui.modalDraft.workerId=id; }
 /* Controlled bed turnover (Post-Harvest, ACTIVITY_REFERENCE.Post_Harvest_Sequence). NOT a picker: the manager sees ONLY the
  * next required step; later steps stay locked until it completes. Time-based buffers are confirmed, not assigned. */
+const PH_STEPS={};   /* cohortId -> postHarvest view, set while rendering so the override modal can list the remaining steps */
+function phChecklist(p){
+  const g={}; (p.steps||[]).forEach(s=>{ const k=s.domain||'Other'; (g[k]=g[k]||[]).push(s); });
+  const chip=s=>s.status==='COMPLETE'?(s.overridden?'<span class="chip chip-neutral">Overridden</span>':'<span class="chip chip-ok">Done</span>'):(s.name===p.nextStep?'<span class="chip chip-warn">Next</span>':'<span class="chip chip-neutral">Locked</span>');
+  return Object.entries(g).map(([k,l])=>`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">${esc(k)}</div>${l.map(s=>`<div class="row"><span>${esc(s.name)}</span>${chip(s)}</div>`).join('')}`).join('');
+}
+function phOverrideNotes(p){ return (p.overrides||[]).map(o=>`<div class="note"><b>${esc(o.name)}</b> overridden by ${esc(o.by)}${o.date?' on '+esc(o.date):''}: ${esc(o.reason)}</div>`).join(''); }
 function turnoverBlock(b,sess){
   const p=b.postHarvest; if(!p) return '';
   if(p.bedLevel) return bedLevelTurnoverBlock(b,sess,p);
+  PH_STEPS[b.cohortId]=p;
   const head=`<h2 style="font-size:13px;">Post-harvest turnover</h2>`;
   const chip=`<div class="row"><span>Bed status</span><span class="chip chip-warn">POST-HARVEST ACTIVITIES</span></div>`;
-  if(p.readyToVerify) return `${head}<div class="card">${chip}<div class="note" style="margin-top:8px;">${p.stepCount?`All ${p.stepCount} required steps are complete.`:'No post-harvest steps apply to this crop.'} Verify the bed is ready to release.</div></div>`;
+  const list=phChecklist(p), ovr=phOverrideNotes(p);
+  const overrideBtn=`<button class="btn btn-outline" onclick="openModal('override',{cohortId:'${esc(b.cohortId)}',selected:[],reason:''})">Manager override…</button>`;
+  if(p.readyToVerify) return `${head}<div class="card">${chip}${list}${ovr}<div class="note" style="margin-top:8px;">${p.stepCount?`All ${p.stepCount} required steps are complete or overridden.`:'No post-harvest steps apply to this crop.'} The bed stays in post-harvest until you verify it.</div>
+    <button class="btn btn-primary" onclick="doVerifyTurnover('${esc(b.cohortId)}')">Verify bed ready</button></div>`;
   if(!p.nextStep) return '';
   const w=p.waiting;
   if(w){
     const when=w.eligibleDate?`${esc(w.eligibleDate)}${w.daysRemaining!=null?` · ${w.daysRemaining} day${w.daysRemaining===1?'':'s'} to go`:''}`:'';
     const title=w.type==='WINDOW'?`Waiting for the ${esc(p.nextStep)} window`:`Waiting: ${esc(p.nextStep)}`;
-    return `${head}<div class="card">${chip}
+    return `${head}<div class="card">${chip}${list}${ovr}
       <div class="row"><span>Step</span><span>${p.nextStepNumber} of ${p.stepCount}</span></div>
       <div style="font-weight:700;margin:8px 0 2px;">${title}</div>
       ${when?`<div class="row"><span>Unlocks</span><span>${when}</span></div>`:''}
       ${w.targetDate?`<div class="row"><span>Target by</span><span>${esc(w.targetDate)}</span></div>`:''}
       <div class="row"><span>Next activity</span><span>${esc(w.unlocksStep)}</span></div>
       ${w.note?`<div class="note">${esc(w.note)}</div>`:''}
-      <div class="note">Automatic time gate — nothing to assign. The next activity unlocks on its own.</div></div>`;
+      <div class="note">Automatic time gate — nothing to assign. The next activity unlocks on its own.</div>${overrideBtn}</div>`;
   }
   const mine=(sess||[]).filter(s=>s.activity===p.nextStep)[0];
-  const action = !p.nextStepOpen ? `<div class="note">Not open yet — verify harvest complete first.</div>`
+  const action = !p.nextStepOpen ? `<div class="note">Not open yet.</div>`
     : mine ? `<div class="note">Assigned to ${esc(mine.workerName)} (${esc(mine.status)}).</div>`
     : `<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:true,fixedActivity:'${esc(p.nextStep)}'})">Assign Worker</button>`;
-  return `${head}<div class="card">${chip}
+  return `${head}<div class="card">${chip}${list}${ovr}
     <div class="row"><span>Step</span><span>${p.nextStepNumber} of ${p.stepCount}</span></div>
     <div style="font-size:12px;color:var(--ink-soft);margin:8px 0 2px;">Next Required Activity</div>
     <div style="font-weight:700;margin-bottom:4px;">${esc(p.nextStep)}</div>
     ${p.nextStepDescription?`<div class="note" style="margin-top:0;">${esc(p.nextStepDescription)}</div>`:''}
     ${action}
-    <div class="note">Later steps stay locked until this one is completed.</div></div>`;
+    <div class="note">Later steps stay locked until this one is completed or you override it.</div>${overrideBtn}</div>`;
+}
+/* Manager override: skip steps that will not be done this season. An explanation is required and is logged server-side. */
+function togglePhOverride(name,on){ const s=ui.modalDraft.selected, i=s.indexOf(name); if(on&&i<0) s.push(name); if(!on&&i>=0) s.splice(i,1); }
+function togglePhCategory(cat,on){
+  const p=PH_STEPS[ui.modalDraft.cohortId]||{steps:[]};
+  p.steps.filter(s=>s.status!=='COMPLETE'&&(s.domain||'Other')===cat).forEach(s=>togglePhOverride(s.name,on)); render();
+}
+function overrideModal(){
+  const d=ui.modalDraft, p=PH_STEPS[d.cohortId]||{steps:[]}, g={};
+  p.steps.filter(s=>s.status!=='COMPLETE').forEach(s=>{ const k=s.domain||'Other'; (g[k]=g[k]||[]).push(s); });
+  const body=Object.entries(g).map(([k,l])=>`<label style="display:block;font-weight:700;margin:8px 0 2px;"><input type="checkbox" ${l.every(s=>d.selected.includes(s.name))?'checked':''} onchange="togglePhCategory('${esc(k)}',this.checked)"> ${esc(k)} (all)</label>
+    ${l.map(s=>`<label style="display:block;margin-left:18px;"><input type="checkbox" ${d.selected.includes(s.name)?'checked':''} onchange="togglePhOverride('${esc(s.name)}',this.checked)"> ${esc(s.name)}</label>`).join('')}`).join('');
+  return `<h2 style="font-size:15px;">Manager override</h2>
+  <div class="note" style="margin-top:0;">Selected steps count as done without being performed (e.g. no cover crop this year). Each override is logged with your name and explanation. The bed is still released only when you verify it.</div>
+  <div class="field"><label>Steps to override</label>${body||'<div class="note">No remaining steps.</div>'}</div>
+  <div class="field"><label>Explanation (required)</label><textarea style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;" oninput="ui.modalDraft.reason=this.value">${esc(d.reason||'')}</textarea></div>
+  <button class="btn btn-primary" onclick="doOverridePostHarvest()">Override selected steps</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+async function doOverridePostHarvest(){
+  const d=ui.modalDraft, reason=String(d.reason||'').trim();
+  if(!d.selected.length){ toast('Select at least one step to override.'); return; }
+  if(reason.length<5){ toast('An explanation is required for an override.'); return; }
+  try{ await apiCall('override-post-harvest',{ cohortId:d.cohortId, activities:d.selected, reason }); toast('Override recorded.'); closeModal(); await loadToday(); }
+  catch(e){ toast(e.message); }
+}
+async function doVerifyTurnover(cohortId){
+  try{ await apiCall('complete-cohort',{ cohortId }); toast('Bed verified and released to Available.'); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); }
+  catch(e){ toast(e.message); }
 }
 /* Bed-level turnover (BED_STATUS_RULES R14): a bed with NO cohort that was given Post-Harvest work. No crop, so no fixed
  * sequence - the manager assigns whichever Post-Harvest steps the bed needs (New Activity), workers complete them, and only
@@ -1848,6 +1889,10 @@ async function mockBackend(action, p){
       bed.cohortStatus='COMPLETE'; bed.cohortId=''; bed.cropName=''; bed.currentStage='';
       return ok({done:true});
     }
+    case 'override-post-harvest':
+      if(String(p.reason||'').trim().length<5) return bad('An explanation is required.','OVERRIDE_REASON_REQUIRED');
+      if(!(p.activities||[]).length) return bad('Select at least one step.','NO_STEPS_SELECTED');
+      return ok({ done:true });
     case 'terminate-cohort': {
       const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
       bed.cohortStatus='TERMINATED'; bed.cohortId=''; bed.cropName=''; bed.currentStage='';
