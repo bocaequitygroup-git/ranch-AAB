@@ -714,9 +714,13 @@ function startableActivities(bedId, hasCohortFallback){
     if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES'){
       /* Reset checklist (ACT_037–051): offer ONLY the next required step, one at a time. The server (validateActivity_) enforces the
        * same order. With no turnover view yet (first step of a bed that has not started its reset) that is the lowest-sequence step. */
-      const steps=cat.filter(a=>Number(a.postHarvestSequence)>0).sort((x,y)=>Number(x.postHarvestSequence)-Number(y.postHarvestSequence));
+      /* A reset step is any catalog row with a Post_Harvest_Sequence OR allowed at HarvestComplete (ACT_037–051), so the list
+       * still appears if the catalog arrives without the sequence number. */
+      const seq=a=>Number(a.postHarvestSequence)||999;
+      const steps=cat.filter(a=>Number(a.postHarvestSequence)>0 || (a.allowedStages||[]).some(x=>stageKey(x)==='harvestcomplete')).sort((x,y)=>seq(x)-seq(y));
       const nextName=b&&b.postHarvest&&b.postHarvest.nextStep;
-      const list=nextName?steps.filter(a=>a.name===nextName):steps.slice(0,1);
+      const ordered=steps.some(a=>Number(a.postHarvestSequence)>0);
+      const list=nextName?steps.filter(a=>a.name===nextName):(ordered?steps.slice(0,1):steps);
       return {list, why:'No reset step can be assigned right now (a waiting period may still be running, or every step is done and the bed is ready to verify).'};
     }
     return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available. There is nothing to start until a manager approves a cohort assignment for it.'
