@@ -204,12 +204,13 @@ async function loadToday(){
  * Accepted forms: B1-04 / BLK1-04 / BLOCK1-04 -> Block 1, Bed 04;  Z5-03 / ZONE5-03 -> Zone 5, Bed 03.
  * No stage math here: Current_Stage and Cohort_Status are displayed exactly as the backend sends them. */
 /* Bed-map filters count BEDS (physical locations). Crop-lifecycle counts belong on the production dashboard. */
-const FILTERS = [['ALL','All'],['OCCUPIED','Occupied'],['PROPOSED','Proposed'],['AVAILABLE','Available'],['POST_HARVEST','Post-harvest'],['EXCEPTION','Exceptions']];
+const FILTERS = [['ALL','All'],['OCCUPIED','Occupied'],['PROPOSED','Proposed'],['AVAILABLE','Available'],['UNVERIFIED','Not verified'],['POST_HARVEST','Post-harvest'],['EXCEPTION','Exceptions']];
 /* A bed is in exactly one of three states: OCCUPIED (a cohort has this Location_ID in COHORT_PRODUCTION),
  * PROPOSED (no cohort placed, but the assignment engine has reserved it as a recommendation in
  * COHORT_ASSIGNMENT_QUEUE, awaiting manager approval), or AVAILABLE (neither). PROPOSED is display only:
  * nothing is written to COHORT_PRODUCTION until the manager approves. */
 const PROPOSED_FILL = '#FBEBD6';
+const UNVERIFIED_FILL = '#E4E0EE';   /* BED_MASTER.Bed_Status never initialised - physical readiness not yet verified by a manager */
 const POST_HARVEST_FILL = '#F1DFA8';   /* cohort-less bed in bed-level post-harvest turnover (BED_STATUS_RULES R14) */
 const DARK_FILLS = ['#2E7D32','#7C8B98','#B3261E','#C77700','#5B8FC9'];
 function parseLocationId(id){
@@ -254,7 +255,8 @@ function proposalIndex(){
   Object.keys(m).forEach(k=>m[k].sort((a,b)=>String(a.plannedDob).localeCompare(String(b.plannedDob))||String(a.cohortId).localeCompare(String(b.cohortId))));
   proposalIndex._src=src; proposalIndex._map=m; return m;
 }
-function bedState(v){ return v.cohortId ? 'OCCUPIED' : (v.postHarvest&&v.postHarvest.bedLevel ? 'POST_HARVEST' : (v.proposals&&v.proposals.length ? 'PROPOSED' : 'AVAILABLE')); }
+/* UNVERIFIED = BED_MASTER.Bed_Status never initialised. It says nothing about the bed's history; it means no manager has attested the bed is physically ready. */
+function bedState(v){ return v.cohortId ? 'OCCUPIED' : (v.postHarvest&&v.postHarvest.bedLevel ? 'POST_HARVEST' : (String(v.bedStatus||'').toUpperCase()==='UNVERIFIED' ? 'UNVERIFIED' : (v.proposals&&v.proposals.length ? 'PROPOSED' : 'AVAILABLE'))); }
 function bedView(b){
   const v = Object.assign({}, state.todayById[b.id]||{}, { id:b.id, blockId:b.blockId, locationType:b.locationType||(state.todayById[b.id]||{}).locationType||'' });
   v.proposals = proposalIndex()[bedKey(b.id)] || [];
@@ -275,11 +277,12 @@ function bedMatches(v){
   if(ui.filter==='OCCUPIED') return bedState(v)==='OCCUPIED';
   if(ui.filter==='PROPOSED') return bedState(v)==='PROPOSED';
   if(ui.filter==='AVAILABLE') return bedState(v)==='AVAILABLE';
+  if(ui.filter==='UNVERIFIED') return bedState(v)==='UNVERIFIED';
   if(ui.filter==='POST_HARVEST') return bedState(v)==='POST_HARVEST';
   return true;
 }
 function filterCounts(views){
-  const n={ ALL:views.length, OCCUPIED:0, PROPOSED:0, AVAILABLE:0, POST_HARVEST:0, EXCEPTION:0 };
+  const n={ ALL:views.length, OCCUPIED:0, PROPOSED:0, AVAILABLE:0, UNVERIFIED:0, POST_HARVEST:0, EXCEPTION:0 };
   views.forEach(v=>{
     n[bedState(v)]++;
     if(bedExceptions(v.id).some(x=>x.status!=='RESOLVED')) n.EXCEPTION++;
@@ -423,7 +426,7 @@ async function doCompleteCohort(cohortId){
   catch(e){ toast(e.message); }
 }
 async function doVerifyBedReady(bedId){
-  try{ await apiCall('verify-bed-ready', { bedId }); toast('Bed verified and released to Available.'); closePanel(); await loadToday(); }
+  try{ await apiCall('verify-bed-ready', { bedId }); toast('Bed verified and released to Available.'); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); }
   catch(e){ toast(e.message); }
 }
 async function doTerminateCohort(cohortId, reason){
@@ -497,7 +500,7 @@ function pendingAssignments(){ const c=state.aq.counts||{}; return (c.proposed||
 function assignmentsButton(){ const n=pendingAssignments(); return `<button class="btn btn-primary btn-cta" style="width:auto;margin:0;" onclick="openQueue()">Assignments${n?` (${n})`:''}</button>`; }
 function legendHTML(){
   if(ui.overlay==='queue') return `<span><span class="sw sw-proposed"></span>PROPOSED (awaiting approval)</span>` + Object.entries(QUEUE_COLOR).filter(([k])=>k!=='NONE').map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace('_',' ')}</span>`).join('');
-  return `<span><span class="sw sw-avail"></span>AVAILABLE</span><span><span class="sw sw-proposed"></span>PROPOSED (awaiting approval)</span>` + Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
+  return `<span><span class="sw sw-avail"></span>AVAILABLE</span><span><span class="sw" style="background:#E4E0EE;border:1px solid var(--line);"></span>NOT VERIFIED</span><span><span class="sw sw-proposed"></span>PROPOSED (awaiting approval)</span>` + Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
 }
 
 /* Assignment status (where cohorts are in the approval workflow) is a different dimension from the
@@ -535,7 +538,7 @@ function mapSVG(){
       const v=bedView(b), match=bedMatches(v), st=bedState(v), has=st==='OCCUPIED', prop=st==='PROPOSED', ph=st==='POST_HARVEST', pr=prop?v.proposals[0]:null;
       const col=idx%cols, row=Math.floor(idx/cols), bx=10+col*(cw+gap), by=curY+row*(ch+gap);
       const exc=bedExceptions(v.id).some(x=>x.status!=='RESOLVED'), hr=state.harvestReady.some(h=>h.bedId===v.id), sess=bedSessions(v.id).length;
-      const qf=bedFill(v), fill=has?qf:(ph?POST_HARVEST_FILL:ui.overlay==='queue'?(qf!=='transparent'?qf:(prop?PROPOSED_FILL:qf)):(prop?PROPOSED_FILL:'#EEE')), tc=DARK_FILLS.includes(fill)?'#fff':'#1B1B18';
+      const qf=bedFill(v), fill=has?qf:(ph?POST_HARVEST_FILL:st==='UNVERIFIED'?UNVERIFIED_FILL:ui.overlay==='queue'?(qf!=='transparent'?qf:(prop?PROPOSED_FILL:qf)):(prop?PROPOSED_FILL:'#EEE')), tc=DARK_FILLS.includes(fill)?'#fff':'#1B1B18';
       const bedNo=esc(String(v.id).split('-')[1]||v.id);
       svg += `<g class="badge" opacity="${match?1:0.28}">
         <rect class="bed ${prop?'proposed':''} ${ui.selectedBed===v.id?'selected':''}" data-bed="${esc(v.id)}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${fill}"></rect>
@@ -1150,9 +1153,21 @@ function bedAvailability(pb, cohortId, hasPlan, openExceptions, bedStatus){
    * physical state: "Planning never changes physical bed status" (Key Principle 1), so hasPlan is ignored. */
   const bs=String(bedStatus||'').trim().toUpperCase();
   if(bs) return bs;
-  return cohortId?'OCCUPIED':'AVAILABLE';
+  return cohortId?'OCCUPIED':'UNVERIFIED';   /* blank Bed_Status = never verified, not available */
 }
-function availabilityChip(a){ return {AVAILABLE:'chip-ok',RESERVED:'chip-warn','POST-HARVEST ACTIVITIES':'chip-warn',OCCUPIED:'chip-neutral',BLOCKED:'chip-danger'}[a]||'chip-neutral'; }
+/* Planning display gate. A confirmed plan row is only STAGED until BOTH gates are passed: (1) the bed is physically released
+ * (manager Verify Bed Ready -> AVAILABLE) and (2) the manager approves the cohort-to-bed assignment (-> RESERVED). Display
+ * only: it reads the same calculated availability the profile already shows and never writes or infers bed status. */
+function planStage(avail, cohortId){
+  const a=String(avail||'').toUpperCase();
+  if(cohortId || a==='RESERVED' || a==='PLANTED' || a==='GROWING' || a==='HARVEST READY' || a==='HARVESTING' || a==='OCCUPIED') return { staged:false, waiting:'' };
+  if(a==='UNVERIFIED') return { staged:true, waiting:'Awaiting bed verification', banner:'This bed has not been verified physically ready. The manager must verify it before this plan can move forward.' };
+  if(a==='POST-HARVEST ACTIVITIES') return { staged:true, waiting:'Awaiting post-harvest completion and bed verification', banner:'Post-harvest work must be completed and the bed verified by a manager before this plan can move forward.' };
+  if(a==='BLOCKED') return { staged:true, waiting:'Bed is blocked', banner:'This bed is blocked. The block must be cleared and the bed verified before this plan can move forward.' };
+  return { staged:true, waiting:'Awaiting manager approval of the cohort assignment', banner:'The bed is available. This plan starts only after the manager approves the cohort assignment (see the assignment queue).' };
+}
+function availabilityLabel(a){ return a==='UNVERIFIED'?'NOT VERIFIED':a; }
+function availabilityChip(a){ return {UNVERIFIED:'chip-warn',AVAILABLE:'chip-ok',RESERVED:'chip-warn','POST-HARVEST ACTIVITIES':'chip-warn',OCCUPIED:'chip-neutral',BLOCKED:'chip-danger'}[a]||'chip-neutral'; }
 
 /* get-planning-context is a backend (Apps Script) response whose exact key casing for BED_MASTER
  * fields isn't visible from this file. Read each attribute defensively across the reasonable variants
@@ -1247,6 +1262,7 @@ function ppRightHTML(){
     const hist=(v.activityLog||[]).slice(0,10);                         // historical activity
     const openExc=bedExceptions(bedId).filter(x=>x.status==='OPEN');
     const avail=bedAvailability(pb, v.cohortId, !!bed, openExc, v.bedStatus);
+    const stg=planStage(avail, v.cohortId);
 
     if(!pb){
       // No BED_MASTER record at all for this bed ID. This is a genuine configuration problem, not an
@@ -1265,7 +1281,7 @@ function ppRightHTML(){
 
       <h2 style="font-size:13px;margin:0 0 6px;">Bed Profile</h2>
       <div class="card">
-        ${profRowOr('Physical Status', pbBedStatus(pb), 'CONFIGURATION REQUIRED')}
+        ${profRowOr('Physical Status', availabilityLabel(String(pbBedStatus(pb)||v.bedStatus||'').toUpperCase()), 'NOT VERIFIED')}
         ${profRow('Production Type', productionTypeLabel(pbLocationType(pb)))}
         ${profRow('Location Type', locationTypeLabel(pbLocationType(pb)))}
         ${profRow('Irrigation Zone', pbZone(pb))}
@@ -1276,15 +1292,22 @@ function ppRightHTML(){
 
       <h2 style="font-size:13px;margin:14px 0 6px;">Availability</h2>
       <div class="card">
-        <div class="row"><span>Status</span><span><span class="chip ${availabilityChip(avail)}">${avail}</span></span></div>
+        <div class="row"><span>Status</span><span><span class="chip ${availabilityChip(avail)}">${availabilityLabel(avail)}</span></span></div>
+        ${avail==='UNVERIFIED'?`<div class="note">No one has verified this bed is physically ready (empty, cleared, sanity-checked). It cannot be assigned until you verify it. If it needs cleanup instead, assign a post-harvest step.</div>
+        <button class="btn btn-primary" onclick="doVerifyBedReady('${esc(bedId)}')">Verify bed ready</button>`:''}
       </div>
+      ${v.postHarvest?turnoverBlock(v,sess):''}
 
-      <h2 style="font-size:13px;margin:14px 0 6px;">Planning</h2>
+      <h2 style="font-size:13px;margin:14px 0 6px;">Planning${bed&&stg.staged?' <span title="Locked until the bed is released and the assignment is approved" style="font-weight:400;">🔒</span>':''}</h2>
       <div class="card">${bed ? `
+        ${stg.staged?`<div class="note" style="margin:0 0 6px;">${esc(stg.banner)}</div>`:''}
+        <div style="${stg.staged?'color:var(--ink-soft);opacity:.7;':''}">
         <div class="row"><span>Crop</span><span>${esc(bed.cropName||v.cropName||'Not set')}</span></div>
         <div class="row"><span>Wave</span><span>${esc(bed.wave!=null&&bed.wave!==''?bed.wave:'Not set')}</span></div>
         <div class="row"><span>Planting Date</span><span>${esc(bed.plantingDate||'Not set')}</span></div>
-        <div class="row"><span>Layout Status</span><span><span class="chip ${ppStatusChip(bed.status)}">${esc(bed.status||'Not set')}</span></span></div>
+        </div>
+        <div class="row"><span>Plan Status</span><span><span class="chip ${stg.staged&&String(bed.status||'').toUpperCase()==='CONFIRMED'?'chip-neutral':ppStatusChip(bed.status)}">${esc(stg.staged&&String(bed.status||'').toUpperCase()==='CONFIRMED'?'STAGED':(bed.status||'Not set'))}</span></span></div>
+        ${stg.staged&&String(bed.status||'').toUpperCase()==='CONFIRMED'?`<div class="row"><span>Release</span><span>${esc(stg.waiting)}</span></div>`:''}
       ` : `
         <div class="row"><span>Current Plan</span><span>No current plan</span></div>
       `}</div>
