@@ -707,7 +707,15 @@ function bedStageKey(b){ return stageKey(b.currentStage) || (stageKey(b.cohortSt
 function startableActivities(bedId, hasCohortFallback){
   const b=(state.beds||[]).find(x=>x.id===bedId), cat=state.activityCatalog||[];
   const hasCohort=b?!!b.cohortId:!!hasCohortFallback;
-  if(!hasCohort) return {list:cat.filter(a=>Number(a.postHarvestSequence)>0), why:'No cohort is assigned to this bed. Only bed cleanup steps can be assigned; planting opens after a manager approves an assignment.'};
+  if(!hasCohort){
+    /* Cleanup steps are valid only while the bed is NOT verified (or already in post-harvest). A verified AVAILABLE bed is, by
+     * definition, physically ready: nothing to start until a manager approves an assignment for it. */
+    const st=b?(String(b.bedStatus||'').toUpperCase()||'UNVERIFIED'):'UNVERIFIED';
+    if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Work is assigned one step at a time from the reset checklist (ACT_037–051).'};
+    return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available. There is nothing to start until a manager approves a cohort assignment for it.'
+                        : st==='BLOCKED' ? 'This bed is blocked. Clear the block and verify it first.'
+                        : 'No cohort is assigned to this bed.'};
+  }
   const stage=bedStageKey(b||{});
   if(stage==='preplanting'&&b.plannedDob&&String(b.plannedDob)>new Date().toISOString().slice(0,10))
     return {list:[], why:`Planting opens on ${b.plannedDob}.`};
@@ -745,14 +753,14 @@ function phChecklist(p){
 function phOverrideNotes(p){ return (p.overrides||[]).map(o=>`<div class="note"><b>${esc(o.name)}</b> overridden by ${esc(o.by)}${o.date?' on '+esc(o.date):''}: ${esc(o.reason)}</div>`).join(''); }
 function turnoverBlock(b,sess){
   const p=b.postHarvest; if(!p) return '';
-  if(p.bedLevel) return bedLevelTurnoverBlock(b,sess,p);
-  PH_STEPS[b.cohortId]=p;
+  const scope=p.bedLevel?'BED:'+b.id:b.cohortId;
+  PH_STEPS[scope]=p;
   const head=`<h2 style="font-size:13px;">Post-harvest turnover</h2>`;
   const chip=`<div class="row"><span>Bed status</span><span class="chip chip-warn">POST-HARVEST ACTIVITIES</span></div>`;
   const list=phChecklist(p), ovr=phOverrideNotes(p);
-  const overrideBtn=`<button class="btn btn-outline" onclick="openModal('override',{cohortId:'${esc(b.cohortId)}',selected:[],reason:''})">Manager override…</button>`;
+  const overrideBtn=`<button class="btn btn-outline" onclick="openModal('override',{cohortId:'${esc(scope)}',selected:[],reason:''})">Manager override…</button>`;
   if(p.readyToVerify) return `${head}<div class="card">${chip}${list}${ovr}<div class="note" style="margin-top:8px;">${p.stepCount?`All ${p.stepCount} required steps are complete or overridden.`:'No post-harvest steps apply to this crop.'} The bed stays in post-harvest until you verify it.</div>
-    <button class="btn btn-primary" onclick="doVerifyTurnover('${esc(b.cohortId)}')">Verify bed ready</button></div>`;
+    <button class="btn btn-primary" onclick="doVerifyTurnover('${esc(scope)}','${esc(b.id)}')">Verify bed ready</button></div>`;
   if(!p.nextStep) return '';
   const w=p.waiting;
   if(w){
@@ -770,7 +778,7 @@ function turnoverBlock(b,sess){
   const mine=(sess||[]).filter(s=>s.activity===p.nextStep)[0];
   const action = !p.nextStepOpen ? `<div class="note">Not open yet.</div>`
     : mine ? `<div class="note">Assigned to ${esc(mine.workerName)} (${esc(mine.status)}).</div>`
-    : `<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:true,fixedActivity:'${esc(p.nextStep)}'})">Assign Worker</button>`;
+    : `<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:${p.bedLevel?'false':'true'},fixedActivity:'${esc(p.nextStep)}'})">Assign Worker</button>`;
   return `${head}<div class="card">${chip}${list}${ovr}
     <div class="row"><span>Step</span><span>${p.nextStepNumber} of ${p.stepCount}</span></div>
     <div style="font-size:12px;color:var(--ink-soft);margin:8px 0 2px;">Next Required Activity</div>
@@ -804,8 +812,8 @@ async function doOverridePostHarvest(){
   try{ await apiCall('override-post-harvest',{ cohortId:d.cohortId, activities:d.selected, reason }); toast('Override recorded.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
-async function doVerifyTurnover(cohortId){
-  try{ await apiCall('complete-cohort',{ cohortId }); toast('Bed verified and released to Available.'); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); }
+async function doVerifyTurnover(scope,bedId){
+  try{ if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',{ bedId }); else await apiCall('complete-cohort',{ cohortId:scope }); toast('Bed verified and released to Available.'); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); }
   catch(e){ toast(e.message); }
 }
 /* Bed-level turnover (BED_STATUS_RULES R14): a bed with NO cohort that was given Post-Harvest work. No crop, so no fixed
@@ -1372,8 +1380,8 @@ function ppRightHTML(){
       <h2 style="font-size:13px;margin:14px 0 6px;">Availability</h2>
       <div class="card">
         <div class="row"><span>Status</span><span><span class="chip ${availabilityChip(avail)}">${availabilityLabel(avail)}</span></span></div>
-        ${avail==='UNVERIFIED'?`<div class="note">No one has verified this bed is physically ready (empty, cleared, sanity-checked). It cannot be assigned until you verify it. If it needs cleanup instead, assign a post-harvest step.</div>
-        <button class="btn btn-primary" onclick="doVerifyBedReady('${esc(bedId)}')">Verify bed ready</button>`:''}
+        ${avail==='UNVERIFIED'?`<div class="note">No one has verified this bed is physically ready (empty, cleared, sanity-checked). It cannot be assigned until you verify it. It becomes Available only after its reset sequence (ACT_037–051) is completed or overridden and you verify it.</div>
+        `:''}
       </div>
       ${v.postHarvest?turnoverBlock(v,sess):''}
 
