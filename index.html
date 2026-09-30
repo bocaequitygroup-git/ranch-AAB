@@ -711,7 +711,14 @@ function startableActivities(bedId, hasCohortFallback){
     /* Cleanup steps are valid only while the bed is NOT verified (or already in post-harvest). A verified AVAILABLE bed is, by
      * definition, physically ready: nothing to start until a manager approves an assignment for it. */
     const st=b?(String(b.bedStatus||'').toUpperCase()||'UNVERIFIED'):'UNVERIFIED';
-    if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Work is assigned one step at a time from the reset checklist (ACT_037–051).'};
+    if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES'){
+      /* Reset checklist (ACT_037–051): offer ONLY the next required step, one at a time. The server (validateActivity_) enforces the
+       * same order. With no turnover view yet (first step of a bed that has not started its reset) that is the lowest-sequence step. */
+      const steps=cat.filter(a=>Number(a.postHarvestSequence)>0).sort((x,y)=>Number(x.postHarvestSequence)-Number(y.postHarvestSequence));
+      const nextName=b&&b.postHarvest&&b.postHarvest.nextStep;
+      const list=nextName?steps.filter(a=>a.name===nextName):steps.slice(0,1);
+      return {list, why:'No reset step can be assigned right now (a waiting period may still be running, or every step is done and the bed is ready to verify).'};
+    }
     return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available. There is nothing to start until a manager approves a cohort assignment for it.'
                         : st==='BLOCKED' ? 'This bed is blocked. Clear the block and verify it first.'
                         : 'No cohort is assigned to this bed.'};
