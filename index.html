@@ -597,7 +597,7 @@ function overviewTab(b,sess){
     <div class="row"><span>Task</span><span>${esc(s.activity)}</span></div>
     <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>
     <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`).join('')
-    : `<div class="empty">No active session.</div><button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:${b.cohortId?'true':'false'}})">Start session on behalf of worker</button>`}`;
+    : `<div class="empty">No active session.</div>${startButton(b,'Start session on behalf of worker')}`}`;
 }
 /**
  * Manager write-back actions, gated on Cohort_Status - these call
@@ -698,8 +698,30 @@ function modalHTML(){
 const ACTIVITY_GROUP_ORDER=['Prep','Planting','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
 /* 'HARVESTCOMPLETE' (buildTodayView_ upper-cases it), 'HarvestComplete' (sheet) and 'PRE_PLANTING' all compare equal. */
 function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); }
+/* WHAT A BED MAY START — decided by the bed's own state, never the whole catalogue (server validateActivity_ stays the judge).
+ *   no cohort        -> only bed-level cleanup steps (post-harvest); otherwise nothing to start
+ *   cohort PRE_PLANT -> only activities allowed at PrePlanting, and only once the planned planting date has arrived
+ *   cohort growing.. -> only activities allowed at the cohort's current stage
+ * Post-harvest steps never appear for a bed holding a cohort: they open in order after termination (turnover card). */
+function bedStageKey(b){ return stageKey(b.currentStage) || (stageKey(b.cohortStatus)==='preplanting'?'preplanting':''); }
+function startableActivities(bedId, hasCohortFallback){
+  const b=(state.beds||[]).find(x=>x.id===bedId), cat=state.activityCatalog||[];
+  const hasCohort=b?!!b.cohortId:!!hasCohortFallback;
+  if(!hasCohort) return {list:cat.filter(a=>Number(a.postHarvestSequence)>0), why:'No cohort is assigned to this bed. Only bed cleanup steps can be assigned; planting opens after a manager approves an assignment.'};
+  const stage=bedStageKey(b||{});
+  if(stage==='preplanting'&&b.plannedDob&&String(b.plannedDob)>new Date().toISOString().slice(0,10))
+    return {list:[], why:`Planting opens on ${b.plannedDob}.`};
+  const list=cat.filter(a=>!(Number(a.postHarvestSequence)>0) && (!(a.allowedStages||[]).length || (a.allowedStages||[]).some(x=>stageKey(x)===stage)));
+  return {list, why: list.length?'':`No activity is allowed at this cohort's stage (${stage||'not set'}).`};
+}
+function startButton(b,label){
+  const r=startableActivities(b.id,!!b.cohortId);
+  return r.list.length
+    ? `<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:${b.cohortId?'true':'false'}})">${label}</button>`
+    : `<div class="note">${esc(r.why)}</div>`;
+}
 function activityGroups(){
-  const cat=state.activityCatalog||[];
+  const cat=startableActivities(ui.modalDraft.bedId, ui.modalDraft.hasCohort).list;
   const groups={};
   cat.forEach(a=>{
     const g=a.domain||'Other';
@@ -821,6 +843,7 @@ function dispatchModal(){
   </div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
   <p style="font-size:12px;color:var(--ink-soft);">Starts immediately for the worker — appears in their My Active Sessions right away.</p>
+  <p style="font-size:12px;color:var(--ink-soft);">Only activities this bed's current state allows are listed.${d.hasCohort?' Post-harvest steps open in order after the cohort is terminated.':''}</p>
   <button class="btn btn-primary" ${d.activity?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Create</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
@@ -882,16 +905,31 @@ function checkGrid(p){
 }
 function reasonList(p){ return `<ul class="checks">${(p.reasons||[]).map(r=>`<li class="${String(r).startsWith('⚠')?'w':'ok'}">${esc(r)}</li>`).join('')}</ul>`; }
 function cohortHead(p){ return `<div class="qtop"><div><b>${esc(p.cropName)}</b><div class="qsub">Wave ${esc(p.waveNumber)} · ${esc(p.cohortId)}</div></div><div class="qdates">DOB ${esc(p.plannedDob)}<br>ends ${esc(p.endDate||'—')}</div></div>`; }
+/* Physical-bed gate on a recommendation (BED_STATUS_RULES R15 / Key Principle 4). The server's "Bed availability" check only looks
+ * for other cohorts on the calendar; it says nothing about whether the bed is physically usable. So the card checks Bed_Status:
+ *   AVAILABLE              -> approvable
+ *   POST-HARVEST ACTIVITIES-> approvable (will be Available once steps are done and the manager verifies; planting waits for that)
+ *   UNVERIFIED / BLOCKED / occupied -> NOT approvable until the manager verifies the bed / clears the block. */
+function recBedGate(p){
+  const b=(state.beds||[]).find(x=>x.id===p.recommendedBed); if(!b) return {ok:true,st:'',msg:''};
+  const st=String(b.bedStatus||'').toUpperCase()||'UNVERIFIED';
+  if(st==='AVAILABLE') return {ok:true,st,msg:'Bed is verified Available.'};
+  if(st==='POST-HARVEST ACTIVITIES') return {ok:true,st,msg:'Bed is in post-harvest. It must be verified Available before planting.'};
+  if(st==='UNVERIFIED') return {ok:false,st,msg:'Bed has not been verified physically ready. Verify it (or change the bed) before approving.'};
+  if(st==='BLOCKED') return {ok:false,st,msg:'Bed is blocked. Clear the block and verify it first.'};
+  return {ok:false,st,msg:'Bed is '+st.toLowerCase()+' and not free for a new cohort.'};
+}
 function proposedList(){
   const list=state.aq.proposed||[];
   if(!list.length) return `<div class="empty">${(state.aq.counts&&state.aq.counts.unassigned)?'Nothing is waiting for approval yet. Click “Generate assignments” and the system will propose a bed for each unassigned cohort.':'Every cohort has a bed.'}</div>`;
   const groups={}; list.forEach(p=>{ const g=p.blockId||'Unplaced'; (groups[g]=groups[g]||[]).push(p); });
   return Object.keys(groups).sort().map(g=>{ const items=groups[g];
-    return `<div class="qgh"><span><b>${esc(g)}</b> · ${items.length}</span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="doApproveBatch(${esc(JSON.stringify(items.map(p=>p.cohortId)))})">Approve all ${items.length}</button></div>`
+    return `<div class="qgh"><span><b>${esc(g)}</b> · ${items.length}</span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" ${(()=>{const okIds=items.filter(p=>recBedGate(p).ok).map(p=>p.cohortId); return okIds.length?`onclick="doApproveBatch(${esc(JSON.stringify(okIds))})">Approve ${okIds.length===items.length?'all ':'verified '}${okIds.length}`:`disabled title="No bed in this block is verified yet.">Approve 0 (beds not verified)`;})()}</button></div>`
       + items.map(p=>`<div id="qc-${esc(p.cohortId)}" class="card ${(p.reasons||[]).some(r=>String(r).startsWith('⚠'))?'qwarn':''} ${ui.focusCohort===p.cohortId?'qfocus':''}">${cohortHead(p)}
         <div class="qrec"><span>Recommended location</span><b>${esc(p.recommendedBed)}</b><span class="chip chip-neutral">${esc(p.blockId)}</span></div>
         ${checkGrid(p)}
-        <div class="qbtns"><button class="btn btn-primary" onclick="approveAssignment('${esc(p.cohortId)}')">Approve Assignment</button><button class="btn btn-outline" onclick="openChangeAssignmentBed('${esc(p.cohortId)}')">Change</button><button class="btn btn-reject" onclick="openRejectModal('${esc(p.cohortId)}')">Reject</button></div></div>`).join('');
+        ${(()=>{const g=recBedGate(p); return g.msg?`<div class="note ${g.ok?'':'w'}" style="margin:6px 0;"><b>Physical bed:</b> ${esc(g.st||'—')} · ${esc(g.msg)}</div>`:'';})()}
+        <div class="qbtns"><button class="btn btn-primary" ${recBedGate(p).ok?'':'disabled'} onclick="approveAssignment('${esc(p.cohortId)}')">${recBedGate(p).ok?'Approve Assignment':'Bed not verified'}</button><button class="btn btn-outline" onclick="openChangeAssignmentBed('${esc(p.cohortId)}')">Change</button><button class="btn btn-reject" onclick="openRejectModal('${esc(p.cohortId)}')">Reject</button></div></div>`).join('');
   }).join('');
 }
 function exceptionList(){
@@ -1372,7 +1410,7 @@ function ppRightHTML(){
       ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history recorded for this bed.</div>`):''}
 
       <h2 style="font-size:13px;margin:14px 0 6px;">Actions</h2>
-      <button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(bedId)}',hasCohort:${v.cohortId?'true':'false'}})">New Activity</button>
+      ${startButton({id:bedId,cohortId:v.cohortId},'New Activity')}
       <button class="btn btn-outline" ${sess.length?'':'disabled title="No worker currently on this bed."'} onclick="openModal('reassign',{sessionId:'${sess.length?esc(sess[0].id):''}',mode:'reassign'})">Reassign worker</button>
       <button class="btn btn-outline" ${(ui.ppBusy||!bed)?'disabled':''} ${bed?'':'title="This bed has no BED_PLANTING_PLAN row yet — generate the plan first."'} onclick="startBedModify()">Modify Bed</button>
       <div class="note">Bed Profile above comes from BED_MASTER and always renders, whether or not this bed currently has a plan, cohort, session or history.</div>
