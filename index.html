@@ -184,7 +184,8 @@ function logout(){ apiCall('logout',{}).catch(()=>{}); Object.assign(state,{mana
 /* ============================== DATA LOAD ============================== */
 async function loadToday(){
   ui.loading=true; render();
-  const [today, board, aq] = await Promise.allSettled([ apiCall('get-manager-today-view', {}, 60000), loadCohortBoard(), loadAssignmentQueue() ]);
+  /* The 'light' call returns only the activity list, workers and live sessions, so assigning work never depends on the heavy full view. */
+  const [today, board, aq, light] = await Promise.allSettled([ apiCall('get-manager-today-view', {}, 60000), loadCohortBoard(), loadAssignmentQueue(), apiCall('get-manager-today-view', {light:true}, 30000) ]);
   ui.loading=false;
   state.todayError = today.status==='rejected' ? (today.reason&&today.reason.message||'Unknown error') : '';
   if(today.status==='fulfilled'){
@@ -193,6 +194,9 @@ async function loadToday(){
     state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||[];
     state.activityCatalog=d.activityCatalog||[];
     state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
+  }
+  if(today.status==='rejected' && light.status==='fulfilled' && light.value && (light.value.activityCatalog||[]).length){
+    state.activityCatalog=light.value.activityCatalog; state.workers=light.value.workers||[]; state.sessions=light.value.sessions||[];
   }
   setConn(IS_DEMO?'demo':'online'); render();
   if(today.status==='rejected') toast(today.reason.message);
@@ -751,7 +755,7 @@ function plannerActions(bedId,v,pb,sess){
       ${(s.startedAt||s.startTime)?`<div class="row"><span>Started</span><span>${esc(s.startedAt||s.startTime)}</span></div>`:''}</div>`).join('')}`:'';
   if(!(state.activityCatalog||[]).length)
     return `${live}<div class="note">The activity list has not loaded from the server.${state.todayError?' Reason: '+esc(state.todayError):''}
-      <div style="margin-top:4px;font-size:11px;">Check · build 4 · start-up data: ${state.todayError?'failed':((state.beds||[]).length?'loaded ('+state.beds.length+' beds)':'not received')} · activities: ${(state.activityCatalog||[]).length} · workers: ${(state.workers||[]).length}</div></div><button class="btn btn-outline" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Loading…':'Retry loading activities'}</button>`;
+      <div style="margin-top:4px;font-size:11px;">Check · build 5 · start-up data: ${state.todayError?'failed':((state.beds||[]).length?'loaded ('+state.beds.length+' beds)':'not received')} · activities: ${(state.activityCatalog||[]).length} · workers: ${(state.workers||[]).length}</div></div><button class="btn btn-outline" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Loading…':'Retry loading activities'}</button>`;
   const r=startableActivities(bedId,!!v.cohortId,st);
   if(!r.list.length) return `${live}<div class="note">${esc(r.why)}</div>`;
   const d=ui.ppAct||{}, domains=[...new Set(r.list.map(a=>a.domain||'Other'))];
@@ -1982,17 +1986,4 @@ async function mockBackend(action, p){
       if(String(p.reason||'').trim().length<5) return bad('An explanation is required.','OVERRIDE_REASON_REQUIRED');
       if(!(p.activities||[]).length) return bad('Select at least one step.','NO_STEPS_SELECTED');
       return ok({ done:true });
-    case 'terminate-cohort': {
-      const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
-      bed.cohortStatus='TERMINATED'; bed.cohortId=''; bed.cropName=''; bed.currentStage='';
-      return ok({done:true});
-    }
-    default: return bad('That action is not available.','UNKNOWN_ACTION');
-  }
-}
-
-/* ============================== START ============================== */
-render();
-</script>
-</body>
-</html>
+    cas
