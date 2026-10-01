@@ -97,6 +97,32 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 @media (max-width:760px){ .wrap{flex-direction:column;} .panel{width:100%;border-left:none;border-top:1px solid var(--line);max-height:60vh;} .leftpanel{width:100%;border-right:none;border-bottom:1px solid var(--line);max-height:32vh;} }
 .seg.wrap{flex-wrap:wrap;}
+/* ---- multi-assign ---- */
+.sheet.xwide{max-width:900px;}
+.ma-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px;}
+.ma-cols{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;}
+.ma-col{border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:0;}
+.ma-col h3{margin:0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);}
+.ma-colhead{padding:10px 10px 8px;border-bottom:1px solid var(--line);}
+.ma-colhead .seg{margin:8px 0 0;}
+.ma-search{width:100%;margin-top:8px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--paper);color:var(--ink);}
+.ma-list{overflow-y:auto;max-height:44vh;padding:4px 6px 8px;}
+.ma-grp{font-size:11px;font-weight:800;color:var(--ink-soft);margin:10px 4px 3px;text-transform:uppercase;letter-spacing:.03em;}
+.ma-row{display:flex;gap:9px;align-items:flex-start;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px;line-height:1.3;}
+.ma-row:hover{background:var(--sand);} .ma-row.on{background:#E4F1E5;} :root[data-theme="dark"] .ma-row.on{background:#26382B;}
+.ma-row input{margin-top:2px;width:16px;height:16px;accent-color:var(--forest);flex:none;}
+.ma-row .d{display:block;font-size:11px;color:var(--ink-soft);margin-top:1px;}
+.ma-row .r{margin-left:auto;font-size:10.5px;color:var(--ink-soft);white-space:nowrap;padding-left:6px;}
+.ma-tools{display:flex;gap:6px;padding:6px 8px 0;}
+.ma-tools button{border:none;background:none;font-family:inherit;font-size:11.5px;font-weight:700;color:var(--forest);cursor:pointer;padding:2px 4px;}
+.ma-foot{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;}
+.ma-sum{font-size:12.5px;margin-bottom:8px;line-height:1.5;} .ma-sum b{color:var(--forest);}
+.ma-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;}
+.ma-chip{background:var(--sand);border:1px solid var(--line);border-radius:99px;font-size:11.5px;font-weight:600;padding:2px 4px 2px 10px;display:inline-flex;align-items:center;gap:4px;}
+.ma-chip button{border:none;background:none;cursor:pointer;color:var(--ink-soft);font-size:14px;line-height:1;padding:0 4px;}
+.ma-res{font-size:12px;margin:8px 0;padding:9px 11px;border-radius:9px;background:var(--sand);border:1px solid var(--line);} .ma-res .bad{color:var(--danger);font-weight:600;}
+@media (max-width:760px){ .ma-cols{grid-template-columns:1fr;} .ma-list{max-height:30vh;} }
+
 .field select{width:100%;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;background:var(--paper);color:var(--ink);}
 .task-title{font-weight:700;margin-bottom:4px;}
 .syncrow{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;}
@@ -779,11 +805,11 @@ function actionsPanel(b,sess){
   if(a.cat==='POST' && b.postHarvest) body=turnoverBlock(b,sess);   /* controlled sequence: only the next required step, never a free pick */
   else if(a.cat==='POST' && !inCat.length) body=`<div class="note" style="margin-top:0;">Post-harvest steps open after the cohort is terminated (ACT_053), or when a bed is being reset. ${esc(r.why||'')}</div>`;
   else if(!inCat.length) body=`<div class="note" style="margin-top:0;">${esc(r.why||'No activity in this category is allowed on this bed right now.')}</div>`;
-  else body=`<div class="field"><label>Activity</label><select onchange="setActActivity(this.value)">${opts}</select></div>
-    ${sel&&sel.description?`<div class="note" style="margin-top:-6px;">${esc(sel.description)}</div>`:''}
-    <div class="field"><label>Assign to worker</label><select onchange="setActWorker(this.value)">${workers||'<option value="">No workers available</option>'}</select></div>
-    <button class="btn btn-primary" ${a.activity&&wid?'':'disabled'} onclick="assignTask('${esc(b.id)}')">Assign activity</button>
-    <div class="note" style="margin-top:0;">The task shows as Pending until the worker taps Start.</div>`;
+  else {
+    const onBed=sess.length;
+    body=`<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:${b.cohortId?'true':'false'},cat:'${a.cat==='POST'?'ALL':a.cat}'})">Assign activities &amp; workers…</button>
+    <div class="note" style="margin-top:0;">${inCat.length} activit${inCat.length===1?'y is':'ies are'} available${a.cat==='ALL'?'':' in this category'}. Pick several activities and one or more workers in one go.${onBed?` ${onBed} task${onBed===1?'':'s'} already open on this bed.`:''}</div>`;
+  }
   const synced=state.lastSync?'Updated '+state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
   return `<div class="syncrow"><span>${esc(synced)}</span><button onclick="loadToday()">Refresh</button></div>
     ${seg}${body}${verifyCloseBlock(b)}`;
@@ -808,7 +834,7 @@ setInterval(refreshLive,30000);
 function modalHTML(){
   if(!ui.modal) return '';
   let inner='';
-  if(ui.modal==='dispatch') inner=dispatchModal();
+  if(ui.modal==='dispatch') inner=ui.modalDraft.fixedActivity?dispatchModal():multiAssignModal();
   else if(ui.modal==='reassign') inner=reassignModal();
   else if(ui.modal==='override') inner=overrideModal();
   else if(ui.modal==='resolve') inner=resolveModal();
@@ -818,7 +844,7 @@ function modalHTML(){
   else if(ui.modal==='verify-planting') inner=verifyPlantingModal();
   else if(ui.modal==='move') inner=moveModal();
   else if(ui.modal==='terminate') inner=terminateModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'?' wide':''}">${inner}</div></div>`;
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'?' wide':(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity)?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -988,6 +1014,92 @@ function dispatchModal(){
   <p style="font-size:12px;color:var(--ink-soft);">Only activities this bed's current state allows are listed.${d.hasCohort?' Post-harvest steps open in order after the cohort is terminated.':''}</p>
   <button class="btn btn-primary" ${d.activity&&d.workerId?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Assign activity</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+
+/* ==================== MULTI-ASSIGN (several activities x several workers, one bed) ====================
+ * Server: start-sessions -> managerStartActivities() (ActivityEngine.gs). Every activity x worker pair becomes its own
+ * ASSIGNED session, each validated by validateActivity_(). Post-harvest turnover is NOT here: it stays a one-step-at-a-time
+ * controlled sequence (turnoverBlock / fixedDispatchModal). */
+function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.workers) d.workers=[]; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(d.wq==null) d.wq=''; return d; }
+function maList(){ const d=maD(); return startableActivities(d.bedId,d.hasCohort).list.filter(a=>!(Number(a.postHarvestSequence)>0)); }
+function maVisible(){ const d=maD(), q=d.q.trim().toLowerCase();
+  return maList().filter(a=>(d.cat==='ALL'||actCatOf(a)===d.cat) && (!q||(a.name+' '+(a.id||'')+' '+(a.description||'')+' '+(a.domain||'')).toLowerCase().includes(q))); }
+function maOpenPairs(){ const d=maD(), o={}; bedSessions(d.bedId).forEach(s=>{ o[String(s.workerId||'').toUpperCase()+'|'+s.activity]=1; }); return o; }
+function maActOnBed(name){ return bedSessions(maD().bedId).filter(s=>s.activity===name); }
+function workerLoad(id){ return (state.sessions||[]).filter(s=>s.workerId===id && String(s.status||'').toUpperCase()!=='COMPLETED').length; }
+function maToggle(kind,val,on){ const d=maD(), a=d[kind]; const i=a.indexOf(val); if(on&&i<0) a.push(val); if(!on&&i>=0) a.splice(i,1); d.result=null; maRefresh(); }
+function maSetCat(k){ const d=maD(); d.cat=k; maRefresh(); }
+function maSearch(v){ maD().q=v; maRefresh(); }
+function maWSearch(v){ maD().wq=v; maRefresh(); }
+function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0) d.acts.push(a.name); if(!on&&i>=0) d.acts.splice(i,1); }); d.result=null; maRefresh(); }
+function maWorkersVisible(){ const q=maD().wq.trim().toLowerCase(); return (state.workers||[]).filter(w=>!q||(w.name+' '+w.workerId).toLowerCase().includes(q)); }
+function maSelectWorkers(on){ const d=maD(); maWorkersVisible().forEach(w=>{ const i=d.workers.indexOf(w.workerId); if(on&&i<0) d.workers.push(w.workerId); if(!on&&i>=0) d.workers.splice(i,1); }); d.result=null; maRefresh(); }
+function maClear(){ const d=maD(); d.acts=[]; d.workers=[]; d.result=null; maRefresh(); }
+function maRowsActs(){
+  const d=maD(), vis=maVisible(), groups={}; vis.forEach(a=>{ (groups[a.domain||'Other']=groups[a.domain||'Other']||[]).push(a); });
+  const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
+  if(!vis.length) return `<div class="empty">${maList().length?'No activity matches this filter.':esc(startableActivities(d.bedId,d.hasCohort).why||'No activity is allowed on this bed right now.')}</div>`;
+  return Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<div class="ma-grp">${esc(g)}</div>`+groups[g].map(a=>{
+    const on=d.acts.includes(a.name), live=maActOnBed(a.name).length;
+    return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="maToggle('acts',this.dataset.v,this.checked)" data-v="${esc(a.name)}"><span><b style="font-weight:700;">${esc(actLabel(a.name))}</b>${a.description?`<span class="d">${esc(a.description)}</span>`:''}</span>${live?`<span class="r">${live} open</span>`:''}</label>`; }).join('')).join('');
+}
+function maRowsWorkers(){
+  const d=maD(), vis=maWorkersVisible();
+  if(!(state.workers||[]).length) return '<div class="empty">No workers are available to assign.</div>';
+  if(!vis.length) return '<div class="empty">No worker matches.</div>';
+  return vis.map(w=>{ const on=d.workers.includes(w.workerId), n=workerLoad(w.workerId);
+    return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="maToggle('workers',this.dataset.v,this.checked)" data-v="${esc(w.workerId)}"><span><b style="font-weight:700;">${esc(w.name)}</b><span class="d">${esc(w.workerId)}</span></span><span class="r">${n?n+' open task'+(n===1?'':'s'):'free'}</span></label>`; }).join('');
+}
+function maCatTabs(){ const d=maD(), list=maList(), cnt=k=>k==='ALL'?list.length:list.filter(a=>actCatOf(a)===k).length;
+  return ACTION_CATS.filter(([k])=>k!=='POST').filter(([k])=>k==='ALL'||cnt(k)>0).map(([k,l])=>`<button class="${d.cat===k?'active':''}" onclick="maSetCat('${k}')">${esc(l)}<span class="n">${cnt(k)}</span></button>`).join(''); }
+function maFootHTML(){
+  const d=maD(), open=maOpenPairs(); let dup=0; d.acts.forEach(a=>d.workers.forEach(w=>{ if(open[String(w).toUpperCase()+'|'+a]) dup++; }));
+  const total=d.acts.length*d.workers.length, fresh=total-dup, wname=id=>((state.workers||[]).find(w=>w.workerId===id)||{}).name||id;
+  const chips=[...d.acts.map(a=>`<span class="ma-chip">${esc(a)}<button title="Remove" onclick="maToggle('acts',this.dataset.v,false)" data-v="${esc(a)}">×</button></span>`),
+               ...d.workers.map(w=>`<span class="ma-chip" style="background:#E4F1E5;">${esc(wname(w))}<button title="Remove" onclick="maToggle('workers',this.dataset.v,false)" data-v="${esc(w)}">×</button></span>`)].join('');
+  const sum=!total?`<span style="color:var(--ink-soft);">Tick one or more activities and one or more workers.</span>`
+    :`<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} × <b>${d.workers.length}</b> worker${d.workers.length===1?'':'s'} = <b>${fresh}</b> task${fresh===1?'':'s'} to create${dup?` <span style="color:var(--warn);">(${dup} already open on this bed, will be skipped)</span>`:''}`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(wname(f.workerId))}: ${esc(f.errorCode)}</div>`).join('')}</div>`;
+  return `${chips?`<div class="ma-chips">${chips}</div>`:''}<div class="ma-sum">${sum}</div>${res}
+    <div class="qbtns"><button class="btn btn-primary" ${fresh>0&&!d.busy?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'Assigning…':(fresh>0?`Assign ${fresh} task${fresh===1?'':'s'}`:'Assign')}</button>
+    <button class="btn btn-outline" style="width:auto;padding:11px 16px;" onclick="maClear()">Clear</button>
+    <button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
+    <div class="note" style="margin:6px 0 0;">Each task shows as Pending until that worker taps Start. Server rules still apply to every pair.</div>`;
+}
+/* Partial re-render: keeps focus in the search boxes and the scroll position of both lists. */
+function maRefresh(){
+  const g=id=>document.getElementById(id); if(!g('ma-acts')) return render();
+  const keep=(el,fn)=>{ const t=el.scrollTop; fn(); el.scrollTop=t; };
+  keep(g('ma-acts'),()=>{ g('ma-acts').innerHTML=maRowsActs(); }); keep(g('ma-workers'),()=>{ g('ma-workers').innerHTML=maRowsWorkers(); });
+  g('ma-cats').innerHTML=maCatTabs(); g('ma-foot').innerHTML=maFootHTML();
+}
+function multiAssignModal(){
+  const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId)||{};
+  return `<div class="ma-head"><h2 style="font-size:16px;margin:0;">Assign activities · Bed ${esc(d.bedId)}</h2><span class="qsub">${esc(b.cropName||'')}${b.currentStage?' · '+esc(b.currentStage):''}</span></div>
+  <div class="ma-cols">
+    <div class="ma-col"><div class="ma-colhead"><h3>1 · Activities</h3>
+      <div class="seg wrap" id="ma-cats">${maCatTabs()}</div>
+      <input class="ma-search" type="search" placeholder="Search activities…" value="${esc(d.q)}" oninput="maSearch(this.value)"></div>
+      <div class="ma-tools"><button onclick="maSelectVisible(true)">Select all shown</button><button onclick="maSelectVisible(false)">Deselect shown</button></div>
+      <div class="ma-list" id="ma-acts">${maRowsActs()}</div></div>
+    <div class="ma-col"><div class="ma-colhead"><h3>2 · Workers</h3>
+      <input class="ma-search" type="search" placeholder="Search workers…" value="${esc(d.wq)}" oninput="maWSearch(this.value)"></div>
+      <div class="ma-tools"><button onclick="maSelectWorkers(true)">Select all shown</button><button onclick="maSelectWorkers(false)">Deselect shown</button></div>
+      <div class="ma-list" id="ma-workers">${maRowsWorkers()}</div></div>
+  </div>
+  <div class="ma-foot" id="ma-foot">${maFootHTML()}</div>`;
+}
+async function submitMultiAssign(){
+  const d=maD(); if(d.busy||!d.acts.length||!d.workers.length) return;
+  d.busy=true; maRefresh();
+  try{
+    const r=await apiCall('start-sessions',{ bedId:d.bedId, activities:d.acts.slice(), workerIds:d.workers.slice() }, 60000);
+    d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] };
+    if(d.result.created.length) toast(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' assigned.');
+    /* keep failed pairs' activities/workers selected so the manager can adjust; clear what succeeded */
+    if(!d.result.failed.length){ d.acts=[]; d.workers=[]; }
+    d.busy=false; await loadToday(); maRefresh();
+  }catch(e){ d.busy=false; toast(e.message); maRefresh(); }
 }
 function fixedDispatchModal(d){
   return `<h2 style="font-size:15px;">Assign next required activity</h2>
