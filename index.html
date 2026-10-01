@@ -1986,4 +1986,17 @@ async function mockBackend(action, p){
       if(String(p.reason||'').trim().length<5) return bad('An explanation is required.','OVERRIDE_REASON_REQUIRED');
       if(!(p.activities||[]).length) return bad('Select at least one step.','NO_STEPS_SELECTED');
       return ok({ done:true });
-    cas
+    case 'terminate-cohort': {
+      const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
+      bed.cohortStatus='TERMINATED'; bed.cohortId=''; bed.cropName=''; bed.currentStage='';
+      return ok({done:true});
+    }
+    default: return bad('That action is not available.','UNKNOWN_ACTION');
+  }
+}
+
+/* ============================== START ============================== */
+render();
+</script>
+</body>
+</html>
