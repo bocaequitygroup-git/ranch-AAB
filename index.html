@@ -834,17 +834,33 @@ function dpRows(b){   /* every row the manager can see for this bed, grouped by 
     if(x.status==='COMPLETE'){ off='Done'; st=x.overridden?'OVERRIDDEN':'DONE'; }
     else if(x.gate==='BUFFER'){ off='Automatic wait'; st='AUTOMATIC WAIT'; }
     else if(x.gate==='WINDOW'&&x.status!=='OPEN'){ off='Waiting for window'; st='WAITING'; }
-    rows.push({name:x.name,id:m.id||'',domain:x.domain||m.domain||'Required workflow',desc:m.description||'',st,off,wf:true}); });
-  startableActivities(b.id,!!b.cohortId).list.filter(a=>!(Number(a.postHarvestSequence)>0)&&!seen[a.name]).forEach(a=>rows.push({name:a.name,id:a.id||'',domain:a.domain||'Other',desc:a.description||'',st:live(a.name)||'AVAILABLE',off:'',wf:false}));
+    rows.push({name:x.name,id:m.id||'',domain:x.domain||m.domain||'Required workflow',desc:m.description||'',st,off,wf:true,cat:'POST'}); });
+  startableActivities(b.id,!!b.cohortId).list.filter(a=>!(Number(a.postHarvestSequence)>0)&&!seen[a.name]).forEach(a=>rows.push({name:a.name,id:a.id||'',domain:a.domain||'Other',desc:a.description||'',st:live(a.name)||'AVAILABLE',off:'',wf:false,cat:actCatOf(a)}));
   return rows;
+}
+function dpSetCat(k){ ui.dp.cat=k; dpRefresh(); }
+function dpCatEmpty(k,b){
+  const nm=(ACTION_CATS.find(c=>c[0]===k)||[0,'This category'])[1];
+  if(k==='POST') return b.cohortId?'Post-harvest steps open only after the crop is terminated and harvest is verified.':'This bed has no post-harvest reset in progress.';
+  if(!b.cohortId){
+    if(k==='PREP') return 'No bed-prep activities are set up yet. Add them to ACTIVITY_REFERENCE with Activity_Domain = Prep and they will appear here.';
+    return `${nm} tasks need a crop in the ground. ${b.id} has no active crop${b.crop?` (the ${b.crop} plan is not planted yet)`:''}, so the server would reject them.`;
+  }
+  return `No ${nm.toLowerCase()} activity is allowed at this crop's current stage.`;
+}
+function dpCatTabs(d,rows){
+  const cnt=k=>k==='ALL'?rows.length:rows.filter(r=>r.cat===k).length, pick=k=>rows.filter(r=>(k==='ALL'||r.cat===k)&&d.acts.includes(r.name)).length;
+  return `<div class="seg wrap" style="margin-bottom:8px;">${ACTION_CATS.map(([k,l])=>{ const n=cnt(k), c=pick(k); return `<button class="${d.cat===k?'active':''}" ${n?'':'style="opacity:.6;"'} onclick="dpSetCat('${k}')">${esc(l)}<span class="n">${n}</span>${c&&k!=='ALL'?`<span class="n">· ${c}✓</span>`:''}</button>`; }).join('')}</div>`;
 }
 function dpStChip(st){ const k={'DONE':'chip-ok','OVERRIDDEN':'chip-neutral','IN PROGRESS':'chip-ok','ASSIGNED':'chip-warn','PENDING':'chip-neutral','AVAILABLE':'chip-neutral','AUTOMATIC WAIT':'chip-neutral','WAITING':'chip-neutral'}[st]||'chip-neutral'; return `<span class="chip ${k}">${esc(st.charAt(0)+st.slice(1).toLowerCase())}</span>`; }
 function dpInner(b,sess){
   const d=dpS(b), rows=dpRows(b), sel=rows.filter(r=>!r.off), selNames=sel.map(r=>r.name), open=maOpenSet2(b.id);
   d.acts=d.acts.filter(n=>selNames.includes(n));
+  if(!d.cat) d.cat=b.postHarvest?'POST':'ALL';
+  const vis=rows.filter(r=>d.cat==='ALL'||r.cat===d.cat);
   const workers=state.workers||[];
   const crewBox=workers.length?workers.map(w=>{ const n=workerLoad(w.workerId); return `<label class="ma-row ${d.workers.includes(w.workerId)?'on':''}" style="padding:5px 6px;"><input type="checkbox" ${d.workers.includes(w.workerId)?'checked':''} data-v="${esc(w.workerId)}" onchange="dpTogW(this.dataset.v,this.checked)"><span><b style="font-weight:700;">${esc(w.name)}</b> <span class="d" style="display:inline;">${n?n+' open':'free'}</span></span></label>`; }).join(''):'<div class="empty" style="padding:8px;">No workers are available to assign.</div>';
-  const groups={}; rows.forEach(r=>{ (groups[r.domain]=groups[r.domain]||[]).push(r); });
+  const groups={}; vis.forEach(r=>{ (groups[r.domain]=groups[r.domain]||[]).push(r); });
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
   const list=Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<div class="ma-grp">${esc(g)}</div>`+groups[g].map(r=>{
     const on=d.acts.includes(r.name), cr=dpCrew(r.name), custom=!!d.custom[r.name];
@@ -864,10 +880,11 @@ function dpInner(b,sess){
     <div class="dp-crew">${crewBox}</div>
     <div class="dp-tools"><button onclick="dpAllW(true)">Select all workers</button><button onclick="dpClearW()">Clear workers</button></div>
     <div class="ma-date" style="margin-top:8px;"><b>Date</b><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(1)">Tomorrow</button><input type="date" id="dp-date" value="${esc(d.date)}" min="${todayISO()}" onchange="ui.dp.date=this.value||todayISO()"></div></div>
-  <div class="dp-box"><div class="t"><span>Select activities to dispatch (${d.acts.length} selected)</span></div>
-    ${ph?`<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px;">Required workflow · ${done} / ${tot} complete</div><div class="dc-bar"><i style="width:${tot?Math.round(done/tot*100):0}%"></i></div>`:''}
-    <div class="dp-tools" style="margin:0 0 4px;"><button onclick="dpAllA()">Select all tasks</button><button onclick="dpClearA()">Clear selection</button></div>
-    ${list||`<div class="note" style="margin-top:0;">${esc(startableActivities(b.id,!!b.cohortId).why||'No activity can be assigned on this bed right now.')}</div>`}
+  <div class="dp-box"><div class="t"><span>Select activities to dispatch (${d.acts.length} selected${d.cat!=='ALL'?' · showing '+esc((ACTION_CATS.find(c=>c[0]===d.cat)||[0,''])[1]):''})</span></div>
+    ${dpCatTabs(d,rows)}
+    ${ph&&(d.cat==='ALL'||d.cat==='POST')?`<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px;">Required workflow · ${done} / ${tot} complete</div><div class="dc-bar"><i style="width:${tot?Math.round(done/tot*100):0}%"></i></div>`:''}
+    <div class="dp-tools" style="margin:0 0 4px;"><button onclick="dpAllA()">Select all${d.cat==='ALL'?'':' in this tab'}</button><button onclick="dpClearA()">Clear selection</button></div>
+    ${list||`<div class="note" style="margin-top:0;">${esc(d.cat==='ALL'?(startableActivities(b.id,!!b.cohortId).why||'No activity can be assigned on this bed right now.'):dpCatEmpty(d.cat,b))}</div>`}
     <div class="note" style="margin-bottom:0;">Workers you pick above apply to every ticked activity. Use "customize" on a row to give that activity a different crew.</div></div>
   ${activeWorkSection(b,sess)}
   <div class="dp-foot">${res}${missing?`<div class="note" style="margin:0 0 6px;color:var(--warn);font-weight:600;">${missing} selected activit${missing===1?'y has':'ies have'} no worker.</div>`:''}
@@ -882,7 +899,7 @@ function dpTogW(id,on){ const d=ui.dp,i=d.workers.indexOf(id); if(on&&i<0) d.wor
 function dpAllW(){ ui.dp.workers=(state.workers||[]).map(w=>w.workerId); ui.dp.result=null; dpRefresh(); }
 function dpClearW(){ ui.dp.workers=[]; ui.dp.result=null; dpRefresh(); }
 function dpTogA(n,on){ const d=ui.dp,i=d.acts.indexOf(n); if(on&&i<0) d.acts.push(n); if(!on&&i>=0){ d.acts.splice(i,1); delete d.custom[n]; } d.result=null; dpRefresh(); }
-function dpAllA(){ const b=dpBed(); ui.dp.acts=dpRows(b).filter(r=>!r.off).map(r=>r.name); ui.dp.result=null; dpRefresh(); }
+function dpAllA(){ const d=ui.dp, b=dpBed(); dpRows(b).filter(r=>!r.off&&(d.cat==='ALL'||r.cat===d.cat)).forEach(r=>{ if(!d.acts.includes(r.name)) d.acts.push(r.name); }); d.result=null; dpRefresh(); }
 function dpClearA(){ ui.dp.acts=[]; ui.dp.custom={}; ui.dp.result=null; dpRefresh(); }
 function dpCustomize(a){ ui.dp.custom[a]=ui.dp.workers.slice(); dpRefresh(); }
 function dpUseDefault(a){ delete ui.dp.custom[a]; dpRefresh(); }
@@ -986,10 +1003,10 @@ function startableActivities(bedId, hasCohortFallback){
     /* Cleanup steps are valid only while the bed is NOT verified (or already in post-harvest). A verified AVAILABLE bed is, by
      * definition, physically ready: nothing to start until a manager approves an assignment for it. */
     const st=b?(String(b.bedStatus||'').toUpperCase()||'UNVERIFIED'):'UNVERIFIED';
-    if(st==='AVAILABLE'){   /* validateActivity_ lets Activity_Domain 'Prep' run with no cohort: tillage, amending, drip install ... */
-      const prep=cat.filter(a=>String(a.domain||'')==='Prep' && !(Number(a.postHarvestSequence)>0));
-      if(prep.length) return {list:prep, why:''};
-    }
+    /* validateActivity_ lets Activity_Domain 'Prep' run with no cohort (tillage, amending, broadforking ...), whatever the bed's status
+     * is, so Soil & Bed Prep can be batched alongside the reset checklist. */
+    const prep=(st==='AVAILABLE'||st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES')?cat.filter(a=>String(a.domain||'')==='Prep' && !(Number(a.postHarvestSequence)>0)):[];
+    if(prep.length) return {list:prep, why:''};
     if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Work is assigned one step at a time from the reset checklist (ACT_037–051).'};
     return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available. There is nothing to start until a manager approves a cohort assignment for it.'
                         : st==='BLOCKED' ? 'This bed is blocked. Clear the block and verify it first.'
