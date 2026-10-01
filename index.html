@@ -126,6 +126,7 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .dp-box{border:1px solid var(--line);border-radius:10px;padding:9px 10px;margin-bottom:12px;background:var(--paper);}
 .dp-box>.t{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--forest);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
 .dp-crew{max-height:132px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:2px 4px;}
+.dp-pick{width:100%;font-family:inherit;font-size:13px;font-weight:600;padding:9px 8px;border:1.5px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);margin-bottom:4px;}
 .dp-tools{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;} .dp-tools button{border:1.5px solid var(--line);background:var(--paper);color:var(--forest);font-family:inherit;font-size:11.5px;font-weight:700;border-radius:8px;padding:5px 9px;cursor:pointer;}
 .dp-row{display:flex;gap:8px;align-items:flex-start;padding:7px 4px;border-bottom:1px solid var(--line);font-size:12.5px;line-height:1.35;} .dp-row:last-child{border-bottom:none;}
 .dp-row input{margin-top:2px;width:16px;height:16px;accent-color:var(--forest);flex:none;} .dp-row.off{opacity:.55;} .dp-row.on{background:#E4F1E5;border-radius:6px;}
@@ -835,7 +836,7 @@ function dpRows(b){   /* every row the manager can see for this bed, grouped by 
     else if(x.gate==='BUFFER'){ off='Automatic wait'; st='AUTOMATIC WAIT'; }
     else if(x.gate==='WINDOW'&&x.status!=='OPEN'){ off='Waiting for window'; st='WAITING'; }
     rows.push({name:x.name,id:m.id||'',domain:x.domain||m.domain||'Required workflow',desc:m.description||'',st,off,wf:true,cat:'POST'}); });
-  startableActivities(b.id,!!b.cohortId).list.filter(a=>!(Number(a.postHarvestSequence)>0)&&!seen[a.name]).forEach(a=>rows.push({name:a.name,id:a.id||'',domain:a.domain||'Other',desc:a.description||'',st:live(a.name)||'AVAILABLE',off:'',wf:false,cat:actCatOf(a)}));
+  cat.filter(a=>a.name&&!seen[a.name]).forEach(a=>{ seen[a.name]=1; rows.push({name:a.name,id:a.id||'',domain:a.domain||'Other',desc:a.description||'',st:live(a.name)||'AVAILABLE',off:'',wf:false,cat:actCatOf(a)}); });
   return rows;
 }
 function dpSetCat(k){ ui.dp.cat=k; dpRefresh(); }
@@ -860,8 +861,12 @@ function dpInner(b,sess){
   const vis=rows.filter(r=>d.cat==='ALL'||r.cat===d.cat);
   const workers=state.workers||[];
   const crewBox=workers.length?workers.map(w=>{ const n=workerLoad(w.workerId); return `<label class="ma-row ${d.workers.includes(w.workerId)?'on':''}" style="padding:5px 6px;"><input type="checkbox" ${d.workers.includes(w.workerId)?'checked':''} data-v="${esc(w.workerId)}" onchange="dpTogW(this.dataset.v,this.checked)"><span><b style="font-weight:700;">${esc(w.name)}</b> <span class="d" style="display:inline;">${n?n+' open':'free'}</span></span></label>`; }).join(''):'<div class="empty" style="padding:8px;">No workers are available to assign.</div>';
-  const groups={}; vis.forEach(r=>{ (groups[r.domain]=groups[r.domain]||[]).push(r); });
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
+  /* Dropdown: every activity (filtered only by the category tab), grouped by Activity_Domain. Picking one adds it to the selected list below. */
+  const pg={}; vis.forEach(r=>{ (pg[r.domain]=pg[r.domain]||[]).push(r); });
+  const optLabel=r=>(r.id?r.id+': ':'')+r.name+(r.off?' · '+r.off:(r.st==='AVAILABLE'||r.st==='PENDING')?'':' · '+r.st.toLowerCase());
+  const picker=Object.keys(pg).sort((x,y)=>rank(x)-rank(y)).map(g=>`<optgroup label="${esc(g)}">`+pg[g].map(r=>`<option value="${esc(r.name)}" ${(r.off||d.acts.includes(r.name))?'disabled':''}>${esc(optLabel(r))}${d.acts.includes(r.name)?' ✓':''}</option>`).join('')+`</optgroup>`).join('');
+  const groups={}; rows.filter(r=>d.acts.includes(r.name)).forEach(r=>{ (groups[r.domain]=groups[r.domain]||[]).push(r); });
   const list=Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<div class="ma-grp">${esc(g)}</div>`+groups[g].map(r=>{
     const on=d.acts.includes(r.name), cr=dpCrew(r.name), custom=!!d.custom[r.name];
     const crew=on?`<div class="dp-crewline">${custom?`Crew: ${cr.length?cr.map(w=>esc(maWName(w))+` <button data-a="${esc(r.name)}" data-w="${esc(w)}" onclick="dpDelCW(this.dataset.a,this.dataset.w)">×</button>`).join(', '):'<span style="color:var(--warn);">none</span>'}
@@ -883,8 +888,9 @@ function dpInner(b,sess){
   <div class="dp-box"><div class="t"><span>Select activities to dispatch (${d.acts.length} selected${d.cat!=='ALL'?' · showing '+esc((ACTION_CATS.find(c=>c[0]===d.cat)||[0,''])[1]):''})</span></div>
     ${dpCatTabs(d,rows)}
     ${ph&&(d.cat==='ALL'||d.cat==='POST')?`<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px;">Required workflow · ${done} / ${tot} complete</div><div class="dc-bar"><i style="width:${tot?Math.round(done/tot*100):0}%"></i></div>`:''}
-    <div class="dp-tools" style="margin:0 0 4px;"><button onclick="dpAllA()">Select all${d.cat==='ALL'?'':' in this tab'}</button><button onclick="dpClearA()">Clear selection</button></div>
-    ${list||`<div class="note" style="margin-top:0;">${esc(d.cat==='ALL'?(startableActivities(b.id,!!b.cohortId).why||'No activity can be assigned on this bed right now.'):dpCatEmpty(d.cat,b))}</div>`}
+    ${vis.length?`<select class="dp-pick" onchange="dpPickA(this.value)"><option value="">+ Add an activity (${vis.length} available)…</option>${picker}</select>`:`<div class="note" style="margin-top:0;">${esc(d.cat==='ALL'?'No activities are loaded from ACTIVITY_REFERENCE. Tap Refresh.':dpCatEmpty(d.cat,b))}</div>`}
+    <div class="dp-tools" style="margin:6px 0 4px;">${d.cat==='ALL'?'':`<button onclick="dpAllA()">Select all in this tab</button>`}<button onclick="dpClearA()">Clear selection</button></div>
+    ${list||`<div class="note" style="margin-top:0;">No activity selected yet. Choose one from the dropdown above.</div>`}
     <div class="note" style="margin-bottom:0;">Workers you pick above apply to every ticked activity. Use "customize" on a row to give that activity a different crew.</div></div>
   ${activeWorkSection(b,sess)}
   <div class="dp-foot">${res}${missing?`<div class="note" style="margin:0 0 6px;color:var(--warn);font-weight:600;">${missing} selected activit${missing===1?'y has':'ies have'} no worker.</div>`:''}
@@ -898,6 +904,7 @@ function dpRefresh(){ const root=document.getElementById('dp-root'), b=dpBed(); 
 function dpTogW(id,on){ const d=ui.dp,i=d.workers.indexOf(id); if(on&&i<0) d.workers.push(id); if(!on&&i>=0) d.workers.splice(i,1); d.result=null; dpRefresh(); }
 function dpAllW(){ ui.dp.workers=(state.workers||[]).map(w=>w.workerId); ui.dp.result=null; dpRefresh(); }
 function dpClearW(){ ui.dp.workers=[]; ui.dp.result=null; dpRefresh(); }
+function dpPickA(n){ if(!n) return; const d=ui.dp; if(!d.acts.includes(n)) d.acts.push(n); d.result=null; dpRefresh(); }
 function dpTogA(n,on){ const d=ui.dp,i=d.acts.indexOf(n); if(on&&i<0) d.acts.push(n); if(!on&&i>=0){ d.acts.splice(i,1); delete d.custom[n]; } d.result=null; dpRefresh(); }
 function dpAllA(){ const d=ui.dp, b=dpBed(); dpRows(b).filter(r=>!r.off&&(d.cat==='ALL'||r.cat===d.cat)).forEach(r=>{ if(!d.acts.includes(r.name)) d.acts.push(r.name); }); d.result=null; dpRefresh(); }
 function dpClearA(){ ui.dp.acts=[]; ui.dp.custom={}; ui.dp.result=null; dpRefresh(); }
@@ -987,7 +994,7 @@ function modalHTML(){
  * (getActivityCatalog_(), ActivityEngine.gs). There is no hard-coded activity list in this file: if the
  * backend sends no catalog the picker says so instead of showing a stale copy. The server
  * (validateActivity_) remains the final judge of every dispatch. */
-const ACTIVITY_GROUP_ORDER=['Required workflow','Prep','Planting','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
+const ACTIVITY_GROUP_ORDER=['Required workflow','Prep','Greenhouse Propagation','Planting','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
 /* 'HARVESTCOMPLETE' (buildTodayView_ upper-cases it), 'HarvestComplete' (sheet) and 'PRE_PLANTING' all compare equal. */
 function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); }
 /* WHAT A BED MAY START — decided by the bed's own state, never the whole catalogue (server validateActivity_ stays the judge).
