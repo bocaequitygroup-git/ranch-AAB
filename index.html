@@ -96,6 +96,11 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .leftpanel .card{cursor:pointer;}
 table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 @media (max-width:760px){ .wrap{flex-direction:column;} .panel{width:100%;border-left:none;border-top:1px solid var(--line);max-height:60vh;} .leftpanel{width:100%;border-right:none;border-bottom:1px solid var(--line);max-height:32vh;} }
+.seg.wrap{flex-wrap:wrap;}
+.field select{width:100%;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;background:var(--paper);color:var(--ink);}
+.task-title{font-weight:700;margin-bottom:4px;}
+.syncrow{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;}
+.syncrow button{background:none;border:none;font-family:inherit;font-size:11.5px;font-weight:700;color:var(--forest);cursor:pointer;padding:2px 4px;}
 </style>
 </head>
 <body><div id="app"></div>
@@ -191,6 +196,7 @@ async function loadToday(){
     state.activityCatalog=d.activityCatalog||[];
     state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
   }
+  if(today.status==='fulfilled') state.lastSync=new Date();
   setConn(IS_DEMO?'demo':'online'); render();
   if(today.status==='rejected') toast(today.reason.message);
   else if(board.status==='rejected') toast('Cohort board: '+board.reason.message);
@@ -307,7 +313,7 @@ function boardNotice(views){
 
 /* ============================== DISPATCH / TRIAGE ACTIONS ============================== */
 async function startSessionFor(bedId, activity, workerId){
-  try{ await apiCall('start-session', { bedId, activity, workerId }); toast('Session started.'); closeModal(); await loadToday(); }
+  try{ await apiCall('start-session', { bedId, activity, workerId }); toast('Task assigned.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
 async function reassignSession(sessionId, toWorkerId, note){
@@ -592,12 +598,8 @@ function overviewTab(b,sess){
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>`:''}
   ${b.cohortId?cohortActionButtons(b)+turnoverBlock(b,sess)+pendingBlock(b,true):emptyBedBlock(b,sess)}
-  <h2 style="font-size:13px;">Live sessions</h2>
-  ${sess.length? sess.map(s=>`<div class="card"><div class="row"><span>${esc(s.workerName)}</span><span class="chip ${s.status==='ACTIVE'?'chip-ok':'chip-warn'}">${esc(s.status)}</span></div>
-    <div class="row"><span>Task</span><span>${esc(s.activity)}</span></div>
-    <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>
-    <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`).join('')
-    : `<div class="empty">No active session.</div>${startButton(b,'Start session on behalf of worker')}`}`;
+  ${liveTaskBlock(b,sess)}
+  ${sess.length?'':startButton(b,'Start session on behalf of worker')}`;
 }
 /**
  * Manager write-back actions, gated on Cohort_Status - these call
@@ -675,6 +677,126 @@ function harvestTab(b,hr){
     <button class="btn btn-outline" onclick="verifyHarvestComplete('${esc(b.cohortId)}')">Mark harvest complete</button>`;
 }
 
+/* ============================== ACTIONS & LIVE TASKS (Bed Profile command center) ==============================
+ * Every activity a manager can dispatch is reachable from one panel, grouped into four working categories.
+ * The category is only a filter over the live ACTIVITY_REFERENCE catalog (Activity_Domain / Post_Harvest_Sequence);
+ * what a bed may actually start is still decided by startableActivities() here and validateActivity_ on the server. */
+const ACTION_CATS=[['ALL','All'],['PREP','Soil & Bed Prep'],['CARE','Crop Maintenance'],['HARVEST','Harvest Operations'],['POST','Post-Harvest & Sanitation']];
+function actCatOf(a){
+  if(Number(a.postHarvestSequence)>0) return 'POST';
+  const d=String(a.domain||'').trim().toLowerCase();
+  if(d==='prep'||d==='planting') return 'PREP';
+  if(d==='cropcare'||d==='state') return 'CARE';
+  if(d==='harvest') return 'HARVEST';
+  if(['field cleanup & prep','cover cropping','next-season prep','post-harvest'].indexOf(d)!==-1) return 'POST';
+  return 'OTHER';   /* shown under All only */
+}
+function actState(){ if(!ui.act) ui.act={cat:'ALL',activity:'',workerId:''}; return ui.act; }
+function setActCat(k){ const a=actState(); a.cat=k; a.activity=''; render(); }
+function setActActivity(n){ actState().activity=n; render(); }
+function setActWorker(id){ actState().workerId=id; }
+async function assignTask(bedId){
+  const a=actState(), w=a.workerId||(state.workers[0]||{}).workerId;
+  if(!a.activity){ toast('Choose an activity first.'); return; }
+  if(!w){ toast('No workers are available to assign.'); return; }
+  const act=a.activity; a.activity='';
+  await startSessionFor(bedId, act, w);
+}
+/* "ACT_018: Harvest" when the backend sends the Activity_ID (catalog id / session activityId), else just the name. */
+function actLabel(name,s){
+  const c=(state.activityCatalog||[]).find(x=>x.name===name);
+  const id=(s&&s.activityId)||(c&&(c.id||c.activityId))||'';
+  return id ? id+': '+name : name;
+}
+/* Pending = manager dispatched, worker has not started. In progress = worker's clock is running (or paused / has an exception). */
+function taskStatus(s){
+  const k=String(s.status||'').toUpperCase();
+  if(k==='ASSIGNED') return ['Pending','chip-warn'];
+  if(k==='ACTIVE') return ['In progress','chip-ok'];
+  if(k==='PAUSED') return ['In progress · paused','chip-warn'];
+  if(k==='EXCEPTION') return ['In progress · exception','chip-danger'];
+  if(k==='COMPLETED') return ['Complete','chip-neutral'];
+  return [k||'Unknown','chip-neutral'];
+}
+function fmtTs(v){ if(!v) return ''; const d=new Date(v); return isNaN(d.getTime()) ? String(v) : d.toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
+function taskTimes(s){
+  return { dispatched: s.assignedTime||s.assignedAt||s.dispatchedAt||s.createdAt||'', started: s.startTime||s.startedAt||s.start||'' };
+}
+function liveTaskBlock(b,sess){
+  const recent=((b&&b.activityLog)||[]).slice(0,2);
+  const cards=sess.map(s=>{
+    const st=taskStatus(s), t=taskTimes(s), pending=String(s.status||'').toUpperCase()==='ASSIGNED';
+    const who=(s.workerName||s.workerId||'Unassigned')+((s.workerName&&s.workerId)?' ('+s.workerId+')':'');
+    return `<div class="card"><div class="task-title">${esc(actLabel(s.activity,s))}</div>
+      <div class="row"><span>Status</span><span><span class="chip ${st[1]}">${esc(st[0])}</span></span></div>
+      <div class="row"><span>Assigned to</span><span>${esc(who)}</span></div>
+      ${t.dispatched?`<div class="row"><span>Dispatched</span><span>${esc(fmtTs(t.dispatched))}</span></div>`:''}
+      <div class="row"><span>Started</span><span>${pending?'Waiting for worker to start':esc(fmtTs(t.started)||'—')}</span></div>
+      <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>
+      <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`;
+  }).join('');
+  const done=recent.map(r=>`<div class="row"><span>${esc(actLabel(r.taskType||r.activityName||''))} · ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
+  return `<h2 style="font-size:13px;margin:14px 0 6px;">Live tasks</h2>
+    ${cards||`<div class="empty" style="padding:10px 0;">No task is assigned or running on this bed.</div>`}
+    ${done?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${done}`:''}`;
+}
+/* Verify & close: only the verifications this bed is actually waiting on. Each calls the existing manager action. */
+function verifyCloseBlock(b){
+  const cs=String(b.cohortStatus||'').toUpperCase(), btns=[], notes=[];
+  const hr=(state.harvestReady||[]).find(h=>h.bedId===b.id);
+  if(cs==='PRE_PLANTING') btns.push(`<button class="btn btn-primary" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`);
+  if(b.cohortId && hr) btns.push(`<button class="btn btn-primary" onclick="verifyHarvestReady('${esc(b.cohortId)}','${esc(b.id)}')">Verify harvest ready</button>`);
+  if(b.postHarvest && b.postHarvest.readyToVerify){
+    const scope=b.postHarvest.bedLevel?'BED:'+b.id:b.cohortId;
+    btns.push(`<button class="btn btn-primary" onclick="doVerifyTurnover('${esc(scope)}','${esc(b.id)}')">Verify bed ready</button>`);
+  }
+  if(String(b.bedStatus||'').toUpperCase()==='BLOCKED') btns.push(`<button class="btn btn-primary" onclick="doVerifyBedReady('${esc(b.id)}')">Clear block &amp; verify bed ready</button>`);
+  if(b.cohortId && (hr || cs==='WAITING_NEXT_PICK')) notes.push('Harvest is completed by terminating the cohort (ACT_053 TerminateCohort), which opens post-harvest turnover for this bed.');
+  return `<div class="qsub" style="font-weight:700;margin:12px 0 6px;">Verify &amp; close</div>
+    ${btns.join('')||'<div class="note" style="margin-top:0;">Nothing is waiting for your verification on this bed.</div>'}
+    ${notes.map(n=>`<div class="note">${esc(n)}</div>`).join('')}`;
+}
+function actionsPanel(b,sess){
+  const a=actState(), r=startableActivities(b.id,!!b.cohortId), list=r.list||[];
+  const inCat=list.filter(x=>a.cat==='ALL'||actCatOf(x)===a.cat);
+  if(a.activity && !inCat.some(x=>x.name===a.activity)) a.activity='';
+  const count=k=>k==='ALL'?list.length:list.filter(x=>actCatOf(x)===k).length;
+  const seg=`<div class="seg wrap" style="margin-bottom:10px;">${ACTION_CATS.map(([k,l])=>`<button class="${a.cat===k?'active':''}" onclick="setActCat('${k}')">${esc(l)}<span class="n">${k==='POST'&&b.postHarvest?'•':count(k)}</span></button>`).join('')}</div>`;
+  const sel=inCat.find(x=>x.name===a.activity);
+  const groups={}; inCat.forEach(x=>{ const g=x.domain||'Other'; (groups[g]=groups[g]||[]).push(x); });
+  const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
+  const opts='<option value="">Select an activity…</option>'+Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<optgroup label="${esc(g)}">${groups[g].map(x=>`<option value="${esc(x.name)}" ${a.activity===x.name?'selected':''}>${esc(actLabel(x.name))}</option>`).join('')}</optgroup>`).join('');
+  const wid=a.workerId||((state.workers[0]||{}).workerId)||'';
+  const workers=(state.workers||[]).map(w=>`<option value="${esc(w.workerId)}" ${w.workerId===wid?'selected':''}>${esc(w.name)} (${esc(w.workerId)})</option>`).join('');
+  let body;
+  if(a.cat==='POST' && b.postHarvest) body=turnoverBlock(b,sess);   /* controlled sequence: only the next required step, never a free pick */
+  else if(a.cat==='POST' && !inCat.length) body=`<div class="note" style="margin-top:0;">Post-harvest steps open after the cohort is terminated (ACT_053), or when a bed is being reset. ${esc(r.why||'')}</div>`;
+  else if(!inCat.length) body=`<div class="note" style="margin-top:0;">${esc(r.why||'No activity in this category is allowed on this bed right now.')}</div>`;
+  else body=`<div class="field"><label>Activity</label><select onchange="setActActivity(this.value)">${opts}</select></div>
+    ${sel&&sel.description?`<div class="note" style="margin-top:-6px;">${esc(sel.description)}</div>`:''}
+    <div class="field"><label>Assign to worker</label><select onchange="setActWorker(this.value)">${workers||'<option value="">No workers available</option>'}</select></div>
+    <button class="btn btn-primary" ${a.activity&&wid?'':'disabled'} onclick="assignTask('${esc(b.id)}')">Assign task</button>
+    <div class="note" style="margin-top:0;">The task shows as Pending until the worker taps Start.</div>`;
+  const synced=state.lastSync?'Updated '+state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
+  return `<div class="syncrow"><span>${esc(synced)}</span><button onclick="loadToday()">Refresh</button></div>
+    ${seg}${body}${verifyCloseBlock(b)}`;
+}
+/* Monitor progress: while a bed is open, quietly re-read the live data every 30s. Skipped while a modal is open or the
+ * manager is mid-edit in a field, so a refresh never wipes what they are typing or choosing. */
+async function refreshLive(){
+  if(!state.token || ui.modal || ui.loading || !(ui.selectedBed||ui.ppSelectedBed)) return;
+  const ae=document.activeElement; if(ae && /^(SELECT|TEXTAREA|INPUT)$/.test(ae.tagName)) return;
+  try{
+    const d=await apiCall('get-manager-today-view',{});
+    state.beds=d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
+    state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||state.workers;
+    state.activityCatalog=d.activityCatalog||state.activityCatalog;
+    state.todayById={}; state.beds.forEach(x=>{ state.todayById[x.id]=x; });
+    state.lastSync=new Date(); render();
+  }catch(e){ /* a failed background refresh is silent; Refresh button reports errors */ }
+}
+setInterval(refreshLive,30000);
+
 function modalHTML(){
   if(!ui.modal) return '';
   let inner='';
@@ -711,6 +833,10 @@ function startableActivities(bedId, hasCohortFallback){
     /* Cleanup steps are valid only while the bed is NOT verified (or already in post-harvest). A verified AVAILABLE bed is, by
      * definition, physically ready: nothing to start until a manager approves an assignment for it. */
     const st=b?(String(b.bedStatus||'').toUpperCase()||'UNVERIFIED'):'UNVERIFIED';
+    if(st==='AVAILABLE'){   /* validateActivity_ lets Activity_Domain 'Prep' run with no cohort: tillage, amending, drip install ... */
+      const prep=cat.filter(a=>String(a.domain||'')==='Prep' && !(Number(a.postHarvestSequence)>0));
+      if(prep.length) return {list:prep, why:''};
+    }
     if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Work is assigned one step at a time from the reset checklist (ACT_037–051).'};
     return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available. There is nothing to start until a manager approves a cohort assignment for it.'
                         : st==='BLOCKED' ? 'This bed is blocked. Clear the block and verify it first.'
@@ -850,7 +976,7 @@ function dispatchModal(){
 
   </div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
-  <p style="font-size:12px;color:var(--ink-soft);">Starts immediately for the worker — appears in their My Active Sessions right away.</p>
+  <p style="font-size:12px;color:var(--ink-soft);">Dispatched to the worker as Pending. Their timer starts when they tap Start.</p>
   <p style="font-size:12px;color:var(--ink-soft);">Only activities this bed's current state allows are listed.${d.hasCohort?' Post-harvest steps open in order after the cohort is terminated.':''}</p>
   <button class="btn btn-primary" ${d.activity?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Create</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
@@ -1412,14 +1538,14 @@ function ppRightHTML(){
         <div class="row"><span>Current Stage</span><span>${v.cohortId?esc((v.currentStage||'—').replace(/_/g,' ')):'Not Started'}</span></div>
         <div class="row"><span>Worker</span><span>${sess.length?esc(sess.map(s=>s.workerName).join(', ')):'None'}</span></div>
       </div>
+      ${liveTaskBlock(v,sess)}
 
       <h2 style="font-size:13px;margin:14px 0 6px;">History</h2>
       <div class="qgh" style="cursor:pointer;" onclick="togglePPHistory()"><span>${ui.ppHistoryOpen?'▾':'▸'} ${hist.length?(hist.length+' record'+(hist.length===1?'':'s')):'No history'}</span></div>
       ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history recorded for this bed.</div>`):''}
 
       <h2 style="font-size:13px;margin:14px 0 6px;">Actions</h2>
-      ${startButton({id:bedId,cohortId:v.cohortId},'New Activity')}
-      <button class="btn btn-outline" ${sess.length?'':'disabled title="No worker currently on this bed."'} onclick="openModal('reassign',{sessionId:'${sess.length?esc(sess[0].id):''}',mode:'reassign'})">Reassign worker</button>
+      ${actionsPanel(v,sess)}
       <button class="btn btn-outline" ${(ui.ppBusy||!bed)?'disabled':''} ${bed?'':'title="This bed has no BED_PLANTING_PLAN row yet — generate the plan first."'} onclick="startBedModify()">Modify Bed</button>
       <div class="note">Bed Profile above comes from BED_MASTER and always renders, whether or not this bed currently has a plan, cohort, session or history.</div>
     </div>`;
@@ -1801,8 +1927,8 @@ function buildDemoBeds(){
 }
 const demoBeds = buildDemoBeds();
 const demoSessions = [
-  { id:'S-1041', bedId:demoBeds[3].id, workerId:'W01', workerName:'Ana Prieto', activity:'Weeding', status:'ACTIVE' },
-  { id:'S-1042', bedId:demoBeds[10].id, workerId:'W02', workerName:'Ben Okafor', activity:'Transplanting', status:'PAUSED' }
+  { id:'S-1041', bedId:demoBeds[3].id, workerId:'W01', workerName:'Ana Prieto', activity:'Weeding', status:'ACTIVE', assignedTime:new Date(Date.now()-5400000).toISOString(), startTime:new Date(Date.now()-5000000).toISOString() },
+  { id:'S-1042', bedId:demoBeds[10].id, workerId:'W02', workerName:'Ben Okafor', activity:'Transplanting', status:'PAUSED', assignedTime:new Date(Date.now()-9000000).toISOString(), startTime:new Date(Date.now()-8600000).toISOString() }
 ];
 const demoExceptions = [
   { id:'EXC-0012', bedId:demoBeds[3].id, type:'PestPressure', severity:'HIGH', worker:'Ana Prieto', workerName:'Ana Prieto', notes:'Aphids on outer leaves', status:'OPEN' },
@@ -1826,11 +1952,12 @@ const demoAssign = {
     exceptionType:'NO_BLOCK_RULE', reasons:['No approved block for Onions. Add Preferred_Block to this crop on CROP_REFERENCE (e.g. B2).'] }]
 };
 const demoCatalog = [
+  ['Prep',['Tillage','Amending','PreIrrigation','DripInstall']],
   ['Planting',['Planting','DirectSeeding','Transplanting','Replanting','Thinning','Seeding']],
   ['CropCare',['Weeding','Fertilizing','IrrigationCheck','PestControl','DiseaseControl','Pruning','Trellising','Cultivation','Fertilization','Irrigation']],
   ['Harvest',['HarvestPrep','Harvest']],
   ['State',['Scouting','PestScouting','DiseaseScouting','CropInspection','MaturityInspection']]
-].flatMap(([domain,names])=>names.map(name=>({ name, domain, description:'', allowedStages:[], requiresApproval:false })));  // demo only: same shape getActivityCatalog_() returns
+].flatMap(([domain,names])=>names.map(name=>({ name, domain, description:'', allowedStages:[], requiresApproval:false }))).map((x,i)=>Object.assign(x,{id:'ACT_'+String(i+1).padStart(3,'0')}));  // demo only: same shape getActivityCatalog_() returns
 const demoSessionsByToken = {};
 let demoRejected = 0;
 async function mockBackend(action, p){
@@ -1851,7 +1978,7 @@ async function mockBackend(action, p){
     case 'get-manager-today-view':
       return ok({ activityCatalog:demoCatalog, beds:demoBeds, sessions:demoSessions, exceptions:demoExceptions, harvestReady:demoHarvestReady, queueByBed:demoQueue, workers:demoWorkers });
     case 'start-session': {
-      demoSessions.push({ id:'S-'+Math.floor(Math.random()*9000+1000), bedId:p.bedId, workerId:p.workerId, workerName:(demoWorkers.find(w=>w.workerId===p.workerId)||{}).name||p.workerId, activity:p.activity||'Task', status:'ACTIVE' });
+      demoSessions.push({ id:'S-'+Math.floor(Math.random()*9000+1000), bedId:p.bedId, workerId:p.workerId, workerName:(demoWorkers.find(w=>w.workerId===p.workerId)||{}).name||p.workerId, activity:p.activity||'Task', status:'ASSIGNED', assignedTime:new Date().toISOString(), startTime:'' });
       return ok({done:true});
     }
     case 'reassign-session': case 'close-and-new-session': {
