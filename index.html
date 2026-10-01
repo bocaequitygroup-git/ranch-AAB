@@ -121,6 +121,33 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .ma-chip{background:var(--sand);border:1px solid var(--line);border-radius:99px;font-size:11.5px;font-weight:600;padding:2px 4px 2px 10px;display:inline-flex;align-items:center;gap:4px;}
 .ma-chip button{border:none;background:none;cursor:pointer;color:var(--ink-soft);font-size:14px;line-height:1;padding:0 4px;}
 .ma-res{font-size:12px;margin:8px 0;padding:9px 11px;border-radius:9px;background:var(--sand);border:1px solid var(--line);} .ma-res .bad{color:var(--danger);font-weight:600;}
+
+.dp-hd{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;font-size:12.5px;} .dp-hd .loc{color:var(--ink-soft);font-size:11.5px;}
+.dp-box{border:1px solid var(--line);border-radius:10px;padding:9px 10px;margin-bottom:12px;background:var(--paper);}
+.dp-box>.t{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--forest);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
+.dp-crew{max-height:132px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:2px 4px;}
+.dp-tools{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;} .dp-tools button{border:1.5px solid var(--line);background:var(--paper);color:var(--forest);font-family:inherit;font-size:11.5px;font-weight:700;border-radius:8px;padding:5px 9px;cursor:pointer;}
+.dp-row{display:flex;gap:8px;align-items:flex-start;padding:7px 4px;border-bottom:1px solid var(--line);font-size:12.5px;line-height:1.35;} .dp-row:last-child{border-bottom:none;}
+.dp-row input{margin-top:2px;width:16px;height:16px;accent-color:var(--forest);flex:none;} .dp-row.off{opacity:.55;} .dp-row.on{background:#E4F1E5;border-radius:6px;}
+.dp-row .d{display:block;font-size:11px;color:var(--ink-soft);} .dp-row .st{margin-left:auto;flex:none;}
+.dp-crewline{font-size:11px;margin:3px 0 0;color:var(--ink-soft);} .dp-crewline button{border:none;background:none;color:var(--forest);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;padding:0 3px;}
+.dp-foot{position:sticky;bottom:-14px;background:var(--paper);padding:10px 0 4px;border-top:1px solid var(--line);margin-top:6px;z-index:2;}
+.btn-ok{background:var(--ok);color:#fff;} .dc-sec{margin:0 0 16px;} .dc-sec>h2{font-size:12px;margin:14px 0 8px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--forest);}
+.dc-bar{height:7px;border-radius:99px;background:var(--line);overflow:hidden;margin:4px 0 8px;} .dc-bar i{display:block;height:100%;background:var(--ok);}
+.dc-step{padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px;} .dc-step:last-child{border-bottom:none;}
+.dc-step .t{display:flex;justify-content:space-between;gap:8px;align-items:center;} .dc-step .who{margin:3px 0 0 22px;display:flex;flex-wrap:wrap;gap:4px;}
+.dc-w{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;padding:3px 0;}
+.dc-act{border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin-bottom:8px;background:var(--sand);} .dc-act .h{font-weight:700;font-size:12.5px;display:flex;justify-content:space-between;gap:6px;margin-bottom:3px;}
+.dc-mini{border:none;background:none;color:var(--forest);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;padding:2px 4px;}
+.ma-date{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:12px;} .ma-date input{padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--paper);color:var(--ink);}
+.ma-plan{padding:6px 8px 8px;overflow-y:auto;max-height:44vh;}
+.ma-pcard{border:1px solid var(--line);border-radius:9px;padding:8px 9px;margin-bottom:7px;background:var(--paper);}
+.ma-pcard.need{border-color:var(--warn);background:#FFF9EA;}
+.ma-ptop{display:flex;justify-content:space-between;gap:6px;align-items:flex-start;font-size:12.5px;font-weight:700;}
+.ma-ptop button{border:none;background:none;color:var(--ink-soft);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;}
+.ma-pcard select{width:100%;margin-top:6px;padding:7px 8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--paper);color:var(--ink);}
+.ma-bulk{padding:8px;border-bottom:1px solid var(--line);} .ma-bulk label{display:block;font-size:11px;font-weight:700;color:var(--ink-soft);margin-bottom:4px;}
+.ma-bulk select{width:100%;padding:7px 8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--paper);color:var(--ink);}
 @media (max-width:760px){ .ma-cols{grid-template-columns:1fr;} .ma-list{max-height:30vh;} }
 
 .field select{width:100%;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;background:var(--paper);color:var(--ink);}
@@ -340,9 +367,13 @@ function boardNotice(views){
 }
 
 /* ============================== DISPATCH / TRIAGE ACTIONS ============================== */
+let _assignBusy=false;
 async function startSessionFor(bedId, activity, workerId){
+  if(_assignBusy) return;   /* a double-tap used to send two identical requests -> two identical Pending tasks */
+  _assignBusy=true;
   try{ await apiCall('start-session', { bedId, activity, workerId }); toast('Task assigned.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
+  finally{ _assignBusy=false; }
 }
 async function reassignSession(sessionId, toWorkerId, note){
   try{ await apiCall('reassign-session', { sessionId, toWorkerId, note }); toast('Session reassigned.'); closeModal(); await loadToday(); }
@@ -625,9 +656,8 @@ function overviewTab(b,sess){
     ${b.plannedDob?`<div class="row"><span>DOB (planned)</span><span>${esc(b.plannedDob)}</span></div>`:''}
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>`:''}
-  ${b.cohortId?cohortActionButtons(b)+turnoverBlock(b,sess)+pendingBlock(b,true):emptyBedBlock(b,sess)}
-  ${startButton(b,'Assign Activity')}
-  ${liveTaskBlock(b,sess)}`;
+  ${b.cohortId?cohortActionButtons(b)+pendingBlock(b,true):emptyBedBlock(b,sess)}
+  ${actionsPanel(b,sess)}`;
 }
 /**
  * Manager write-back actions, gated on Cohort_Status - these call
@@ -656,7 +686,7 @@ function emptyBedBlock(b,sess){
   if(b.postHarvest&&b.postHarvest.bedLevel){
     return `<div class="card">
       <div class="row"><span>Current</span><span>No crop assigned</span></div></div>
-      ${turnoverBlock(b,sess)}${pendingBlock(b,false)}`;
+      ${pendingBlock(b,false)}`;
   }
   if(b.proposals.length){
     return `<div class="card">
@@ -784,35 +814,124 @@ function verifyCloseBlock(b){
     ${btns.join('')||'<div class="note" style="margin-top:0;">Nothing is waiting for your verification on this bed.</div>'}
     ${notes.map(n=>`<div class="note">${esc(n)}</div>`).join('')}`;
 }
-function actionsPanel(b,sess){
-  if(!state.todayById[b.id]){
-    const synced0=state.lastSync?'Updated '+state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
-    return `<div class="syncrow"><span>${esc(synced0)}</span><button onclick="loadToday()">Refresh</button></div>
-      <div class="note" style="margin-top:0;">Live data for this bed has not loaded${state.todayError?' ('+esc(state.todayError)+')':''}, so activities cannot be assigned yet. Tap Refresh.</div>`;
-  }
-  const a=actState(), r=startableActivities(b.id,!!b.cohortId), list=r.list||[];
-  const inCat=list.filter(x=>a.cat==='ALL'||actCatOf(x)===a.cat);
-  if(a.activity && !inCat.some(x=>x.name===a.activity)) a.activity='';
-  const count=k=>k==='ALL'?list.length:list.filter(x=>actCatOf(x)===k).length;
-  const seg=`<div class="seg wrap" style="margin-bottom:10px;">${ACTION_CATS.map(([k,l])=>`<button class="${a.cat===k?'active':''}" onclick="setActCat('${k}')">${esc(l)}<span class="n">${k==='POST'&&b.postHarvest?'•':count(k)}</span></button>`).join('')}</div>`;
-  const sel=inCat.find(x=>x.name===a.activity);
-  const groups={}; inCat.forEach(x=>{ const g=x.domain||'Other'; (groups[g]=groups[g]||[]).push(x); });
+/* ============ BED PROFILE = MINI DISPATCH CENTER ============
+ * 1 Required workflow  - what must happen before the bed can be AVAILABLE (lifecycle; read-only status, no assign buttons)
+ * 2 Assign work        - the manager's dispatch tool: pick activities, pick workers per activity, pick a date
+ * 3 Active work        - reality: who is doing what, and its status
+ * Model: BED x ACTIVITY x WORKER is many-to-many. One FIELD_LIVE_SESSION row = one (bed, activity, worker) assignment. */
+function sessStatusChip(s){ const t=taskStatus(s); return `<span class="chip ${t[1]}">${esc(t[0])}</span>`; }
+function schedLabel(s){ const d=s.scheduledDate; if(!d) return ''; return d===todayISO()?'Today':d; }
+/* ---------- inline dispatch sidebar state (per bed) ---------- */
+function dpS(b){ if(!ui.dp||ui.dp.bedId!==b.id) ui.dp={bedId:b.id,acts:[],workers:[],custom:{},date:todayISO(),q:'',result:null,busy:false}; return ui.dp; }
+function dpBed(){ return (state.beds||[]).find(x=>x.id===(ui.dp||{}).bedId)||{}; }
+function dpCrew(a){ const d=ui.dp; return d.custom[a]||d.workers; }
+function dpRows(b){   /* every row the manager can see for this bed, grouped by Activity_Domain */
+  const cat=state.activityCatalog||[], sess=bedSessions(b.id), p=b.postHarvest, rows=[], seen={};
+  const meta=n=>cat.find(c=>c.name===n)||{};
+  const live=n=>{ const l=sess.filter(q=>q.activity===n); return l.some(q=>['ACTIVE','PAUSED','EXCEPTION'].includes(String(q.status||'').toUpperCase()))?'IN PROGRESS':l.length?'ASSIGNED':''; };
+  if(p) (p.steps||[]).forEach(x=>{ const m=meta(x.name); seen[x.name]=1;
+    let off='', st=live(x.name)||'PENDING';
+    if(x.status==='COMPLETE'){ off='Done'; st=x.overridden?'OVERRIDDEN':'DONE'; }
+    else if(x.gate==='BUFFER'){ off='Automatic wait'; st='AUTOMATIC WAIT'; }
+    else if(x.gate==='WINDOW'&&x.status!=='OPEN'){ off='Waiting for window'; st='WAITING'; }
+    rows.push({name:x.name,id:m.id||'',domain:x.domain||m.domain||'Required workflow',desc:m.description||'',st,off,wf:true}); });
+  startableActivities(b.id,!!b.cohortId).list.filter(a=>!(Number(a.postHarvestSequence)>0)&&!seen[a.name]).forEach(a=>rows.push({name:a.name,id:a.id||'',domain:a.domain||'Other',desc:a.description||'',st:live(a.name)||'AVAILABLE',off:'',wf:false}));
+  return rows;
+}
+function dpStChip(st){ const k={'DONE':'chip-ok','OVERRIDDEN':'chip-neutral','IN PROGRESS':'chip-ok','ASSIGNED':'chip-warn','PENDING':'chip-neutral','AVAILABLE':'chip-neutral','AUTOMATIC WAIT':'chip-neutral','WAITING':'chip-neutral'}[st]||'chip-neutral'; return `<span class="chip ${k}">${esc(st.charAt(0)+st.slice(1).toLowerCase())}</span>`; }
+function dpInner(b,sess){
+  const d=dpS(b), rows=dpRows(b), sel=rows.filter(r=>!r.off), selNames=sel.map(r=>r.name), open=maOpenSet2(b.id);
+  d.acts=d.acts.filter(n=>selNames.includes(n));
+  const workers=state.workers||[];
+  const crewBox=workers.length?workers.map(w=>{ const n=workerLoad(w.workerId); return `<label class="ma-row ${d.workers.includes(w.workerId)?'on':''}" style="padding:5px 6px;"><input type="checkbox" ${d.workers.includes(w.workerId)?'checked':''} data-v="${esc(w.workerId)}" onchange="dpTogW(this.dataset.v,this.checked)"><span><b style="font-weight:700;">${esc(w.name)}</b> <span class="d" style="display:inline;">${n?n+' open':'free'}</span></span></label>`; }).join(''):'<div class="empty" style="padding:8px;">No workers are available to assign.</div>';
+  const groups={}; rows.forEach(r=>{ (groups[r.domain]=groups[r.domain]||[]).push(r); });
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
-  const opts='<option value="">Select an activity…</option>'+Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<optgroup label="${esc(g)}">${groups[g].map(x=>`<option value="${esc(x.name)}" ${a.activity===x.name?'selected':''}>${esc(actLabel(x.name))}</option>`).join('')}</optgroup>`).join('');
-  const wid=a.workerId||'';
-  const workers='<option value="">Select a worker…</option>'+(state.workers||[]).map(w=>`<option value="${esc(w.workerId)}" ${w.workerId===wid?'selected':''}>${esc(w.name)} (${esc(w.workerId)})</option>`).join('');
+  const list=Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<div class="ma-grp">${esc(g)}</div>`+groups[g].map(r=>{
+    const on=d.acts.includes(r.name), cr=dpCrew(r.name), custom=!!d.custom[r.name];
+    const crew=on?`<div class="dp-crewline">${custom?`Crew: ${cr.length?cr.map(w=>esc(maWName(w))+` <button data-a="${esc(r.name)}" data-w="${esc(w)}" onclick="dpDelCW(this.dataset.a,this.dataset.w)">×</button>`).join(', '):'<span style="color:var(--warn);">none</span>'}
+        <select data-a="${esc(r.name)}" onchange="dpAddCW(this.dataset.a,this.value)" style="font-size:11px;padding:2px;"><option value="">+ add</option>${workers.filter(w=>!cr.includes(w.workerId)).map(w=>`<option value="${esc(w.workerId)}">${esc(w.name)}</option>`).join('')}</select> <button data-a="${esc(r.name)}" onclick="dpUseDefault(this.dataset.a)">use toolbar crew</button>`
+        :`Crew: ${cr.length?cr.map(w=>esc(maWName(w))).join(', '):'<span style="color:var(--warn);">pick workers above</span>'} <button data-a="${esc(r.name)}" onclick="dpCustomize(this.dataset.a)">customize</button>`}</div>`:'';
+    return `<div class="dp-row ${r.off?'off':''} ${on?'on':''}"><input type="checkbox" ${on?'checked':''} ${r.off?'disabled':''} data-v="${esc(r.name)}" onchange="dpTogA(this.dataset.v,this.checked)">
+      <div style="flex:1;min-width:0;"><b>${esc(r.name)}</b>${r.id?` (${esc(r.id)})`:''}${r.desc?`<span class="d">${esc(r.desc)}</span>`:''}${crew}</div><span class="st">${dpStChip(r.st)}</span></div>`; }).join('')).join('');
+  let total=0,dup=0,missing=0; d.acts.forEach(a=>{ const cr=dpCrew(a); if(!cr.length) missing++; cr.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
+  const fresh=total-dup, ok=d.acts.length&&!missing&&fresh>0&&!d.busy;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} dispatched.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(f.errorCode)}</div>`).join('')}</div>`;
+  const ph=b.postHarvest, remaining=ph?(ph.steps||[]).filter(x=>x.status!=='COMPLETE').length:0;
+  const verify=ph?`<button class="btn btn-ok" ${ph.readyToVerify?'':'disabled'} onclick="doVerifyTurnover('${esc(ph.bedLevel?'BED:'+b.id:b.cohortId)}','${esc(b.id)}')">Verify Bed Ready &amp; Release to Available</button>${ph.readyToVerify?'':`<div class="note" style="margin:-2px 0 6px;">${remaining} required step${remaining===1?'':'s'} still to complete.</div>`}`:'';
+  const done=(ph?(ph.steps||[]).filter(x=>x.status==='COMPLETE').length:0), tot=ph?(ph.stepCount||(ph.steps||[]).length):0;
+  return `
+  <div class="dp-box"><div class="t"><span>Assign worker(s)</span><span class="qsub" style="text-transform:none;letter-spacing:0;">${d.workers.length} selected</span></div>
+    <div class="dp-crew">${crewBox}</div>
+    <div class="dp-tools"><button onclick="dpAllW(true)">Select all workers</button><button onclick="dpClearW()">Clear workers</button></div>
+    <div class="ma-date" style="margin-top:8px;"><b>Date</b><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(1)">Tomorrow</button><input type="date" id="dp-date" value="${esc(d.date)}" min="${todayISO()}" onchange="ui.dp.date=this.value||todayISO()"></div></div>
+  <div class="dp-box"><div class="t"><span>Select activities to dispatch (${d.acts.length} selected)</span></div>
+    ${ph?`<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px;">Required workflow · ${done} / ${tot} complete</div><div class="dc-bar"><i style="width:${tot?Math.round(done/tot*100):0}%"></i></div>`:''}
+    <div class="dp-tools" style="margin:0 0 4px;"><button onclick="dpAllA()">Select all tasks</button><button onclick="dpClearA()">Clear selection</button></div>
+    ${list||`<div class="note" style="margin-top:0;">${esc(startableActivities(b.id,!!b.cohortId).why||'No activity can be assigned on this bed right now.')}</div>`}
+    <div class="note" style="margin-bottom:0;">Workers you pick above apply to every ticked activity. Use "customize" on a row to give that activity a different crew.</div></div>
+  ${activeWorkSection(b,sess)}
+  <div class="dp-foot">${res}${missing?`<div class="note" style="margin:0 0 6px;color:var(--warn);font-weight:600;">${missing} selected activit${missing===1?'y has':'ies have'} no worker.</div>`:''}
+    <button class="btn btn-primary" ${ok?'':'disabled'} onclick="dpSubmit()">${d.busy?'Dispatching…':`Dispatch selected tasks (${d.acts.length})${fresh&&fresh!==d.acts.length?' · '+fresh+' assignments':''}`}</button>
+    ${dup?`<div class="note" style="margin:-2px 0 6px;">${dup} already open on this bed, will be skipped.</div>`:''}
+    ${verify||verifyCloseBlock(b)}</div>`;
+}
+function maOpenSet2(bedId){ const o={}; bedSessions(bedId).forEach(s=>{ o[String(s.workerId||'').toUpperCase()+'|'+s.activity]=1; }); return o; }
+/* Partial redraw so ticking a box never resets the sidebar's scroll position. */
+function dpRefresh(){ const root=document.getElementById('dp-root'), b=dpBed(); if(!root||!b.id) return render(); const pb=root.closest('.panelbody')||root.parentElement; const t=pb?pb.scrollTop:0; root.innerHTML=dpInner(b,bedSessions(b.id)); if(pb) pb.scrollTop=t; }
+function dpTogW(id,on){ const d=ui.dp,i=d.workers.indexOf(id); if(on&&i<0) d.workers.push(id); if(!on&&i>=0) d.workers.splice(i,1); d.result=null; dpRefresh(); }
+function dpAllW(){ ui.dp.workers=(state.workers||[]).map(w=>w.workerId); ui.dp.result=null; dpRefresh(); }
+function dpClearW(){ ui.dp.workers=[]; ui.dp.result=null; dpRefresh(); }
+function dpTogA(n,on){ const d=ui.dp,i=d.acts.indexOf(n); if(on&&i<0) d.acts.push(n); if(!on&&i>=0){ d.acts.splice(i,1); delete d.custom[n]; } d.result=null; dpRefresh(); }
+function dpAllA(){ const b=dpBed(); ui.dp.acts=dpRows(b).filter(r=>!r.off).map(r=>r.name); ui.dp.result=null; dpRefresh(); }
+function dpClearA(){ ui.dp.acts=[]; ui.dp.custom={}; ui.dp.result=null; dpRefresh(); }
+function dpCustomize(a){ ui.dp.custom[a]=ui.dp.workers.slice(); dpRefresh(); }
+function dpUseDefault(a){ delete ui.dp.custom[a]; dpRefresh(); }
+function dpAddCW(a,id){ if(!id) return; const l=ui.dp.custom[a]=ui.dp.custom[a]||[]; if(!l.includes(id)) l.push(id); dpRefresh(); }
+function dpDelCW(a,id){ const l=ui.dp.custom[a]||[], i=l.indexOf(id); if(i>=0) l.splice(i,1); dpRefresh(); }
+function dpDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); ui.dp.date=v; const e=document.getElementById('dp-date'); if(e) e.value=v; }
+async function dpSubmit(){
+  const d=ui.dp; if(d.busy||!d.acts.length) return;
+  if(d.acts.some(a=>!dpCrew(a).length)){ toast('Choose a worker for every selected activity.'); return; }
+  d.busy=true; dpRefresh();
+  try{
+    const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments:d.acts.map(a=>({activity:a,workerIds:dpCrew(a).slice()})), scheduledDate:d.date }, 60000);
+    d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] };
+    if(d.result.created.length) toast(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' dispatched.');
+    const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
+    d.acts=d.acts.filter(a=>bad[a]); d.custom=d.acts.reduce((m,a)=>{ m[a]=bad[a]; return m; },{});
+    d.busy=false; await loadToday();
+  }catch(e){ d.busy=false; toast(e.message); }
+  dpRefresh();
+}
+function setAwView(v){ ui.awView=v; render(); }
+function activeWorkSection(b,sess){
+  const view=ui.awView||'activity';
+  const seg=`<div class="seg" style="margin-bottom:8px;"><button class="${view==='activity'?'active':''}" onclick="setAwView('activity')">By activity</button><button class="${view==='worker'?'active':''}" onclick="setAwView('worker')">By worker</button></div>`;
   let body;
-  if(a.cat==='POST' && b.postHarvest) body=turnoverBlock(b,sess);   /* controlled sequence: only the next required step, never a free pick */
-  else if(a.cat==='POST' && !inCat.length) body=`<div class="note" style="margin-top:0;">Post-harvest steps open after the cohort is terminated (ACT_053), or when a bed is being reset. ${esc(r.why||'')}</div>`;
-  else if(!inCat.length) body=`<div class="note" style="margin-top:0;">${esc(r.why||'No activity in this category is allowed on this bed right now.')}</div>`;
-  else {
-    const onBed=sess.length;
-    body=`<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:${b.cohortId?'true':'false'},cat:'${a.cat==='POST'?'ALL':a.cat}'})">Assign activities &amp; workers…</button>
-    <div class="note" style="margin-top:0;">${inCat.length} activit${inCat.length===1?'y is':'ies are'} available${a.cat==='ALL'?'':' in this category'}. Pick several activities and one or more workers in one go.${onBed?` ${onBed} task${onBed===1?'':'s'} already open on this bed.`:''}</div>`;
+  if(!sess.length) body=`<div class="empty" style="padding:10px 0;">No task is assigned or running on this bed.</div>`;
+  else if(view==='activity'){
+    const g={}; sess.forEach(q=>{ (g[q.activity]=g[q.activity]||[]).push(q); });
+    body=Object.keys(g).map(a=>{ const l=g[a], live=l.some(q=>['ACTIVE','PAUSED','EXCEPTION'].includes(String(q.status||'').toUpperCase()));
+      return `<div class="dc-act"><div class="h"><span>${esc(actLabel(a,l[0]))}</span><span class="chip ${live?'chip-ok':'chip-warn'}">${live?'In progress':'Assigned'}</span></div>
+        ${l.map(q=>`<div class="dc-w"><span>✓ ${esc(q.workerName||q.workerId)}${schedLabel(q)||q.assignedTime?` <span class="qsub">· ${esc(schedLabel(q)||'')}${q.assignedTime?' dispatched '+esc(fmtTs(q.assignedTime)):''}</span>`:''}</span><span>${sessStatusChip(q)}
+          <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'reassign'})">Reassign</button><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'close'})">Close</button></span></div>`).join('')}</div>`; }).join('');
+  } else {
+    const ids=[...new Set(sess.map(q=>q.workerId))];
+    body=ids.map(id=>{ const all=(state.sessions||[]).filter(q=>q.workerId===id&&String(q.status||'').toUpperCase()!=='COMPLETED');
+      return `<div class="dc-act"><div class="h"><span>${esc(maWName(id))}</span><span class="qsub">${all.length} open task${all.length===1?'':'s'}</span></div>
+        ${all.map(q=>`<div class="dc-w"><span>${q.bedId===b.id?'<b>':''}${esc(q.bedId)} ${esc(q.activity)}${q.bedId===b.id?'</b>':''}</span>${sessStatusChip(q)}</div>`).join('')}</div>`; }).join('');
   }
+  const recent=((b&&b.activityLog)||[]).slice(0,3).map(r=>`<div class="row"><span>${esc(actLabel(r.taskType||r.activityName||''))} · ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
+  return `<div class="dp-box"><div class="t"><span>Active dispatches on ${esc(b.id)}</span></div>${sess.length?seg:''}${body}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}</div>`;
+}
+function actionsPanel(b,sess){
   const synced=state.lastSync?'Updated '+state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
-  return `<div class="syncrow"><span>${esc(synced)}</span><button onclick="loadToday()">Refresh</button></div>
-    ${seg}${body}${verifyCloseBlock(b)}`;
+  const sync=`<div class="syncrow"><span>${esc(synced)}</span><button onclick="loadToday()">Refresh</button></div>`;
+  if(!state.todayById[b.id]) return `${sync}<div class="note" style="margin-top:0;">Live data for this bed has not loaded${state.todayError?' ('+esc(state.todayError)+')':''}, so work cannot be dispatched yet. Tap Refresh.</div>`;
+  dpS(b);
+  const st=String(b.bedStatus||'').toUpperCase()||'UNVERIFIED';
+  const hd=`<div class="dp-hd"><div><b>Bed ${esc(b.id)}</b><div class="loc">${esc(b.blockId||'')}${b.locationType?' · '+esc(String(b.locationType))+' bed':''}</div></div><span class="chip chip-warn">${esc(st)}</span></div>`;
+  return sync+hd+`<div id="dp-root">${dpInner(b,sess)}</div>`;
 }
 /* Monitor progress: while a bed is open, quietly re-read the live data every 30s. Skipped while a modal is open or the
  * manager is mid-edit in a field, so a refresh never wipes what they are typing or choosing. */
@@ -851,7 +970,7 @@ function modalHTML(){
  * (getActivityCatalog_(), ActivityEngine.gs). There is no hard-coded activity list in this file: if the
  * backend sends no catalog the picker says so instead of showing a stale copy. The server
  * (validateActivity_) remains the final judge of every dispatch. */
-const ACTIVITY_GROUP_ORDER=['Prep','Planting','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
+const ACTIVITY_GROUP_ORDER=['Required workflow','Prep','Planting','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
 /* 'HARVESTCOMPLETE' (buildTodayView_ upper-cases it), 'HarvestComplete' (sheet) and 'PRE_PLANTING' all compare equal. */
 function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); }
 /* WHAT A BED MAY START — decided by the bed's own state, never the whole catalogue (server validateActivity_ stays the judge).
@@ -1016,88 +1135,115 @@ function dispatchModal(){
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 
-/* ==================== MULTI-ASSIGN (several activities x several workers, one bed) ====================
- * Server: start-sessions -> managerStartActivities() (ActivityEngine.gs). Every activity x worker pair becomes its own
- * ASSIGNED session, each validated by validateActivity_(). Post-harvest turnover is NOT here: it stays a one-step-at-a-time
- * controlled sequence (turnoverBlock / fixedDispatchModal). */
-function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.workers) d.workers=[]; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(d.wq==null) d.wq=''; return d; }
-function maList(){ const d=maD(); return startableActivities(d.bedId,d.hasCohort).list.filter(a=>!(Number(a.postHarvestSequence)>0)); }
+/* ==================== MULTI-ASSIGN (pick several activities; EACH gets its own worker(s)) ====================
+ * Server: start-sessions {bedId, assignments:[{activity, workerIds:[...]}]} -> managerStartActivities() (ActivityEngine.gs).
+ * Every (activity, worker) pair is its own ASSIGNED session validated by validateActivity_(). Post-harvest turnover is NOT here:
+ * it stays a controlled one-step-at-a-time sequence (turnoverBlock / fixedDispatchModal). */
+function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
+/* Required-workflow steps this bed can be given right now (any order): not complete, not an automatic buffer, window open. */
+function wfAssignable(b){ const p=b&&b.postHarvest; return p?(p.steps||[]).map((x,i)=>Object.assign({idx:i},x)).filter(x=>x.status!=='COMPLETE'&&x.gate!=='BUFFER'&&(x.gate!=='WINDOW'||x.status==='OPEN')):[]; }
+function dispatchListFor(bedId,hasCohort){
+  const b=(state.beds||[]).find(x=>x.id===bedId)||{}, cat=state.activityCatalog||[];
+  const wf=wfAssignable(b).map(x=>{ const c=cat.find(y=>y.name===x.name)||{}; return {id:c.id||'',name:x.name,domain:'Required workflow',description:c.description||'',postHarvestSequence:x.idx+1,wf:true}; });
+  const reg=startableActivities(bedId,hasCohort).list.filter(a=>!(Number(a.postHarvestSequence)>0));
+  return wf.concat(reg);
+}
+function maList(){ const d=maD(); return dispatchListFor(d.bedId,d.hasCohort); }
 function maVisible(){ const d=maD(), q=d.q.trim().toLowerCase();
   return maList().filter(a=>(d.cat==='ALL'||actCatOf(a)===d.cat) && (!q||(a.name+' '+(a.id||'')+' '+(a.description||'')+' '+(a.domain||'')).toLowerCase().includes(q))); }
-function maOpenPairs(){ const d=maD(), o={}; bedSessions(d.bedId).forEach(s=>{ o[String(s.workerId||'').toUpperCase()+'|'+s.activity]=1; }); return o; }
-function maActOnBed(name){ return bedSessions(maD().bedId).filter(s=>s.activity===name); }
+function maOpenSet(){ const o={}; bedSessions(maD().bedId).forEach(s=>{ o[String(s.workerId||'').toUpperCase()+'|'+s.activity]=1; }); return o; }
+function maWName(id){ return ((state.workers||[]).find(w=>w.workerId===id)||{}).name||id; }
 function workerLoad(id){ return (state.sessions||[]).filter(s=>s.workerId===id && String(s.status||'').toUpperCase()!=='COMPLETED').length; }
-function maToggle(kind,val,on){ const d=maD(), a=d[kind]; const i=a.indexOf(val); if(on&&i<0) a.push(val); if(!on&&i>=0) a.splice(i,1); d.result=null; maRefresh(); }
-function maSetCat(k){ const d=maD(); d.cat=k; maRefresh(); }
+function maToggleAct(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } d.result=null; maRefresh(); }
+function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0){ d.acts.push(a.name); d.map[a.name]=d.map[a.name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[a.name]; } }); d.result=null; maRefresh(); }
+function maAddWorker(act,id){ if(!id) return; const l=maD().map[act]=maD().map[act]||[]; if(!l.includes(id)) l.push(id); maD().result=null; maRefresh(); }
+function maDelWorker(act,id){ const l=maD().map[act]||[], i=l.indexOf(id); if(i>=0) l.splice(i,1); maD().result=null; maRefresh(); }
+function maBulkAdd(id){ if(!id) return; const d=maD(); d.acts.forEach(a=>{ const l=d.map[a]=d.map[a]||[]; if(!l.includes(id)) l.push(id); }); d.result=null; maRefresh(); }
+function maSetCat(k){ maD().cat=k; maRefresh(); }
 function maSearch(v){ maD().q=v; maRefresh(); }
-function maWSearch(v){ maD().wq=v; maRefresh(); }
-function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0) d.acts.push(a.name); if(!on&&i>=0) d.acts.splice(i,1); }); d.result=null; maRefresh(); }
-function maWorkersVisible(){ const q=maD().wq.trim().toLowerCase(); return (state.workers||[]).filter(w=>!q||(w.name+' '+w.workerId).toLowerCase().includes(q)); }
-function maSelectWorkers(on){ const d=maD(); maWorkersVisible().forEach(w=>{ const i=d.workers.indexOf(w.workerId); if(on&&i<0) d.workers.push(w.workerId); if(!on&&i>=0) d.workers.splice(i,1); }); d.result=null; maRefresh(); }
-function maClear(){ const d=maD(); d.acts=[]; d.workers=[]; d.result=null; maRefresh(); }
+function maClear(){ const d=maD(); d.acts=[]; d.map={}; d.result=null; maRefresh(); }
+function maWorkerOpts(act,placeholder){
+  const open=maOpenSet(), have=(maD().map[act]||[]);
+  return `<option value="">${esc(placeholder)}</option>`+(state.workers||[]).filter(w=>!have.includes(w.workerId)).map(w=>{ const n=workerLoad(w.workerId), dup=act&&open[String(w.workerId).toUpperCase()+'|'+act];
+    return `<option value="${esc(w.workerId)}">${esc(w.name)} (${esc(w.workerId)}) · ${n?n+' open':'free'}${dup?' · already has this':''}</option>`; }).join('');
+}
 function maRowsActs(){
   const d=maD(), vis=maVisible(), groups={}; vis.forEach(a=>{ (groups[a.domain||'Other']=groups[a.domain||'Other']||[]).push(a); });
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
   if(!vis.length) return `<div class="empty">${maList().length?'No activity matches this filter.':esc(startableActivities(d.bedId,d.hasCohort).why||'No activity is allowed on this bed right now.')}</div>`;
   return Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<div class="ma-grp">${esc(g)}</div>`+groups[g].map(a=>{
-    const on=d.acts.includes(a.name), live=maActOnBed(a.name).length;
-    return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="maToggle('acts',this.dataset.v,this.checked)" data-v="${esc(a.name)}"><span><b style="font-weight:700;">${esc(actLabel(a.name))}</b>${a.description?`<span class="d">${esc(a.description)}</span>`:''}</span>${live?`<span class="r">${live} open</span>`:''}</label>`; }).join('')).join('');
+    const on=d.acts.includes(a.name), live=bedSessions(d.bedId).filter(s=>s.activity===a.name).length;
+    return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="maToggleAct(this.dataset.v,this.checked)" data-v="${esc(a.name)}"><span><b style="font-weight:700;">${esc(actLabel(a.name))}</b>${a.description?`<span class="d">${esc(a.description)}</span>`:''}</span>${live?`<span class="r">${live} open</span>`:''}</label>`; }).join('')).join('');
 }
-function maRowsWorkers(){
-  const d=maD(), vis=maWorkersVisible();
-  if(!(state.workers||[]).length) return '<div class="empty">No workers are available to assign.</div>';
-  if(!vis.length) return '<div class="empty">No worker matches.</div>';
-  return vis.map(w=>{ const on=d.workers.includes(w.workerId), n=workerLoad(w.workerId);
-    return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="maToggle('workers',this.dataset.v,this.checked)" data-v="${esc(w.workerId)}"><span><b style="font-weight:700;">${esc(w.name)}</b><span class="d">${esc(w.workerId)}</span></span><span class="r">${n?n+' open task'+(n===1?'':'s'):'free'}</span></label>`; }).join('');
+function maPlanHTML(){
+  const d=maD();
+  if(!d.acts.length) return `<div class="empty">Tick activities on the left. Each one appears here so you can choose who does it.</div>`;
+  const open=maOpenSet();
+  const bulk=d.acts.length>1?`<div class="ma-bulk"><label>Shortcut: add one worker to ALL ${d.acts.length} selected activities</label><select onchange="maBulkAdd(this.value);this.value=''">${maWorkerOpts('', 'Choose worker…')}</select></div>`:'';
+  const cards=d.acts.map(a=>{ const ws=d.map[a]||[];
+    return `<div class="ma-pcard ${ws.length?'':'need'}"><div class="ma-ptop"><span>${esc(actLabel(a))}</span><button title="Remove activity" onclick="maToggleAct(this.dataset.v,false)" data-v="${esc(a)}">×</button></div>
+      ${ws.length?`<div class="ma-chips" style="margin:6px 0 0;">${ws.map(w=>`<span class="ma-chip" style="background:#E4F1E5;">${esc(maWName(w))}${open[String(w).toUpperCase()+'|'+a]?' <span style="color:var(--warn);font-size:10.5px;">(already open)</span>':''}<button title="Remove" onclick="maDelWorker(this.dataset.a,this.dataset.w)" data-a="${esc(a)}" data-w="${esc(w)}">×</button></span>`).join('')}</div>`:`<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">No worker yet</div>`}
+      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select></div>`; }).join('');
+  return bulk+`<div class="ma-plan" style="padding-top:8px;">${cards}</div>`;
 }
 function maCatTabs(){ const d=maD(), list=maList(), cnt=k=>k==='ALL'?list.length:list.filter(a=>actCatOf(a)===k).length;
-  return ACTION_CATS.filter(([k])=>k!=='POST').filter(([k])=>k==='ALL'||cnt(k)>0).map(([k,l])=>`<button class="${d.cat===k?'active':''}" onclick="maSetCat('${k}')">${esc(l)}<span class="n">${cnt(k)}</span></button>`).join(''); }
+  return ACTION_CATS.filter(([k])=>k==='ALL'||cnt(k)>0).map(([k,l])=>`<button class="${d.cat===k?'active':''}" onclick="maSetCat('${k}')">${esc(l)}<span class="n">${cnt(k)}</span></button>`).join(''); }
+function maCounts(){
+  const d=maD(), open=maOpenSet(); let total=0, dup=0, missing=0;
+  d.acts.forEach(a=>{ const ws=d.map[a]||[]; if(!ws.length) missing++; ws.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
+  return {total,dup,missing,fresh:total-dup};
+}
 function maFootHTML(){
-  const d=maD(), open=maOpenPairs(); let dup=0; d.acts.forEach(a=>d.workers.forEach(w=>{ if(open[String(w).toUpperCase()+'|'+a]) dup++; }));
-  const total=d.acts.length*d.workers.length, fresh=total-dup, wname=id=>((state.workers||[]).find(w=>w.workerId===id)||{}).name||id;
-  const chips=[...d.acts.map(a=>`<span class="ma-chip">${esc(a)}<button title="Remove" onclick="maToggle('acts',this.dataset.v,false)" data-v="${esc(a)}">×</button></span>`),
-               ...d.workers.map(w=>`<span class="ma-chip" style="background:#E4F1E5;">${esc(wname(w))}<button title="Remove" onclick="maToggle('workers',this.dataset.v,false)" data-v="${esc(w)}">×</button></span>`)].join('');
-  const sum=!total?`<span style="color:var(--ink-soft);">Tick one or more activities and one or more workers.</span>`
-    :`<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} × <b>${d.workers.length}</b> worker${d.workers.length===1?'':'s'} = <b>${fresh}</b> task${fresh===1?'':'s'} to create${dup?` <span style="color:var(--warn);">(${dup} already open on this bed, will be skipped)</span>`:''}`;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(wname(f.workerId))}: ${esc(f.errorCode)}</div>`).join('')}</div>`;
-  return `${chips?`<div class="ma-chips">${chips}</div>`:''}<div class="ma-sum">${sum}</div>${res}
-    <div class="qbtns"><button class="btn btn-primary" ${fresh>0&&!d.busy?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'Assigning…':(fresh>0?`Assign ${fresh} task${fresh===1?'':'s'}`:'Assign')}</button>
+  const d=maD(), c=maCounts();
+  const sum=!d.acts.length?`<span style="color:var(--ink-soft);">Pick the activities, then choose who does each one.</span>`
+    : c.missing?`<span style="color:var(--warn);font-weight:600;">${c.missing} selected activit${c.missing===1?'y has':'ies have'} no worker yet.</span> Choose a worker for each, or remove it.`
+    : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(f.errorCode)}</div>`).join('')}</div>`;
+  const ok=d.acts.length&&!c.missing&&c.fresh>0&&!d.busy;
+  return `<div class="ma-sum">${sum}</div>${res}
+    <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
     <button class="btn btn-outline" style="width:auto;padding:11px 16px;" onclick="maClear()">Clear</button>
     <button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
-    <div class="note" style="margin:6px 0 0;">Each task shows as Pending until that worker taps Start. Server rules still apply to every pair.</div>`;
+    <div class="note" style="margin:6px 0 0;">Each task shows as Pending until that worker taps Start. Server rules still apply to every task.</div>`;
 }
-/* Partial re-render: keeps focus in the search boxes and the scroll position of both lists. */
+/* Partial re-render: keeps focus in the search box and the scroll position of both columns. */
 function maRefresh(){
   const g=id=>document.getElementById(id); if(!g('ma-acts')) return render();
   const keep=(el,fn)=>{ const t=el.scrollTop; fn(); el.scrollTop=t; };
-  keep(g('ma-acts'),()=>{ g('ma-acts').innerHTML=maRowsActs(); }); keep(g('ma-workers'),()=>{ g('ma-workers').innerHTML=maRowsWorkers(); });
-  g('ma-cats').innerHTML=maCatTabs(); g('ma-foot').innerHTML=maFootHTML();
+  keep(g('ma-acts'),()=>{ g('ma-acts').innerHTML=maRowsActs(); }); keep(g('ma-planwrap'),()=>{ g('ma-planwrap').innerHTML=maPlanHTML(); });
+  g('ma-cats').innerHTML=maCatTabs(); g('ma-foot').innerHTML=maFootHTML(); const n=g('ma-n'); if(n) n.textContent=maD().acts.length;
 }
 function multiAssignModal(){
   const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId)||{};
   return `<div class="ma-head"><h2 style="font-size:16px;margin:0;">Assign activities · Bed ${esc(d.bedId)}</h2><span class="qsub">${esc(b.cropName||'')}${b.currentStage?' · '+esc(b.currentStage):''}</span></div>
   <div class="ma-cols">
-    <div class="ma-col"><div class="ma-colhead"><h3>1 · Activities</h3>
+    <div class="ma-col"><div class="ma-colhead"><h3>1 · Pick activities</h3>
       <div class="seg wrap" id="ma-cats">${maCatTabs()}</div>
       <input class="ma-search" type="search" placeholder="Search activities…" value="${esc(d.q)}" oninput="maSearch(this.value)"></div>
       <div class="ma-tools"><button onclick="maSelectVisible(true)">Select all shown</button><button onclick="maSelectVisible(false)">Deselect shown</button></div>
       <div class="ma-list" id="ma-acts">${maRowsActs()}</div></div>
-    <div class="ma-col"><div class="ma-colhead"><h3>2 · Workers</h3>
-      <input class="ma-search" type="search" placeholder="Search workers…" value="${esc(d.wq)}" oninput="maWSearch(this.value)"></div>
-      <div class="ma-tools"><button onclick="maSelectWorkers(true)">Select all shown</button><button onclick="maSelectWorkers(false)">Deselect shown</button></div>
-      <div class="ma-list" id="ma-workers">${maRowsWorkers()}</div></div>
+    <div class="ma-col"><div class="ma-colhead"><h3>2 · Choose who does each (<span id="ma-n">${d.acts.length}</span>)</h3></div>
+      <div id="ma-planwrap" style="overflow-y:auto;max-height:52vh;">${maPlanHTML()}</div></div>
   </div>
+  <div class="ma-date"><b>Schedule</b>
+    <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(0)">Today</button>
+    <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(1)">Tomorrow</button>
+    <input type="date" id="ma-date" value="${esc(d.date)}" min="${todayISO()}" onchange="maD().date=this.value||todayISO()"></div>
   <div class="ma-foot" id="ma-foot">${maFootHTML()}</div>`;
 }
+function maSetDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; }
 async function submitMultiAssign(){
-  const d=maD(); if(d.busy||!d.acts.length||!d.workers.length) return;
+  const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||!c.fresh) return;
   d.busy=true; maRefresh();
   try{
-    const r=await apiCall('start-sessions',{ bedId:d.bedId, activities:d.acts.slice(), workerIds:d.workers.slice() }, 60000);
+    const assignments=d.acts.map(a=>({ activity:a, workerIds:(d.map[a]||[]).slice() }));
+    const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments, scheduledDate:d.date }, 60000);
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] };
     if(d.result.created.length) toast(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' assigned.');
-    /* keep failed pairs' activities/workers selected so the manager can adjust; clear what succeeded */
-    if(!d.result.failed.length){ d.acts=[]; d.workers=[]; }
+    /* keep only pairs that FAILED so the manager can adjust them; drop everything that went through or was already open */
+    const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
+    d.acts=d.acts.filter(a=>bad[a]); d.map=d.acts.reduce((m,a)=>{ m[a]=bad[a]; return m; },{});
     d.busy=false; await loadToday(); maRefresh();
   }catch(e){ d.busy=false; toast(e.message); maRefresh(); }
 }
@@ -1629,7 +1775,6 @@ function ppRightHTML(){
         ${avail==='UNVERIFIED'?`<div class="note">No one has verified this bed is physically ready (empty, cleared, sanity-checked). It cannot be assigned until you verify it. It becomes Available only after its reset sequence (ACT_037–051) is completed or overridden and you verify it.</div>
         `:''}
       </div>
-      ${v.postHarvest?turnoverBlock(v,sess):''}
 
       <h2 style="font-size:13px;margin:14px 0 6px;">Planning${bed&&stg.staged?' <span title="Locked until the bed is released and the assignment is approved" style="font-weight:400;">🔒</span>':''}</h2>
       <div class="card">${bed ? `
@@ -1658,13 +1803,12 @@ function ppRightHTML(){
         <div class="row"><span>Current Stage</span><span>${v.cohortId?esc((v.currentStage||'—').replace(/_/g,' ')):'Not Started'}</span></div>
         <div class="row"><span>Worker</span><span>${sess.length?esc(sess.map(s=>s.workerName).join(', ')):'None'}</span></div>
       </div>
-      ${liveTaskBlock(v,sess)}
 
       <h2 style="font-size:13px;margin:14px 0 6px;">History</h2>
       <div class="qgh" style="cursor:pointer;" onclick="togglePPHistory()"><span>${ui.ppHistoryOpen?'▾':'▸'} ${hist.length?(hist.length+' record'+(hist.length===1?'':'s')):'No history'}</span></div>
       ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history recorded for this bed.</div>`):''}
 
-      <h2 style="font-size:13px;margin:14px 0 6px;">Actions</h2>
+      <h2 style="font-size:13px;margin:14px 0 6px;">Bed dispatch</h2>
       ${actionsPanel(v,sess)}
       <button class="btn btn-outline" ${(ui.ppBusy||!bed)?'disabled':''} ${bed?'':'title="This bed has no BED_PLANTING_PLAN row yet — generate the plan first."'} onclick="startBedModify()">Modify Bed</button>
       <div class="note">Bed Profile above comes from BED_MASTER and always renders, whether or not this bed currently has a plan, cohort, session or history.</div>
