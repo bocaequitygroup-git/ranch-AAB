@@ -750,7 +750,8 @@ function plannerActions(bedId,v,pb,sess){
       <div class="row"><span>Worker</span><span>${esc(s.workerName||'')}${s.workerId?' · '+esc(s.workerId):''}</span></div>
       ${(s.startedAt||s.startTime)?`<div class="row"><span>Started</span><span>${esc(s.startedAt||s.startTime)}</span></div>`:''}</div>`).join('')}`:'';
   if(!(state.activityCatalog||[]).length)
-    return `${live}<div class="note">The activity list has not loaded from the server.${state.todayError?' Reason: '+esc(state.todayError):''}</div><button class="btn btn-outline" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Loading…':'Retry loading activities'}</button>`;
+    return `${live}<div class="note">The activity list has not loaded from the server.${state.todayError?' Reason: '+esc(state.todayError):''}
+      <div style="margin-top:4px;font-size:11px;">Check · build 4 · start-up data: ${state.todayError?'failed':((state.beds||[]).length?'loaded ('+state.beds.length+' beds)':'not received')} · activities: ${(state.activityCatalog||[]).length} · workers: ${(state.workers||[]).length}</div></div><button class="btn btn-outline" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Loading…':'Retry loading activities'}</button>`;
   const r=startableActivities(bedId,!!v.cohortId,st);
   if(!r.list.length) return `${live}<div class="note">${esc(r.why)}</div>`;
   const d=ui.ppAct||{}, domains=[...new Set(r.list.map(a=>a.domain||'Other'))];
