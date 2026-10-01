@@ -598,8 +598,8 @@ function overviewTab(b,sess){
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>`:''}
   ${b.cohortId?cohortActionButtons(b)+turnoverBlock(b,sess)+pendingBlock(b,true):emptyBedBlock(b,sess)}
-  ${liveTaskBlock(b,sess)}
-  ${sess.length?'':startButton(b,'Start session on behalf of worker')}`;
+  ${startButton(b,'Assign Activity')}
+  ${liveTaskBlock(b,sess)}`;
 }
 /**
  * Manager write-back actions, gated on Cohort_Status - these call
@@ -694,11 +694,11 @@ function actCatOf(a){
 function actState(){ if(!ui.act) ui.act={cat:'ALL',activity:'',workerId:''}; return ui.act; }
 function setActCat(k){ const a=actState(); a.cat=k; a.activity=''; render(); }
 function setActActivity(n){ actState().activity=n; render(); }
-function setActWorker(id){ actState().workerId=id; }
+function setActWorker(id){ actState().workerId=id; render(); }
 async function assignTask(bedId){
-  const a=actState(), w=a.workerId||(state.workers[0]||{}).workerId;
+  const a=actState(), w=a.workerId;
   if(!a.activity){ toast('Choose an activity first.'); return; }
-  if(!w){ toast('No workers are available to assign.'); return; }
+  if(!w){ toast(state.workers.length?'Choose a worker first.':'No workers are available to assign.'); return; }
   const act=a.activity; a.activity='';
   await startSessionFor(bedId, act, w);
 }
@@ -766,8 +766,8 @@ function actionsPanel(b,sess){
   const groups={}; inCat.forEach(x=>{ const g=x.domain||'Other'; (groups[g]=groups[g]||[]).push(x); });
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
   const opts='<option value="">Select an activity…</option>'+Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<optgroup label="${esc(g)}">${groups[g].map(x=>`<option value="${esc(x.name)}" ${a.activity===x.name?'selected':''}>${esc(actLabel(x.name))}</option>`).join('')}</optgroup>`).join('');
-  const wid=a.workerId||((state.workers[0]||{}).workerId)||'';
-  const workers=(state.workers||[]).map(w=>`<option value="${esc(w.workerId)}" ${w.workerId===wid?'selected':''}>${esc(w.name)} (${esc(w.workerId)})</option>`).join('');
+  const wid=a.workerId||'';
+  const workers='<option value="">Select a worker…</option>'+(state.workers||[]).map(w=>`<option value="${esc(w.workerId)}" ${w.workerId===wid?'selected':''}>${esc(w.name)} (${esc(w.workerId)})</option>`).join('');
   let body;
   if(a.cat==='POST' && b.postHarvest) body=turnoverBlock(b,sess);   /* controlled sequence: only the next required step, never a free pick */
   else if(a.cat==='POST' && !inCat.length) body=`<div class="note" style="margin-top:0;">Post-harvest steps open after the cohort is terminated (ACT_053), or when a bed is being reset. ${esc(r.why||'')}</div>`;
@@ -775,7 +775,7 @@ function actionsPanel(b,sess){
   else body=`<div class="field"><label>Activity</label><select onchange="setActActivity(this.value)">${opts}</select></div>
     ${sel&&sel.description?`<div class="note" style="margin-top:-6px;">${esc(sel.description)}</div>`:''}
     <div class="field"><label>Assign to worker</label><select onchange="setActWorker(this.value)">${workers||'<option value="">No workers available</option>'}</select></div>
-    <button class="btn btn-primary" ${a.activity&&wid?'':'disabled'} onclick="assignTask('${esc(b.id)}')">Assign task</button>
+    <button class="btn btn-primary" ${a.activity&&wid?'':'disabled'} onclick="assignTask('${esc(b.id)}')">Assign activity</button>
     <div class="note" style="margin-top:0;">The task shows as Pending until the worker taps Start.</div>`;
   const synced=state.lastSync?'Updated '+state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
   return `<div class="syncrow"><span>${esc(synced)}</span><button onclick="loadToday()">Refresh</button></div>
@@ -867,7 +867,7 @@ function activityGroups(){
 /* The picker lists EVERY activity from ACTIVITY_REFERENCE, grouped by Activity_Domain. It does not hide or disable anything
  * (no cohort / crop / stage / bed-status gating here). The server (validateActivity_) applies each activity's own rules. */
 function setDispatchActivity(name){ ui.modalDraft.activity=name; render(); }
-function setDispatchWorker(id){ ui.modalDraft.workerId=id; }
+function setDispatchWorker(id){ ui.modalDraft.workerId=id; render(); }
 /* Controlled bed turnover (Post-Harvest, ACTIVITY_REFERENCE.Post_Harvest_Sequence). NOT a picker: the manager sees ONLY the
  * next required step; later steps stay locked until it completes. Time-based buffers are confirmed, not assigned. */
 const PH_STEPS={};   /* cohortId -> postHarvest view, set while rendering so the override modal can list the remaining steps */
@@ -964,7 +964,7 @@ function dispatchModal(){
   const d=ui.modalDraft;
   if(d.fixedActivity) return fixedDispatchModal(d);
   const groups=activityGroups();
-  return `<h2 style="font-size:15px;">New Activity</h2>
+  return `<h2 style="font-size:15px;">Assign Activity</h2>
   <div class="field"><label>Activity</label>
     ${groups.length?'':`<div class="note" style="margin:0;">The activity list could not be loaded from ACTIVITY_REFERENCE. Close this, tap Refresh and try again.</div>`}
     ${groups.map(([cat,items])=>`
@@ -975,18 +975,18 @@ function dispatchModal(){
       }).join('')}</div>`).join('')}
 
   </div>
-  <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
+  <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)"><option value="">Select a worker…</option>${state.workers.map(w=>`<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
   <p style="font-size:12px;color:var(--ink-soft);">Dispatched to the worker as Pending. Their timer starts when they tap Start.</p>
   <p style="font-size:12px;color:var(--ink-soft);">Only activities this bed's current state allows are listed.${d.hasCohort?' Post-harvest steps open in order after the cohort is terminated.':''}</p>
-  <button class="btn btn-primary" ${d.activity?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Create</button>
+  <button class="btn btn-primary" ${d.activity&&d.workerId?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Assign activity</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function fixedDispatchModal(d){
   return `<h2 style="font-size:15px;">Assign next required activity</h2>
   <div class="note" style="margin-top:0;">Post-harvest turnover step. Later steps unlock as each one is completed.</div>
   <div class="field"><label>Activity</label><div style="font-weight:700;">${esc(d.fixedActivity)}</div></div>
-  <div class="field"><label>Assign to worker</label><select id="md-worker">${state.workers.map(w=>`<option value="${esc(w.workerId)}">${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
-  <button class="btn btn-primary" onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.fixedActivity)}', document.getElementById('md-worker').value)">Assign</button>
+  <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)"><option value="">Select a worker…</option>${state.workers.map(w=>`<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
+  <button class="btn btn-primary" ${d.workerId?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.fixedActivity)}', document.getElementById('md-worker').value)">Assign</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function reassignModal(){
