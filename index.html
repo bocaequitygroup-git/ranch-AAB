@@ -128,7 +128,7 @@ const state = { managerId:null, name:null, role:null, token:null, beds:[], sessi
   pp:{} /* Planting Plan cache, keyed "year|blockId" -> getPlanningContext() result, or {error} */ };
 const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', focusCohort:null, focusPending:false, generating:false, resetScroll:false, filter:'ALL', year:new Date().getFullYear(), loading:false,
   pMode:'plan', pBlock:'B1', pYear:2027, pSelectedCrop:null, pModifying:false, pSelBeds:[], pAdvOpen:false, pEditingRotation:false, pRotDraft:{},
-  ppSelectedKey:null /* selected crop group key "cropId|wave" in real Planting Plan mode */, ppSelectedBed:null, ppBedModify:false, ppBedDraftCrop:'', ppBusy:false, ppHistoryOpen:false, ppAct:{},
+  ppSelectedKey:null /* selected crop group key "cropId|wave" in real Planting Plan mode */, ppSelectedBed:null, ppBedModify:false, ppBedDraftCrop:'', ppBusy:false, ppHistoryOpen:false,
   crSelectedId:null, crFilter:'' /* Crop Reference mode: selected crop id, list search text */ };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
@@ -148,9 +148,7 @@ async function apiCall(action, payload={}, timeoutMs){
       try{ resp=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({action},body)),redirect:'follow',signal:ctrl.signal}); }
       finally{ clearTimeout(timer); }
       if(!resp.ok) throw apiError('The server answered with status '+resp.status+'.','HTTP');
-      const txt=await resp.text();
-      try{ json=JSON.parse(txt); }
-      catch(pe){ throw apiError('The server sent an unreadable reply (likely a script error): '+txt.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,240),'BADREPLY'); }
+      json = JSON.parse(await resp.text());
     }
   }catch(err){
     setConn(navigator.onLine===false?'offline':'error');
@@ -184,19 +182,14 @@ function logout(){ apiCall('logout',{}).catch(()=>{}); Object.assign(state,{mana
 /* ============================== DATA LOAD ============================== */
 async function loadToday(){
   ui.loading=true; render();
-  /* The 'light' call returns only the activity list, workers and live sessions, so assigning work never depends on the heavy full view. */
-  const [today, board, aq, light] = await Promise.allSettled([ apiCall('get-manager-today-view', {}, 60000), loadCohortBoard(), loadAssignmentQueue(), apiCall('get-manager-today-view', {light:true}, 30000) ]);
+  const [today, board, aq] = await Promise.allSettled([ apiCall('get-manager-today-view', {}), loadCohortBoard(), loadAssignmentQueue() ]);
   ui.loading=false;
-  state.todayError = today.status==='rejected' ? (today.reason&&today.reason.message||'Unknown error') : '';
   if(today.status==='fulfilled'){
     const d=today.value||{};
     state.beds = d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
     state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||[];
     state.activityCatalog=d.activityCatalog||[];
     state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
-  }
-  if(today.status==='rejected' && light.status==='fulfilled' && light.value && (light.value.activityCatalog||[]).length){
-    state.activityCatalog=light.value.activityCatalog; state.workers=light.value.workers||[]; state.sessions=light.value.sessions||[];
   }
   setConn(IS_DEMO?'demo':'online'); render();
   if(today.status==='rejected') toast(today.reason.message);
@@ -711,25 +704,14 @@ function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); 
  *   cohort growing.. -> only activities allowed at the cohort's current stage
  * Post-harvest steps never appear for a bed holding a cohort: they open in order after termination (turnover card). */
 function bedStageKey(b){ return stageKey(b.currentStage) || (stageKey(b.cohortStatus)==='preplanting'?'preplanting':''); }
-function startableActivities(bedId, hasCohortFallback, statusOverride){
+function startableActivities(bedId, hasCohortFallback){
   const b=(state.beds||[]).find(x=>x.id===bedId), cat=state.activityCatalog||[];
   const hasCohort=b?!!b.cohortId:!!hasCohortFallback;
   if(!hasCohort){
     /* Cleanup steps are valid only while the bed is NOT verified (or already in post-harvest). A verified AVAILABLE bed is, by
      * definition, physically ready: nothing to start until a manager approves an assignment for it. */
-    const st=statusOverride||(b?(String(b.bedStatus||'').toUpperCase()||'UNVERIFIED'):'UNVERIFIED');
-    if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES'){
-      /* Reset checklist (ACT_037–051): offer ONLY the next required step, one at a time. The server (validateActivity_) enforces the
-       * same order. With no turnover view yet (first step of a bed that has not started its reset) that is the lowest-sequence step. */
-      /* A reset step is any catalog row with a Post_Harvest_Sequence OR allowed at HarvestComplete (ACT_037–051), so the list
-       * still appears if the catalog arrives without the sequence number. */
-      const seq=a=>Number(a.postHarvestSequence)||999;
-      const steps=cat.filter(a=>Number(a.postHarvestSequence)>0 || (a.allowedStages||[]).some(x=>stageKey(x)==='harvestcomplete')).sort((x,y)=>seq(x)-seq(y));
-      const nextName=b&&b.postHarvest&&b.postHarvest.nextStep;
-      const ordered=steps.some(a=>Number(a.postHarvestSequence)>0);
-      const list=nextName?steps.filter(a=>a.name===nextName):(ordered?steps.slice(0,1):steps);
-      return {list, why:'No reset step can be assigned right now (a waiting period may still be running, or every step is done and the bed is ready to verify).'};
-    }
+    const st=b?(String(b.bedStatus||'').toUpperCase()||'UNVERIFIED'):'UNVERIFIED';
+    if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Work is assigned one step at a time from the reset checklist (ACT_037–051).'};
     return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available. There is nothing to start until a manager approves a cohort assignment for it.'
                         : st==='BLOCKED' ? 'This bed is blocked. Clear the block and verify it first.'
                         : 'No cohort is assigned to this bed.'};
@@ -739,35 +721,6 @@ function startableActivities(bedId, hasCohortFallback, statusOverride){
     return {list:[], why:`Planting opens on ${b.plannedDob}.`};
   const list=cat.filter(a=>!(Number(a.postHarvestSequence)>0) && (!(a.allowedStages||[]).length || (a.allowedStages||[]).some(x=>stageKey(x)===stage)));
   return {list, why: list.length?'':`No activity is allowed at this cohort's stage (${stage||'not set'}).`};
-}
-/* Season Planning · Bed Profile: manager dispatch (filter -> activity -> worker -> Assign) and live tracking for one bed. */
-function setPPAct(k,val){ ui.ppAct=Object.assign({},ui.ppAct,{[k]:val}); if(k==='domain') ui.ppAct.activity=''; render(); }
-async function plannerAssign(bedId){
-  const d=ui.ppAct||{}, w=d.workerId||(state.workers[0]&&state.workers[0].workerId)||'';
-  if(!d.activity||!w){ toast('Choose an activity and a worker.'); return; }
-  await startSessionFor(bedId,d.activity,w); ui.ppAct={};
-  if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true);
-}
-function plannerActions(bedId,v,pb,sess){
-  const st=String(pbBedStatus(pb)||v.bedStatus||'').toUpperCase()||'UNVERIFIED';
-  const live=sess.length?`<h2 style="font-size:13px;margin:0 0 6px;">Active activities</h2>${sess.map(s=>`<div class="card"><div class="row"><span>${esc(s.activity)}</span><span class="chip ${s.status==='ACTIVE'?'chip-ok':'chip-warn'}">${esc(s.status)}</span></div>
-      <div class="row"><span>Worker</span><span>${esc(s.workerName||'')}${s.workerId?' · '+esc(s.workerId):''}</span></div>
-      ${(s.startedAt||s.startTime)?`<div class="row"><span>Started</span><span>${esc(s.startedAt||s.startTime)}</span></div>`:''}</div>`).join('')}`:'';
-  if(!(state.activityCatalog||[]).length)
-    return `${live}<div class="note">The activity list has not loaded from the server.${state.todayError?' Reason: '+esc(state.todayError):''}
-      <div style="margin-top:4px;font-size:11px;">Check · build 5 · start-up data: ${state.todayError?'failed':((state.beds||[]).length?'loaded ('+state.beds.length+' beds)':'not received')} · activities: ${(state.activityCatalog||[]).length} · workers: ${(state.workers||[]).length}</div></div><button class="btn btn-outline" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Loading…':'Retry loading activities'}</button>`;
-  const r=startableActivities(bedId,!!v.cohortId,st);
-  if(!r.list.length) return `${live}<div class="note">${esc(r.why)}</div>`;
-  const d=ui.ppAct||{}, domains=[...new Set(r.list.map(a=>a.domain||'Other'))];
-  const dom=domains.includes(d.domain)?d.domain:'', shown=r.list.filter(a=>!dom||(a.domain||'Other')===dom);
-  const act=shown.some(a=>a.name===d.activity)?d.activity:(shown.length===1?shown[0].name:'');
-  if(act!==d.activity) ui.ppAct=Object.assign({},d,{activity:act});
-  const wk=d.workerId||(state.workers[0]&&state.workers[0].workerId)||'';
-  return `${live}<h2 style="font-size:13px;margin:0 0 6px;">Assign activity</h2>
-    <div class="field"><label>Category</label><select onchange="setPPAct('domain',this.value)"><option value="">All</option>${domains.map(x=>`<option value="${esc(x)}" ${x===dom?'selected':''}>${esc(x)}</option>`).join('')}</select></div>
-    <div class="field"><label>Activity</label><select onchange="setPPAct('activity',this.value)"><option value="">Select…</option>${shown.map(a=>`<option value="${esc(a.name)}" ${a.name===act?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
-    <div class="field"><label>Assign to worker</label><select onchange="setPPAct('workerId',this.value)">${state.workers.map(w=>`<option value="${esc(w.workerId)}" ${w.workerId===wk?'selected':''}>${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
-    <button class="btn btn-primary" ${act&&wk?'':'disabled'} onclick="plannerAssign('${esc(bedId)}')">Assign task</button>`;
 }
 function startButton(b,label){
   const r=startableActivities(b.id,!!b.cohortId);
@@ -1465,7 +1418,7 @@ function ppRightHTML(){
       ${ui.ppHistoryOpen?(hist.length?hist.map(r=>`<div class="row"><span>${esc(r.taskType||r.activityName||'')} · ${esc(r.workerName||r.workerId||'')}</span><span>${esc(r.endTime||'')}</span></div>`).join(''):`<div class="empty" style="padding:10px 0;">No history recorded for this bed.</div>`):''}
 
       <h2 style="font-size:13px;margin:14px 0 6px;">Actions</h2>
-      ${plannerActions(bedId,v,pb,sess)}
+      ${startButton({id:bedId,cohortId:v.cohortId},'New Activity')}
       <button class="btn btn-outline" ${sess.length?'':'disabled title="No worker currently on this bed."'} onclick="openModal('reassign',{sessionId:'${sess.length?esc(sess[0].id):''}',mode:'reassign'})">Reassign worker</button>
       <button class="btn btn-outline" ${(ui.ppBusy||!bed)?'disabled':''} ${bed?'':'title="This bed has no BED_PLANTING_PLAN row yet — generate the plan first."'} onclick="startBedModify()">Modify Bed</button>
       <div class="note">Bed Profile above comes from BED_MASTER and always renders, whether or not this bed currently has a plan, cohort, session or history.</div>
