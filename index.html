@@ -187,7 +187,7 @@ function logout(){ apiCall('logout',{}).catch(()=>{}); Object.assign(state,{mana
 /* ============================== DATA LOAD ============================== */
 async function loadToday(){
   ui.loading=true; render();
-  const [today, board, aq] = await Promise.allSettled([ apiCall('get-manager-today-view', {}), loadCohortBoard(), loadAssignmentQueue() ]);
+  const [today, board, aq] = await Promise.allSettled([ apiCall('get-manager-today-view', {}, 60000), loadCohortBoard(), loadAssignmentQueue() ]);
   ui.loading=false;
   if(today.status==='fulfilled'){
     const d=today.value||{};
@@ -195,7 +195,9 @@ async function loadToday(){
     state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||[];
     state.activityCatalog=d.activityCatalog||[];
     state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
+    state.todayError='';
   }
+  else state.todayError=(today.reason&&today.reason.message)||'request failed';
   if(today.status==='fulfilled') state.lastSync=new Date();
   setConn(IS_DEMO?'demo':'online'); render();
   if(today.status==='rejected') toast(today.reason.message);
@@ -757,6 +759,11 @@ function verifyCloseBlock(b){
     ${notes.map(n=>`<div class="note">${esc(n)}</div>`).join('')}`;
 }
 function actionsPanel(b,sess){
+  if(!state.todayById[b.id]){
+    const synced0=state.lastSync?'Updated '+state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
+    return `<div class="syncrow"><span>${esc(synced0)}</span><button onclick="loadToday()">Refresh</button></div>
+      <div class="note" style="margin-top:0;">Live data for this bed has not loaded${state.todayError?' ('+esc(state.todayError)+')':''}, so activities cannot be assigned yet. Tap Refresh.</div>`;
+  }
   const a=actState(), r=startableActivities(b.id,!!b.cohortId), list=r.list||[];
   const inCat=list.filter(x=>a.cat==='ALL'||actCatOf(x)===a.cat);
   if(a.activity && !inCat.some(x=>x.name===a.activity)) a.activity='';
@@ -787,7 +794,8 @@ async function refreshLive(){
   if(!state.token || ui.modal || ui.loading || !(ui.selectedBed||ui.ppSelectedBed)) return;
   const ae=document.activeElement; if(ae && /^(SELECT|TEXTAREA|INPUT)$/.test(ae.tagName)) return;
   try{
-    const d=await apiCall('get-manager-today-view',{});
+    const d=await apiCall('get-manager-today-view',{}, 60000);
+    state.todayError='';
     state.beds=d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
     state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||state.workers;
     state.activityCatalog=d.activityCatalog||state.activityCatalog;
@@ -1360,11 +1368,11 @@ function productionTypeLabel(lt){ const k=String(lt||'').toUpperCase(); return P
  * this profile is showing - mixing the two produced wrong-season proposals. */
 function bedAvailability(pb, cohortId, hasPlan, openExceptions, bedStatus){
   const ps=String(pbBedStatus(pb)||'').toUpperCase();
-  if(ps && ps!=='ACTIVE') return 'BLOCKED';
+  if(ps==='BLOCKED') return 'BLOCKED';   /* was: any status other than 'ACTIVE' -> BLOCKED, which mislabelled every POST-HARVEST / AVAILABLE / RESERVED bed */
   if(openExceptions && openExceptions.length) return 'BLOCKED';
   /* BED_MASTER.Bed_Status is the single source of truth (BED_STATUS_RULES). A confirmed plan is NOT a
    * physical state: "Planning never changes physical bed status" (Key Principle 1), so hasPlan is ignored. */
-  const bs=String(bedStatus||'').trim().toUpperCase();
+  const bs=String(bedStatus||ps||'').trim().toUpperCase();
   if(bs) return bs;
   return cohortId?'OCCUPIED':'UNVERIFIED';   /* blank Bed_Status = never verified, not available */
 }
