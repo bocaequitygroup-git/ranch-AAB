@@ -857,7 +857,7 @@ function dpStChip(st){ const k={'DONE':'chip-ok','OVERRIDDEN':'chip-neutral','IN
 function dpInner(b,sess){
   const d=dpS(b), rows=dpRows(b), sel=rows.filter(r=>!r.off), selNames=sel.map(r=>r.name), open=maOpenSet2(b.id);
   d.acts=d.acts.filter(n=>selNames.includes(n));
-  if(!d.cat) d.cat=b.postHarvest?'POST':'ALL';
+  if(!d.cat) d.cat='ALL';
   const vis=rows.filter(r=>d.cat==='ALL'||r.cat===d.cat);
   const workers=state.workers||[];
   const crewBox=workers.length?workers.map(w=>{ const n=workerLoad(w.workerId); return `<label class="ma-row ${d.workers.includes(w.workerId)?'on':''}" style="padding:5px 6px;"><input type="checkbox" ${d.workers.includes(w.workerId)?'checked':''} data-v="${esc(w.workerId)}" onchange="dpTogW(this.dataset.v,this.checked)"><span><b style="font-weight:700;">${esc(w.name)}</b> <span class="d" style="display:inline;">${n?n+' open':'free'}</span></span></label>`; }).join(''):'<div class="empty" style="padding:8px;">No workers are available to assign.</div>';
