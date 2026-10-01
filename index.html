@@ -239,20 +239,41 @@ async function doLogin(){
 function logout(){ apiCall('logout',{}).catch(()=>{}); Object.assign(state,{managerId:null,name:null,role:null,token:null}); ui.screen='login'; ui.selectedBed=null; render(); }
 
 /* ============================== DATA LOAD ============================== */
-async function loadToday(){
-  ui.loading=true; render();
-  const [today, board, aq] = await Promise.allSettled([ apiCall('get-manager-today-view', {}, 60000), loadCohortBoard(), loadAssignmentQueue() ]);
+/* Fetch get-manager-today-view and apply it. Used by loadToday and refreshLive so both log the same timings.
+ * The server adds d.timings (ms per stage, see buildTodayView_ in Code_main.gs); compare with the round trip here:
+ * server total << round trip means the time is spent outside buildTodayView_ (Apps Script start-up, auth, network). */
+async function fetchTodayView(){
+  const t0=Date.now();
+  const d=await apiCall('get-manager-today-view', {}, 60000);
+  if(d && d.timings) console.log('[today-view] round trip '+(Date.now()-t0)+' ms; server stages (ms):', d.timings);
+  return d||{};
+}
+function applyTodayView(d){
+  state.beds = d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
+  state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||[];
+  state.activityCatalog=d.activityCatalog||[];
+  state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
+  state.todayError=''; state.lastSync=new Date();
+}
+/* Overlapping loads are coalesced: while one is running, any further loadToday() call (a Refresh tap, or a write action
+ * that wants fresh data afterwards) queues exactly ONE follow-up run and awaits it, so callers still get data read after
+ * their change, but the server never has several of these heavy requests running at once. */
+let _loadRun=null, _loadAgain=false;
+function loadToday(){
+  if(_loadRun){ _loadAgain=true; return _loadRun; }
+  _loadRun=(async()=>{ do{ _loadAgain=false; await loadTodayOnce(); } while(_loadAgain); })().finally(()=>{ _loadRun=null; });
+  return _loadRun;
+}
+async function loadTodayOnce(){
+  ui.loading=true; state.todayPending=true; render();
+  // The bed data is applied the moment it arrives. It no longer waits for the cohort board and assignment queue,
+  // which load in parallel and are not needed to open a bed.
+  const todayP = fetchTodayView().then(
+    d=>{ applyTodayView(d); return d; },
+    e=>{ state.todayError=(e&&e.message)||'request failed'; throw e; }
+  ).finally(()=>{ state.todayPending=false; render(); });
+  const [today, board, aq] = await Promise.allSettled([ todayP, loadCohortBoard(), loadAssignmentQueue() ]);
   ui.loading=false;
-  if(today.status==='fulfilled'){
-    const d=today.value||{};
-    state.beds = d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
-    state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||[];
-    state.activityCatalog=d.activityCatalog||[];
-    state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
-    state.todayError='';
-  }
-  else state.todayError=(today.reason&&today.reason.message)||'request failed';
-  if(today.status==='fulfilled') state.lastSync=new Date();
   setConn(IS_DEMO?'demo':'online'); render();
   if(today.status==='rejected') toast(today.reason.message);
   else if(board.status==='rejected') toast('Cohort board: '+board.reason.message);
@@ -956,7 +977,8 @@ function activeWorkSection(b,sess){
 }
 function actionsPanel(b,sess){
   const synced=state.lastSync?'Updated '+state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
-  const sync=`<div class="syncrow"><span>${esc(synced)}</span><button onclick="loadToday()">Refresh</button></div>`;
+  const sync=`<div class="syncrow"><span>${esc(synced)}</span><button ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Loading…':'Refresh'}</button></div>`;
+  if(!state.todayById[b.id] && state.todayPending) return `${sync}<div class="note" style="margin-top:0;">Loading live data for this bed…</div>`;
   if(!state.todayById[b.id]) return `${sync}<div class="note" style="margin-top:0;">Live data for this bed has not loaded${state.todayError?' ('+esc(state.todayError)+')':''}, so work cannot be dispatched yet. Tap Refresh.</div>`;
   dpS(b);
   const st=String(b.bedStatus||'').toUpperCase()||'UNVERIFIED';
@@ -966,17 +988,15 @@ function actionsPanel(b,sess){
 /* Monitor progress: while a bed is open, quietly re-read the live data every 30s. Skipped while a modal is open or the
  * manager is mid-edit in a field, so a refresh never wipes what they are typing or choosing. */
 async function refreshLive(){
-  if(!state.token || ui.modal || ui.loading || !(ui.selectedBed||ui.ppSelectedBed)) return;
+  if(!state.token || ui.modal || ui.loading || refreshLive._busy || !(ui.selectedBed||ui.ppSelectedBed)) return;
   const ae=document.activeElement; if(ae && /^(SELECT|TEXTAREA|INPUT)$/.test(ae.tagName)) return;
+  refreshLive._busy=true;
   try{
-    const d=await apiCall('get-manager-today-view',{}, 60000);
-    state.todayError='';
-    state.beds=d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
-    state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||state.workers;
-    state.activityCatalog=d.activityCatalog||state.activityCatalog;
-    state.todayById={}; state.beds.forEach(x=>{ state.todayById[x.id]=x; });
-    state.lastSync=new Date(); render();
+    const d=await fetchTodayView();
+    d.workers=d.workers||state.workers; d.activityCatalog=d.activityCatalog||state.activityCatalog;
+    applyTodayView(d); render();
   }catch(e){ /* a failed background refresh is silent; Refresh button reports errors */ }
+  finally{ refreshLive._busy=false; }
 }
 setInterval(refreshLive,30000);
 
