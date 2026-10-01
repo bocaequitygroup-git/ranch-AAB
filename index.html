@@ -148,7 +148,9 @@ async function apiCall(action, payload={}, timeoutMs){
       try{ resp=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({action},body)),redirect:'follow',signal:ctrl.signal}); }
       finally{ clearTimeout(timer); }
       if(!resp.ok) throw apiError('The server answered with status '+resp.status+'.','HTTP');
-      json = JSON.parse(await resp.text());
+      const txt=await resp.text();
+      try{ json=JSON.parse(txt); }
+      catch(pe){ throw apiError('The server sent an unreadable reply (likely a script error): '+txt.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,240),'BADREPLY'); }
     }
   }catch(err){
     setConn(navigator.onLine===false?'offline':'error');
@@ -184,6 +186,7 @@ async function loadToday(){
   ui.loading=true; render();
   const [today, board, aq] = await Promise.allSettled([ apiCall('get-manager-today-view', {}, 60000), loadCohortBoard(), loadAssignmentQueue() ]);
   ui.loading=false;
+  state.todayError = today.status==='rejected' ? (today.reason&&today.reason.message||'Unknown error') : '';
   if(today.status==='fulfilled'){
     const d=today.value||{};
     state.beds = d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
@@ -747,7 +750,7 @@ function plannerActions(bedId,v,pb,sess){
       <div class="row"><span>Worker</span><span>${esc(s.workerName||'')}${s.workerId?' · '+esc(s.workerId):''}</span></div>
       ${(s.startedAt||s.startTime)?`<div class="row"><span>Started</span><span>${esc(s.startedAt||s.startTime)}</span></div>`:''}</div>`).join('')}`:'';
   if(!(state.activityCatalog||[]).length)
-    return `${live}<div class="note">The activity list has not loaded from the server.</div><button class="btn btn-outline" onclick="loadToday()">Retry loading activities</button>`;
+    return `${live}<div class="note">The activity list has not loaded from the server.${state.todayError?' Reason: '+esc(state.todayError):''}</div><button class="btn btn-outline" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Loading…':'Retry loading activities'}</button>`;
   const r=startableActivities(bedId,!!v.cohortId,st);
   if(!r.list.length) return `${live}<div class="note">${esc(r.why)}</div>`;
   const d=ui.ppAct||{}, domains=[...new Set(r.list.map(a=>a.domain||'Other'))];
