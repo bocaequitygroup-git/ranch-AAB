@@ -878,6 +878,11 @@ function dpInner(b,sess){
   const fresh=total-dup, ok=d.acts.length&&!missing&&fresh>0&&!d.busy;
   const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} dispatched.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(f.errorCode)}</div>`).join('')}</div>`;
   const ph=b.postHarvest, remaining=ph?(ph.steps||[]).filter(x=>x.status!=='COMPLETE').length:0;
+  const ovScope=ph?(ph.bedLevel?'BED:'+b.id:b.cohortId):''; if(ph) PH_STEPS[ovScope]=ph;   /* the override modal lists the remaining steps from here */
+  const ovBlock=ph?`<div class="dp-box"><div class="t"><span>Manager override</span></div>
+    <div class="note" style="margin:0 0 6px;">Skip required steps that will not be done (e.g. no cover crop this year, or end a waiting period early). A written explanation is required and is logged with your name.</div>
+    <button class="btn btn-outline" ${remaining?'':'disabled'} onclick="openModal('override',{cohortId:'${esc(ovScope)}',selected:[],reason:''})">Manager override…</button>
+    ${phOverrideNotes(ph)}</div>`:'';
   const verify=ph?`<button class="btn btn-ok" ${ph.readyToVerify?'':'disabled'} onclick="doVerifyTurnover('${esc(ph.bedLevel?'BED:'+b.id:b.cohortId)}','${esc(b.id)}')">Verify Bed Ready &amp; Release to Available</button>${ph.readyToVerify?'':`<div class="note" style="margin:-2px 0 6px;">${remaining} required step${remaining===1?'':'s'} still to complete.</div>`}`:'';
   const done=(ph?(ph.steps||[]).filter(x=>x.status==='COMPLETE').length:0), tot=ph?(ph.stepCount||(ph.steps||[]).length):0;
   return `
@@ -892,6 +897,7 @@ function dpInner(b,sess){
     <div class="dp-tools" style="margin:6px 0 4px;">${d.cat==='ALL'?'':`<button onclick="dpAllA()">Select all in this tab</button>`}<button onclick="dpClearA()">Clear selection</button></div>
     ${list||`<div class="note" style="margin-top:0;">No activity selected yet. Choose one from the dropdown above.</div>`}
     <div class="note" style="margin-bottom:0;">Workers you pick above apply to every ticked activity. Use "customize" on a row to give that activity a different crew.</div></div>
+  ${ovBlock}
   ${activeWorkSection(b,sess)}
   <div class="dp-foot">${res}${missing?`<div class="note" style="margin:0 0 6px;color:var(--warn);font-weight:600;">${missing} selected activit${missing===1?'y has':'ies have'} no worker.</div>`:''}
     <button class="btn btn-primary" ${ok?'':'disabled'} onclick="dpSubmit()">${d.busy?'Dispatching…':`Dispatch selected tasks (${d.acts.length})${fresh&&fresh!==d.acts.length?' · '+fresh+' assignments':''}`}</button>
