@@ -185,7 +185,8 @@ const state = { managerId:null, name:null, role:null, token:null, beds:[], sessi
   aq:{ loaded:false, error:'', counts:{}, proposed:[], exceptions:[], plantingReady:[], generatedDate:'' }, candidates:{ locations:[] },
   todayById:{}, board:{ loaded:false, year:null, beds:[], cohorts:[], byKey:{}, unplaced:[], stats:{} }, cover:{},
   pp:{} /* Planting Plan cache, keyed "year|blockId" -> getPlanningContext() result, or {error} */ };
-const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', focusCohort:null, focusPending:false, generating:false, resetScroll:false, filter:'ALL', year:new Date().getFullYear(), loading:false,
+const YEAR_OPTIONS=[2027,2028,2029,2030]; // selectable years (only 2027 has data so far)
+const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', focusCohort:null, focusPending:false, generating:false, resetScroll:false, filter:'ALL', year:YEAR_OPTIONS[0], loading:false,
   pMode:'plan', pBlock:'B1', pYear:2027, pSelectedCrop:null, pModifying:false, pSelBeds:[], pAdvOpen:false, pEditingRotation:false, pRotDraft:{},
   ppSelectedKey:null /* selected crop group key "cropId|wave" in real Planting Plan mode */, ppSelectedBed:null, ppBedModify:false, ppBedDraftCrop:'', ppBusy:false, ppHistoryOpen:false,
   crSelectedId:null, crFilter:'' /* Crop Reference mode: selected crop id, list search text */ };
@@ -568,7 +569,7 @@ function boardScreen(){
           <button class="${ui.overlay==='stage'?'active':''}" onclick="setOverlay('stage')">Current stage</button>
           <button class="${ui.overlay==='queue'?'active':''}" onclick="setOverlay('queue')">Queue</button>
         </div>
-        <select onchange="setYear(this.value)" aria-label="Planning year">${[ui.year-1,ui.year,ui.year+1].map(y=>`<option value="${y}" ${y===ui.year?'selected':''}>${y}</option>`).join('')}</select>
+        <select onchange="setYear(this.value)" aria-label="Planning year">${YEAR_OPTIONS.map(y=>`<option value="${y}" ${y===ui.year?'selected':''}>${y}</option>`).join('')}</select>
         <button class="btn btn-ghost" style="width:auto;margin:0;" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing…':'↻ Refresh'}</button>
       </div>
       ${assignStrip()}
@@ -1470,7 +1471,7 @@ const CROP_MASTER = [{"id":"MCH","name":"Mchicha","category":"African Leafy Gree
 
 const PLAN_BLOCKS=['B1','B2','B3','B4','Z5']; // canonical short Block_ID, matches BLOCK_ROTATION_PLAN / BED_PLANTING_PLAN / BED_MASTER Bed_ID prefix
 const BLOCK_LABELS={B1:'Block 1',B2:'Block 2',B3:'Block 3',B4:'Block 4',Z5:'Zone 5'};
-const PLAN_YEARS=[2026,2027,2028];
+const PLAN_YEARS=[2027,2028,2029,2030];
 const BLOCK_BEDS=55;
 const ROTATION_FAMILIES=['Solanaceae','Fast Greens','Brassicas','Roots'];
 const FAMILY_TEMPLATES={
@@ -1508,7 +1509,7 @@ function buildPlan(block,year){
     const beds=[]; for(let i=0;i<count && cursor<=BLOCK_BEDS;i++,cursor++) beds.push(cursor);
     crops.push({ id:(block+'-'+year+'-'+name).replace(/\s+/g,'').toUpperCase(), cropName:name, family:fam, plantingDate:date,
       bedNums:beds, layoutStatus:'Pending', plantingStatus:'Not planted', harvestStatus:'Not started', plantedBeds:[],
-      lastYearBedRange: year>PLAN_YEARS[0]?blockRangeLabel(prevBlockFor(block,year),beds):'—',
+      lastYearBedRange: year>=PLAN_YEARS[0]?blockRangeLabel(prevBlockFor(block,year),beds):'—',
       rotationNote: prevBlockFor(block,year)+' → '+block, harvestWindow: date+' + 45 days' });
   });
   return { crops };
