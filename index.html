@@ -636,8 +636,8 @@ function mapSVG(){
         ${prop&&match?`<text x="${bx+cw/2}" y="${by+29}" text-anchor="middle" font-size="11" font-weight="800" fill="${tc}">${esc(pr.cohortId)}</text>
         <text x="${bx+cw/2}" y="${by+41}" text-anchor="middle" font-size="9" font-weight="600" fill="${tc}">${esc(String(pr.cropName||'').slice(0,13))}</text>
         <text x="${bx+cw/2}" y="${by+52}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">PROPOSED${v.proposals.length>1?' +'+(v.proposals.length-1):''}</text>`:''}
-        ${ph&&match?`<text x="${bx+cw/2}" y="${by+34}" text-anchor="middle" font-size="8" font-weight="800" fill="${tc}">POST-HARVEST</text>
-        <text x="${bx+cw/2}" y="${by+46}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">${(v.postHarvest.openSteps||[]).length} open</text>`:''}
+        ${!has&&!prop&&match?`<text x="${bx+cw/2}" y="${by+(ph&&(v.postHarvest.openSteps||[]).length?30:36)}" text-anchor="middle" font-size="8" font-weight="700" fill="${tc}">No crop assigned</text>
+        ${ph&&(v.postHarvest.openSteps||[]).length?`<text x="${bx+cw/2}" y="${by+44}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">${(v.postHarvest.openSteps||[]).length} open</text>`:''}`:''}
         ${sess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E"></circle>`:''}
         ${exc?`<circle cx="${bx+cw-19}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
         ${hr?`<circle cx="${bx+cw-7}" cy="${by+ch-7}" r="4" fill="var(--ok)"></circle>`:''}
@@ -1715,10 +1715,14 @@ function pbIrrigationStatus(pb){ return pbField(pb, ['bedIrrigationStatus','Bed_
 /* MASTER WAVE COLORS (Season Planning). Wave n = the n-th distinct planting date of that crop in the year (derived by
  * the backend, PlantingPlanAPI.gs). OPEN / no plan / no planting date = no fill. Status (Pending / Confirmed / Modified) is
  * shown by opacity, outline and the tile label, never by hue, so a wave keeps one color. */
-const WAVE_COLORS={1:'#66BB6A',2:'#FDD835',3:'#64B5F6',4:'#B39DDB',5:'#FFA726'};
-const WAVE_NAMES={1:'Wave 1',2:'Wave 2',3:'Wave 3',4:'Wave 4',5:'Wave 5'};
-function waveColor(w){ w=Number(w); return w>0 ? (WAVE_COLORS[w]||'#B0BEC5') : ''; }   /* >5 waves: neutral blue-grey, still labelled */
-function isOpenPlan(p){ return !p || String(p.cropId||'').toUpperCase()==='OPEN' || !(Number(p.wave)>0); }
+const WAVE_COLORS={1:'#66BB6A',2:'#FDD835',3:'#64B5F6',4:'#B39DDB',5:'#FFA726',6:'#26C6DA',7:'#EC407A',8:'#A1887F',9:'#5C6BC0',10:'#26A69A'};
+const NOT_IN_MASTER_COLOR='#B0BEC5';   /* dated bed whose date matches no PRODUCTION_WAVE_PLAN wave of its crop: flagged, never renumbered */
+function waveName(w){ return 'Wave '+w; }
+function waveColor(w){ w=Number(w); return w>0 ? (WAVE_COLORS[w]||NOT_IN_MASTER_COLOR) : ''; }
+function notInMaster(p){ return !!p && p.waveStatus==='NOT_IN_MASTER'; }
+function isOpenPlan(p){ if(!p || !p.cropId || String(p.cropId).toUpperCase()==='OPEN') return true; return !(Number(p.wave)>0) && !notInMaster(p); }
+function planFill(p){ return notInMaster(p) ? NOT_IN_MASTER_COLOR : waveColor(p.wave); }
+function waveTag(p){ return notInMaster(p) ? 'W?' : 'W'+p.wave; }
 
 function ppLeftHTML(){
   const ctx=ppCurrent();
@@ -1726,18 +1730,24 @@ function ppLeftHTML(){
   if(ctx.error) return `<div class="empty">${esc(ctx.error)}</div>`;
   if(!ctx.plan.found) return `<div class="empty">No planting plan yet for ${esc(BLOCK_LABELS[ui.pBlock])} in ${ui.pYear}.</div>`;
   return ctx.plan.crops.map(c=>{ const key=c.cropId+'|'+(c.wave||'');
-    const wc=isOpenPlan(c)?'':waveColor(c.wave);
-    const edge=wc?`border-left:7px solid ${wc};background:linear-gradient(90deg,${wc}33,transparent 55%),var(--sand);`:'background:transparent;border-style:dashed;';
+    const wc=isOpenPlan(c)?'':planFill(c);
+    const gap=c.bedCount===0;   /* master wave with no beds in this block yet */
+    const edge=wc?`border-left:7px solid ${wc};background:linear-gradient(90deg,${wc}33,transparent 55%),var(--sand);${gap?'border-style:dashed;border-left-style:solid;opacity:.7;':''}`:'background:transparent;border-style:dashed;';
+    const tag=notInMaster(c)?'Not in master plan':waveName(c.wave)+(c.masterWaveCount?' of '+c.masterWaveCount:'');
     return `<div class="card" style="${edge}${ui.ppSelectedKey===key?'outline:2px solid var(--forest);':''}" onclick="selectPPCrop('${esc(key)}')">
-      <div class="row"><span><b style="color:var(--ink);">${esc(c.cropName)}</b>${wc?` <span class="chip" style="background:${wc};color:#14261D;">Wave ${esc(c.wave)}</span>`:''}</span><span class="chip ${ppStatusChip(c.status)}">${esc(c.status)}</span></div>
-      <div class="row"><span>Beds</span><span>${c.bedCount}</span></div>
+      <div class="row"><span><b style="color:var(--ink);">${esc(c.cropName)}</b>${wc?` <span class="chip" style="background:${wc};color:#14261D;">${esc(tag)}</span>`:''}</span><span class="chip ${ppStatusChip(c.status)}">${esc(c.status)}</span></div>
+      <div class="row"><span>Beds</span><span>${gap?'none planned':c.bedCount}</span></div>
       <div class="row"><span>Planting date</span><span>${esc(c.plantingDate||'—')}</span></div>
     </div>`;
   }).join('');
 }
 
 function ppLegend(){
-  return [1,2,3,4,5].map(w=>legendItem('background:'+WAVE_COLORS[w]+';',WAVE_NAMES[w])).join('')+
+  const ctx=ppCurrent(), crops=(ctx&&ctx.plan&&ctx.plan.crops)||[];
+  const maxW=Math.max(5,...crops.map(c=>Number(c.wave)||0));
+  const anyNim=crops.some(notInMaster);
+  return Array.from({length:maxW},(_,i)=>i+1).map(w=>legendItem('background:'+waveColor(w)+';',waveName(w))).join('')+
+    (anyNim?legendItem('background:'+NOT_IN_MASTER_COLOR+';border:2px dashed #B3261E;','Not in master plan'):'')+
     legendItem('background:transparent;border:1px solid var(--line);','OPEN / no plan')+
     legendItem('background:#B0BEC5;opacity:.55;','Pending (paler)')+
     legendItem('background:#B0BEC5;border:2px dashed #14261D;','Modified (dashed)');
@@ -1755,11 +1765,12 @@ function ppBedGridSVG(){
     let fill='transparent', tc='#1B1B18', label='', fop=1, dash='';
     const open=isOpenPlan(plan);
     if(plan && !open){
-      fill=waveColor(plan.wave); tc='#14261D';
+      fill=planFill(plan); tc='#14261D';
       const st=String(plan.status||'').toUpperCase();
-      label='W'+plan.wave+' · '+(st||'PENDING');
+      label=waveTag(plan)+' · '+(st||'PENDING');
+      if(notInMaster(plan)) dash='stroke="#B3261E" stroke-width="2" stroke-dasharray="4 2"';
       if(st==='PENDING') fop=.55;
-      if(st==='MODIFIED') dash='stroke="#14261D" stroke-width="2" stroke-dasharray="4 2"';
+      if(st==='MODIFIED' && !notInMaster(plan)) dash='stroke="#14261D" stroke-width="2" stroke-dasharray="4 2"';
     } else if(plan){ label='OPEN'; }
     const sel=ui.ppSelectedBed===pb.bedId;
     svg += `<g><rect class="bed" data-ppbed="${esc(pb.bedId)}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${fill}" fill-opacity="${fop}" ${sel?'stroke="var(--forest)" stroke-width="3"':dash}></rect>
