@@ -1712,14 +1712,24 @@ function pbBedLength(pb){ return pbField(pb, ['bedLength','Bed_Length']); }
 function pbHealthStatus(pb){ return pbField(pb, ['bedHealthStatus','Bed_Health_Status','healthStatus']); }
 function pbIrrigationStatus(pb){ return pbField(pb, ['bedIrrigationStatus','Bed_Irrigation_Status','irrigationStatus']); }
 
+/* MASTER WAVE COLORS (Season Planning). Wave n = the n-th distinct planting date of that crop in the year (derived by
+ * the backend, PlantingPlanAPI.gs). OPEN / no plan / no planting date = no fill. Status (Pending / Confirmed / Modified) is
+ * shown by opacity, outline and the tile label, never by hue, so a wave keeps one color. */
+const WAVE_COLORS={1:'#66BB6A',2:'#FDD835',3:'#64B5F6',4:'#B39DDB',5:'#FFA726'};
+const WAVE_NAMES={1:'Wave 1',2:'Wave 2',3:'Wave 3',4:'Wave 4',5:'Wave 5'};
+function waveColor(w){ w=Number(w); return w>0 ? (WAVE_COLORS[w]||'#B0BEC5') : ''; }   /* >5 waves: neutral blue-grey, still labelled */
+function isOpenPlan(p){ return !p || String(p.cropId||'').toUpperCase()==='OPEN' || !(Number(p.wave)>0); }
+
 function ppLeftHTML(){
   const ctx=ppCurrent();
   if(!ctx) return `<div class="empty">Loading…</div>`;
   if(ctx.error) return `<div class="empty">${esc(ctx.error)}</div>`;
   if(!ctx.plan.found) return `<div class="empty">No planting plan yet for ${esc(BLOCK_LABELS[ui.pBlock])} in ${ui.pYear}.</div>`;
   return ctx.plan.crops.map(c=>{ const key=c.cropId+'|'+(c.wave||'');
-    return `<div class="card" style="${ui.ppSelectedKey===key?'outline:2px solid var(--forest);':''}" onclick="selectPPCrop('${esc(key)}')">
-      <div class="row"><span><b style="color:var(--ink);">${esc(c.cropName)}</b></span><span class="chip ${ppStatusChip(c.status)}">${esc(c.status)}</span></div>
+    const wc=isOpenPlan(c)?'':waveColor(c.wave);
+    const edge=wc?`border-left:7px solid ${wc};background:linear-gradient(90deg,${wc}33,transparent 55%),var(--sand);`:'background:transparent;border-style:dashed;';
+    return `<div class="card" style="${edge}${ui.ppSelectedKey===key?'outline:2px solid var(--forest);':''}" onclick="selectPPCrop('${esc(key)}')">
+      <div class="row"><span><b style="color:var(--ink);">${esc(c.cropName)}</b>${wc?` <span class="chip" style="background:${wc};color:#14261D;">Wave ${esc(c.wave)}</span>`:''}</span><span class="chip ${ppStatusChip(c.status)}">${esc(c.status)}</span></div>
       <div class="row"><span>Beds</span><span>${c.bedCount}</span></div>
       <div class="row"><span>Planting date</span><span>${esc(c.plantingDate||'—')}</span></div>
     </div>`;
@@ -1727,9 +1737,10 @@ function ppLeftHTML(){
 }
 
 function ppLegend(){
-  return legendItem('background:#D8CFAE;','Pending')+legendItem('background:#2E7D32;','Confirmed')+
-    legendItem('background:repeating-linear-gradient(45deg,#8FBF8A,#8FBF8A 3px,#fff 3px,#fff 6px);','Modified')+
-    legendItem('background:#EEE;border:1px solid var(--line);','Empty (no plan)');
+  return [1,2,3,4,5].map(w=>legendItem('background:'+WAVE_COLORS[w]+';',WAVE_NAMES[w])).join('')+
+    legendItem('background:transparent;border:1px solid var(--line);','OPEN / no plan')+
+    legendItem('background:#B0BEC5;opacity:.55;','Pending (paler)')+
+    legendItem('background:#B0BEC5;border:2px dashed #14261D;','Modified (dashed)');
 }
 
 function ppBedGridSVG(){
@@ -1741,16 +1752,19 @@ function ppBedGridSVG(){
   beds.forEach((pb,i)=>{
     const col=i%cols, row=Math.floor(i/cols), bx=10+col*(cw+gap), by=10+row*(ch+gap);
     const plan=byBed[pb.bedId];
-    let fill='#EEE', tc='#1B1B18', label='';
-    if(plan){
-      if(plan.status==='MODIFIED'){ fill='url(#hatchpp)'; tc='#14261D'; label='MODIFIED'; }
-      else if(plan.status==='CONFIRMED'){ fill='#2E7D32'; tc='#fff'; label='CONFIRMED'; }
-      else { fill='#D8CFAE'; tc='#1B1B18'; label='PENDING'; }
-    }
+    let fill='transparent', tc='#1B1B18', label='', fop=1, dash='';
+    const open=isOpenPlan(plan);
+    if(plan && !open){
+      fill=waveColor(plan.wave); tc='#14261D';
+      const st=String(plan.status||'').toUpperCase();
+      label='W'+plan.wave+' · '+(st||'PENDING');
+      if(st==='PENDING') fop=.55;
+      if(st==='MODIFIED') dash='stroke="#14261D" stroke-width="2" stroke-dasharray="4 2"';
+    } else if(plan){ label='OPEN'; }
     const sel=ui.ppSelectedBed===pb.bedId;
-    svg += `<g><rect class="bed" data-ppbed="${esc(pb.bedId)}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${fill}" ${sel?'stroke="var(--forest)" stroke-width="3"':''}></rect>
+    svg += `<g><rect class="bed" data-ppbed="${esc(pb.bedId)}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${fill}" fill-opacity="${fop}" ${sel?'stroke="var(--forest)" stroke-width="3"':dash}></rect>
       <text x="${bx+6}" y="${by+13}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${esc(pb.bedId.split('-')[1]||pb.bedId)}</text>
-      ${plan?`<text x="${bx+cw/2}" y="${by+30}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${tc}">${esc((plan.cropName||'').slice(0,10))}</text>`:`<text x="${bx+cw/2}" y="${by+30}" text-anchor="middle" font-size="9" fill="${tc}">Empty</text>`}
+      ${plan&&!open?`<text x="${bx+cw/2}" y="${by+30}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${tc}">${esc((plan.cropName||'').slice(0,10))}</text>`:`<text x="${bx+cw/2}" y="${by+30}" text-anchor="middle" font-size="9" fill="${tc}">Empty</text>`}
       ${label?`<text x="${bx+cw/2}" y="${by+42}" text-anchor="middle" font-size="6.5" font-weight="700" fill="${tc}" opacity=".85">${esc(label)}</text>`:''}
     </g>`;
   });
