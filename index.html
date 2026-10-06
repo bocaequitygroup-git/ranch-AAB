@@ -189,7 +189,7 @@ const YEAR_OPTIONS=[2027,2028,2029,2030]; // selectable years (only 2027 has dat
 const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', focusCohort:null, focusPending:false, generating:false, resetScroll:false, filter:'ALL', year:YEAR_OPTIONS[0], loading:false,
   pMode:'plan', pBlock:'B1', pYear:2027, pSelectedCrop:null, pModifying:false, pSelBeds:[], pAdvOpen:false, pEditingRotation:false, pRotDraft:{},
   ppSelectedKey:null /* selected crop group key "cropId|wave" in real Planting Plan mode */, ppSelectedBed:null, ppBedModify:false, ppBedDraftCrop:'', ppBusy:false, ppHistoryOpen:false,
-  crSelectedId:null, crFilter:'' /* Crop Reference mode: selected crop id, list search text */ };
+  crSelectedId:null, crFilter:'', bedSearch:'' /* Crop Reference mode: selected crop id, list search text */ };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
 function toast(msg){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},3200); }
@@ -355,7 +355,12 @@ function bedView(b){
   return v;
 }
 function bedViewById(id){ const b=gridBeds().find(x=>x.id===id); return b?bedView(b):null; }
+function bedSearchHit(v){
+  const q=(ui.bedSearch||'').trim().toLowerCase(); if(!q) return true;
+  return q.split(/\s+/).every(t=>[v.id,v.blockId,v.cropName,v.cropId,v.cohortId,v.bedStatus,v.locationType,v.currentStage,v.cohortStatus].join(' ').toLowerCase().includes(t));
+}
 function bedMatches(v){
+  if(!bedSearchHit(v)) return false;
   if(ui.filter==='ALL') return true;
   if(ui.filter==='EXCEPTION') return bedExceptions(v.id).some(x=>x.status!=='RESOLVED');
   if(ui.filter==='OCCUPIED') return bedState(v)==='OCCUPIED';
@@ -565,6 +570,8 @@ function boardScreen(){
     <div class="mapcol">
       <div class="toolbar">
         ${assignmentsButton()}
+        <input id="bed-search" placeholder="Search beds (ID, block, crop, cohort…)" value="${esc(ui.bedSearch)}" oninput="setBedSearch(this.value)" style="min-width:220px;" aria-label="Search beds">
+        <button class="btn btn-outline" style="width:auto;margin:0;" onclick="openBedEdit('')">+ Add bed</button>
         <div class="seg">
           <button class="${ui.overlay==='stage'?'active':''}" onclick="setOverlay('stage')">Current stage</button>
           <button class="${ui.overlay==='queue'?'active':''}" onclick="setOverlay('queue')">Queue</button>
@@ -574,6 +581,7 @@ function boardScreen(){
       </div>
       ${assignStrip()}
       ${filterBar()}
+      ${bedSearchResults()}
       ${noticeStrip()}
       <div class="legend">${legendHTML()}</div>
       <div class="mapscroll">${mapSVG()}</div>
@@ -680,7 +688,8 @@ function overviewTab(b,sess){
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>`:''}
   ${b.cohortId?cohortActionButtons(b)+pendingBlock(b,true):emptyBedBlock(b,sess)}
-  ${actionsPanel(b,sess)}`;
+  ${actionsPanel(b,sess)}
+  ${bedProfileCard(b)}`;
 }
 /**
  * Manager write-back actions, gated on Cohort_Status - these call
@@ -1014,6 +1023,8 @@ function modalHTML(){
   else if(ui.modal==='verify-planting') inner=verifyPlantingModal();
   else if(ui.modal==='move') inner=moveModal();
   else if(ui.modal==='terminate') inner=terminateModal();
+  else if(ui.modal==='bed-edit') inner=bedEditModal();
+  else if(ui.modal==='crop-edit') inner=cropEditModal();
   return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'?' wide':(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity)?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
@@ -2348,9 +2359,182 @@ function coverProfile(){
     `}
   </div>`;
 }
+
+/* ============================== BED SEARCH / ADD / EDIT, CROP EDIT ==============================
+ * Backend actions used (Manager/Founder only; must exist in Code_main.gs routeAction_ and Auth.gs AUTH_POLICY):
+ *   get-bed-profile  {bedId}                  -> {profile:{BED_MASTER columns}}
+ *   add-bed          {bed:{...fields}}        -> {bedId}
+ *   update-bed       {bedId, changes:{...}}   -> {profile:{...}}
+ *   get-crop-profile {cropId}                 -> {profile:{CROP_REFERENCE columns}}
+ *   update-crop      {cropId, changes:{...}}  -> {profile:{...}}
+ * Bed_Status, Current_Cohort_ID and Last_Action are owned by the engines and are shown read-only, never sent. */
+function keepFocus(id){ const el=document.getElementById(id); if(el){ el.focus(); try{ const n=el.value.length; el.setSelectionRange(n,n); }catch(e){} } }
+function setBedSearch(v){ ui.bedSearch=v; render(); keepFocus('bed-search'); }
+function bedSearchResults(){
+  const q=(ui.bedSearch||'').trim(); if(!q) return '';
+  const all=gridBeds().map(bedView), hits=all.filter(bedSearchHit);
+  return `<div class="toolbar" style="gap:6px;"><span class="qsub"><b style="color:var(--ink);">${hits.length}</b> of ${all.length} beds match “${esc(q)}”</span>
+    ${hits.slice(0,14).map(v=>`<button class="btn btn-ghost" style="width:auto;margin:0;padding:4px 9px;border:1px solid var(--line);font-size:11.5px;" onclick="selectBed('${esc(v.id)}')">${esc(v.id)}${v.cropName?' · '+esc(v.cropName):''}</button>`).join('')}
+    ${hits.length>14?`<span class="qsub">+${hits.length-14} more (shown highlighted on the map)</span>`:''}
+    <button class="dc-mini" onclick="setBedSearch('')">Clear</button></div>`;
+}
+function bedProfileCard(b){
+  return `<div class="card"><div class="row"><span><b style="color:var(--ink);">Bed profile</b></span><span><button class="dc-mini" onclick="openBedEdit('${esc(b.id)}')">Edit bed</button></span></div>
+    <div class="row"><span>Location type</span><span>${esc(b.locationType||'—')}</span></div>
+    <div class="row"><span>Bed status</span><span>${esc(b.bedStatus||'—')}</span></div></div>`;
+}
+
+const BED_FIELDS=[
+  {k:'Bed_ID',label:'Bed ID',req:true,addOnly:true,ph:'e.g. B1-33'},
+  {k:'Block_ID',label:'Block',req:true,list:'blocks'},
+  {k:'Location_Type',label:'Location type',req:true,list:'types'},
+  {k:'Zone',label:'Zone'},
+  {k:'Bed_Length',label:'Bed length',num:true},
+  {k:'Center-to-Center Spacing (in)',label:'Center-to-center spacing (in)',num:true},
+  {k:'Usable Top Width (in)',label:'Usable top width (in)',num:true},
+  {k:'Bed_Health_Status',label:'Bed health status'},
+  {k:'Bed_Irrigation_Status',label:'Bed irrigation status'}
+];
+const BED_READONLY=[['Bed_Status','Bed status'],['Current_Cohort_ID','Current cohort'],['Last_Action','Last action']];
+async function openBedEdit(bedId){
+  if(!bedId){ openModal('bed-edit',{mode:'add',fields:{Location_Type:'FIELD'},orig:{},err:'',busy:false}); return; }
+  openModal('bed-edit',{mode:'edit',bedId,loading:true,fields:{},orig:{},err:'',busy:false});
+  try{
+    const r=await apiCall('get-bed-profile',{bedId}), prof=(r&&(r.profile||r.bed))||r||{};
+    if(ui.modal!=='bed-edit'||ui.modalDraft.bedId!==bedId) return;
+    const f={}; BED_FIELDS.forEach(x=>{ f[x.k]=prof[x.k]==null?'':prof[x.k]; });
+    Object.assign(ui.modalDraft,{loading:false,fields:f,orig:Object.assign({},f),profile:prof});
+  }catch(e){ if(ui.modal==='bed-edit') Object.assign(ui.modalDraft,{loading:false,err:e.message}); }
+  render();
+}
+function beSet(i,v){ ui.modalDraft.fields[BED_FIELDS[i].k]=v; }
+function bedEditModal(){
+  const d=ui.modalDraft, add=d.mode==='add';
+  const opts=(key,extra)=>[...new Set(gridBeds().map(b=>b[key]).concat(extra||[]).filter(Boolean))];
+  const lists={blocks:opts('blockId'),types:opts('locationType',['FIELD','GREENHOUSE'])};
+  const dl=Object.keys(lists).map(k=>`<datalist id="be-dl-${k}">${lists[k].map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`).join('');
+  const ro=!add&&d.profile?`<div class="card" style="margin-bottom:12px;">${BED_READONLY.map(([k,l])=>`<div class="row"><span>${l}</span><span>${esc(d.profile[k]==null||d.profile[k]===''?'—':d.profile[k])}</span></div>`).join('')}<div class="note" style="margin:6px 0 0;">Set by the assignment and bed-status rules. Not editable here.</div></div>`:'';
+  const body=d.loading?`<div class="empty">Loading bed profile…</div>`:
+    BED_FIELDS.map((x,i)=>{
+      if(x.addOnly&&!add) return '';
+      return `<div class="field"><label>${esc(x.label)}${x.req?' *':''}</label><input ${x.num?'type="number" step="any" min="0"':''} ${x.list?`list="be-dl-${x.list}"`:''} placeholder="${esc(x.ph||'')}" value="${esc(d.fields[x.k]==null?'':d.fields[x.k])}" oninput="beSet(${i},this.value)"></div>`;
+    }).join('');
+  return `<h2 style="font-size:15px;">${add?'Add bed':'Edit bed '+esc(d.bedId)}</h2>
+  ${add?`<p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Adds a row to BED_MASTER. The bed starts UNVERIFIED until a manager verifies it ready.</p>`:''}
+  ${d.err?`<div class="error">${esc(d.err)}</div>`:''}${dl}${ro}${body}
+  <button class="btn btn-primary" ${d.loading||d.busy?'disabled':''} onclick="beSave()">${d.busy?'Saving…':add?'Add bed':'Save changes'}</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+async function beSave(){
+  const d=ui.modalDraft, add=d.mode==='add', out={};
+  for(const x of BED_FIELDS){
+    if(x.addOnly&&!add) continue;
+    let v=d.fields[x.k]; v=v==null?'':String(v).trim();
+    if(x.req&&!v){ d.err=x.label+' is required.'; render(); return; }
+    if(x.num&&v!==''){ if(isNaN(Number(v))||Number(v)<0){ d.err=x.label+' must be a positive number.'; render(); return; } v=Number(v); }
+    out[x.k]=v;
+  }
+  if(add){
+    if(/\s/.test(out.Bed_ID)){ d.err='Bed ID cannot contain spaces.'; render(); return; }
+    if(gridBeds().some(b=>String(b.id).toUpperCase()===out.Bed_ID.toUpperCase())){ d.err='A bed named '+out.Bed_ID+' already exists.'; render(); return; }
+  }
+  const changes={}; Object.keys(out).forEach(k=>{ if(add||String(out[k])!==String(d.orig[k]==null?'':d.orig[k])) changes[k]=out[k]; });
+  if(!add&&!Object.keys(changes).length){ d.err='Nothing changed.'; render(); return; }
+  d.busy=true; d.err=''; render();
+  try{
+    if(add) await apiCall('add-bed',{bed:out}); else await apiCall('update-bed',{bedId:d.bedId,changes});
+    const id=add?out.Bed_ID:d.bedId;
+    closeModal(); toast(add?('Bed '+id+' added.'):('Bed '+id+' saved.')); await loadToday();
+    if(add) selectBed(id);
+  }catch(e){ d.busy=false; d.err=e.message; render(); }
+}
+
+/* ---- Crop: pull live CROP_REFERENCE row, overlay it on the embedded CROP_MASTER entry, edit and save ---- */
+const CROP_FIELDS=[
+  {k:'Crop_Name',label:'Crop name',req:true},
+  {k:'Category',label:'Production category',list:'category'},
+  {k:'Cycle_Class',label:'Cycle class',list:'cycleClass'},
+  {k:'Propagation_Path',label:'Propagation path',list:'propPath'},
+  {k:'Planting_Method',label:'Planting method',list:'plantMethod'},
+  {k:'DOB_Type',label:'DOB type',list:'dobType'},
+  {k:'First_Harvest_Min',label:'Days to first harvest (min)',num:true},
+  {k:'First_Harvest_Max',label:'Days to first harvest (max)',num:true},
+  {k:'Harvest_Type',label:'Harvest type',list:'harvestTypeRef'},
+  {k:'Irrigation_Profile_ID',label:'Irrigation profile',list:'irrProfile'},
+  {k:'Preferred_Block',label:'Preferred block'},
+  {k:'HT_Eligible',label:'High-tunnel eligible',bool:true}
+];
+function applyCropProfile(id,prof){
+  const c=CROP_MASTER.find(x=>x.id===id); if(!c||!prof) return;
+  const has=k=>prof[k]!==undefined&&prof[k]!==null&&prof[k]!=='';
+  if(has('Crop_Name')) c.name=prof.Crop_Name;
+  if(has('Category')) c.category=prof.Category;
+  if(has('Cycle_Class')) c.cycleClass=prof.Cycle_Class;
+  if(has('Propagation_Path')) c.propPath=prof.Propagation_Path;
+  if(has('Planting_Method')) c.plantMethod=prof.Planting_Method;
+  if(has('DOB_Type')) c.dobType=prof.DOB_Type;
+  if(has('Harvest_Type')) c.harvestTypeRef=prof.Harvest_Type;
+  if(has('Irrigation_Profile_ID')) c.irrProfile=prof.Irrigation_Profile_ID;
+  if(prof.Preferred_Block!==undefined) c.prefBlock=prof.Preferred_Block||null;
+  if(prof.HT_Eligible!==undefined&&prof.HT_Eligible!=='') c.htEligible=(prof.HT_Eligible===true||String(prof.HT_Eligible).toLowerCase()==='true');
+  if(c.life){ if(has('First_Harvest_Min')) c.life.harvestMin=Number(prof.First_Harvest_Min); if(has('First_Harvest_Max')) c.life.harvestMax=Number(prof.First_Harvest_Max); }
+}
+const cropPulled={};
+async function pullCrop(id){
+  if(cropPulled[id]) return;
+  try{ const r=await apiCall('get-crop-profile',{cropId:id}); cropPulled[id]=true; applyCropProfile(id,(r&&(r.profile||r.crop))||r); if(ui.screen==='planning'&&ui.pMode==='cropref'&&ui.crSelectedId===id&&!ui.modal) render(); }
+  catch(e){ /* backend action not deployed or unreachable: keep the embedded profile */ }
+}
+async function openCropEdit(cropId){
+  openModal('crop-edit',{cropId,loading:true,fields:{},orig:{},err:'',busy:false});
+  try{
+    const r=await apiCall('get-crop-profile',{cropId}), prof=(r&&(r.profile||r.crop))||r||{};
+    if(ui.modal!=='crop-edit'||ui.modalDraft.cropId!==cropId) return;
+    const f={}; CROP_FIELDS.forEach(x=>{ const v=prof[x.k]; f[x.k]=x.bool?(v===true||String(v).toLowerCase()==='true'?'true':(v===''||v==null?'':'false')):(v==null?'':v); });
+    Object.assign(ui.modalDraft,{loading:false,fields:f,orig:Object.assign({},f)});
+  }catch(e){ if(ui.modal==='crop-edit') Object.assign(ui.modalDraft,{loading:false,err:e.message}); }
+  render();
+}
+function ceSet(i,v){ ui.modalDraft.fields[CROP_FIELDS[i].k]=v; }
+function cropEditModal(){
+  const d=ui.modalDraft;
+  const optsFor=k=>[...new Set(CROP_MASTER.map(c=>c[k]).filter(Boolean))];
+  const dl=[...new Set(CROP_FIELDS.filter(x=>x.list).map(x=>x.list))].map(k=>`<datalist id="ce-dl-${k}">${optsFor(k).map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`).join('');
+  const body=d.loading?`<div class="empty">Loading crop profile…</div>`:CROP_FIELDS.map((x,i)=>{
+    const v=d.fields[x.k]==null?'':d.fields[x.k];
+    if(x.bool) return `<div class="field"><label>${esc(x.label)}</label><select onchange="ceSet(${i},this.value)"><option value=""></option><option value="true" ${v==='true'?'selected':''}>Yes</option><option value="false" ${v==='false'?'selected':''}>No</option></select></div>`;
+    return `<div class="field"><label>${esc(x.label)}${x.req?' *':''}</label><input ${x.num?'type="number" step="1" min="0"':''} ${x.list?`list="ce-dl-${x.list}"`:''} value="${esc(v)}" oninput="ceSet(${i},this.value)"></div>`;
+  }).join('');
+  return `<h2 style="font-size:15px;">Edit crop ${esc(d.cropId)}</h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Edits the CROP_REFERENCE row. The crop ID and the Oregon planting-window fields are not editable here.</p>
+  ${d.err?`<div class="error">${esc(d.err)}</div>`:''}${dl}${body}
+  <button class="btn btn-primary" ${d.loading||d.busy?'disabled':''} onclick="ceSave()">${d.busy?'Saving…':'Save changes'}</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+async function ceSave(){
+  const d=ui.modalDraft, changes={};
+  for(const x of CROP_FIELDS){
+    let v=d.fields[x.k]; v=v==null?'':String(v).trim();
+    if(x.req&&!v){ d.err=x.label+' is required.'; render(); return; }
+    if(v===String(d.orig[x.k]==null?'':d.orig[x.k]).trim()) continue;
+    if(x.num&&v!==''){ if(isNaN(Number(v))||Number(v)<0){ d.err=x.label+' must be a positive number.'; render(); return; } v=Number(v); }
+    if(x.bool) v=(v==='true');
+    changes[x.k]=v;
+  }
+  const mn=changes.First_Harvest_Min!==undefined?changes.First_Harvest_Min:Number(d.fields.First_Harvest_Min), mx=changes.First_Harvest_Max!==undefined?changes.First_Harvest_Max:Number(d.fields.First_Harvest_Max);
+  if(d.fields.First_Harvest_Min!==''&&d.fields.First_Harvest_Max!==''&&mn>mx){ d.err='Minimum days to first harvest cannot exceed the maximum.'; render(); return; }
+  if(!Object.keys(changes).length){ d.err='Nothing changed.'; render(); return; }
+  d.busy=true; d.err=''; render();
+  try{
+    const r=await apiCall('update-crop',{cropId:d.cropId,changes});
+    const id=d.cropId; applyCropProfile(id,(r&&(r.profile||r.crop))||Object.assign({},changes)); cropPulled[id]=true;
+    closeModal(); toast('Crop '+id+' saved.');
+  }catch(e){ d.busy=false; d.err=e.message; render(); }
+}
+
 /* ---- render: Crop Reference (crop-identity master, not tied to a block/year) ---- */
-function setCrFilter(v){ ui.crFilter=v; render(); }
-function selectCropRef(id){ ui.crSelectedId=id; render(); }
+function setCrFilter(v){ ui.crFilter=v; render(); keepFocus('cr-search'); }
+function selectCropRef(id){ ui.crSelectedId=id; render(); pullCrop(id); }
 function cropRefLayout(left,right){ return `<div class="leftpanel">${left}</div><div class="panel" style="flex:1 1 480px;max-width:640px;">${right}</div>`; }
 function cropRefListHTML(){
   const q=ui.crFilter.trim().toLowerCase();
@@ -2377,7 +2561,7 @@ function cropRefProfile(){
   const where = c.window ? [c.window.field?'Field':null, c.window.gh?'Greenhouse':null].filter(Boolean).join(' + ') || 'None' : '—';
   const continuity = c.htEligible ? 'High-tunnel / protected culture eligible' : 'Open field only (not high-tunnel eligible)';
 
-  return `<div class="panelhead"><div><h2>${esc(c.name)}</h2><div class="meta">${esc(c.id)}${c.family?' · '+esc(c.family):''}</div></div></div>
+  return `<div class="panelhead"><div><h2>${esc(c.name)}</h2><div class="meta">${esc(c.id)}${c.family?' · '+esc(c.family):''}</div></div><button class="btn btn-outline" style="width:auto;margin:0;" onclick="openCropEdit('${esc(c.id)}')">Edit crop</button></div>
   <div class="panelbody">
     ${c.gap?`<div class="note" style="background:#FBEBD6;color:#5B4300;padding:10px 12px;border-radius:9px;">⚠ ${esc(c.gap)}</div>`:''}
 
