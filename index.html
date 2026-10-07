@@ -238,20 +238,34 @@ async function apiCall(action, payload={}, timeoutMs){
   return json.data!==undefined ? json.data : json;
 }
 function setConn(s){ const el=$('#conn'); if(!el) return; el.dataset.s=s; el.textContent={online:'Connected',demo:'Demo data',offline:'Offline',error:'Server not reachable'}[s]||s; }
-function forceLogout(msg){ Object.assign(state,{managerId:null,name:null,role:null,token:null}); ui.screen='login'; ui.loginErr=msg||''; render(); }
+function forceLogout(msg){ clearSession(); Object.assign(state,{managerId:null,name:null,role:null,token:null}); ui.screen='login'; ui.loginErr=msg||''; render(); }
 
 /* ============================== AUTH ============================== */
+/* Session survives a refresh: the sign-in is kept in sessionStorage (this browser tab only; cleared on logout, on a server
+ * "not signed in" answer, and when the tab is closed). Wrapped in try/catch because storage can be blocked. */
+const SESSION_KEY='ranch_aab_session';
+function saveSession(){ try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify({managerId:state.managerId,name:state.name,role:state.role,token:state.token})); }catch(e){} }
+function clearSession(){ try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){} }
+function restoreSession(){
+  try{ const s=JSON.parse(sessionStorage.getItem(SESSION_KEY)||'null');
+    if(s&&s.token&&s.managerId){ Object.assign(state,{managerId:s.managerId,name:s.name,role:s.role,token:s.token}); return true; } }catch(e){}
+  return false;
+}
+let _loginBusy=false;
 async function doLogin(){
-  const id=$('#in-id').value.trim(), pin=$('#in-pin').value.trim();
+  if(_loginBusy) return;
+  const id=$('#in-id').value.trim(), pin=$('#in-pin').value.trim(); ui.loginId=id;
   if(!id||!pin){ ui.loginErr='Enter your worker ID and PIN.'; render(); return; }
+  _loginBusy=true;
   try{
     const res = await apiCall('login', { workerId:id, pin, app:APP_NAME, device:deviceLabel() });
     Object.assign(state, { managerId:res.workerId, name:res.name, role:res.role, token:res.token });
-    ui.loginErr=''; ui.screen='board'; render();
+    saveSession(); ui.loginErr=''; ui.loginId=''; ui.screen='board'; render();
     await loadToday();
   }catch(e){ ui.loginErr=e.message; render(); }
+  finally{ _loginBusy=false; }
 }
-function logout(){ apiCall('logout',{}).catch(()=>{}); Object.assign(state,{managerId:null,name:null,role:null,token:null}); ui.screen='login'; ui.selectedBed=null; render(); }
+function logout(){ apiCall('logout',{}).catch(()=>{}); clearSession(); Object.assign(state,{managerId:null,name:null,role:null,token:null}); ui.screen='login'; ui.selectedBed=null; render(); }
 
 /* ============================== DATA LOAD ============================== */
 /* Fetch get-manager-today-view and apply it. Used by loadToday and refreshLive so both log the same timings.
@@ -566,7 +580,7 @@ function loginScreen(){
     <h1 style="font-size:22px;margin:40px 0 4px;">Activity Assignment Board</h1>
     <p style="color:var(--ink-soft);font-size:13.5px;margin:0 0 20px;">Manager / Founder sign-in. Workers cannot access this board.</p>
     ${ui.loginErr?`<div class="error">${esc(ui.loginErr)}</div>`:''}
-    <div class="field"><label>Worker ID</label><input id="in-id" placeholder="usr-manager1" autocomplete="off"></div>
+    <div class="field"><label>Worker ID</label><input id="in-id" placeholder="usr-manager1" autocomplete="off" value="${esc(ui.loginId||'')}"></div>
     <div class="field"><label>PIN</label><input id="in-pin" type="password" inputmode="numeric" placeholder="••••"></div>
     <button class="btn btn-primary" onclick="doLogin()">Log in</button>
     <p style="font-size:11.5px;color:var(--ink-soft);margin-top:14px;">Demo sign-ins: usr-manager1 / 1234, usr-founder1 / 1234 (PIN 1234).</p>
@@ -2951,7 +2965,19 @@ async function mockBackend(action, p){
 }
 
 /* ============================== START ============================== */
-render();
+/* Enter signs in. In the ID box it jumps to the PIN first if the PIN is still empty. */
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'||ui.screen!=='login') return;
+  const t=e.target; if(!t||(t.id!=='in-id'&&t.id!=='in-pin')) return;
+  e.preventDefault();
+  const id=$('#in-id'), pin=$('#in-pin');
+  if(t.id==='in-id'&&id.value.trim()&&!pin.value.trim()){ pin.focus(); return; }
+  doLogin();
+});
+if(restoreSession()){
+  /* A saved sign-in: go straight to the board. If the server no longer accepts the token, apiCall's forceLogout returns to the login screen. */
+  ui.screen='board'; render(); loadToday().catch(()=>{});
+} else render();
 </script>
 </body>
 </html>
