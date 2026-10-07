@@ -2499,7 +2499,7 @@ function applyCropProfile(id,prof){
 const cropPulled={};
 async function pullCrop(id){
   if(cropPulled[id]) return;
-  try{ const r=await apiCall('get-crop-profile',{cropId:id}); cropPulled[id]=true; applyCropProfile(id,(r&&(r.profile||r.crop))||r); if(ui.screen==='planning'&&ui.pMode==='cropref'&&ui.crSelectedId===id&&!ui.modal) render(); }
+  try{ const r=await apiCall('get-crop-profile',{cropId:id}); cropPulled[id]=true; ceApplyExtras(id,(r&&r.profile)?r:{profile:(r&&r.crop)||r}); if(ui.screen==='planning'&&ui.pMode==='cropref'&&ui.crSelectedId===id&&!ui.modal) render(); }
   catch(e){ /* backend action not deployed or unreachable: keep the embedded profile */ }
 }
 const LIFE_FIELDS=[
@@ -2517,104 +2517,146 @@ const LIFE_FIELDS=[
   {k:'Lifecycle_Status',label:'Lifecycle status',opt:'lifecycleStatus'}
 ];
 function applyCropLifecycle(id,lf){
-  const c=CROP_MASTER.find(x=>x.id===id); if(!c||!lf||!c.life) return;
+  const c=CROP_MASTER.find(x=>x.id===id); if(!c||!lf) return;
   const has=k=>lf[k]!==undefined&&lf[k]!==null&&lf[k]!=='';
+  if(!c.life) c.life={harvestMin:c.life&&c.life.harvestMin!=null?c.life.harvestMin:null,harvestMax:null};   /* a real CROP_LIFECYCLE row exists server-side */
   if(has('Production_Path')) c.life.productionPath=lf.Production_Path;
   if(has('Harvest_Window_Type')) c.life.windowType=lf.Harvest_Window_Type;
   if(lf.Harvest_Notes!==undefined) c.life.notes=lf.Harvest_Notes;
+  if(c.harvestMin!=null&&c.life.harvestMin==null) c.life.harvestMin=c.harvestMin;
+  delete c.gap;   /* the embedded "no CROP_LIFECYCLE record" warning is stale once the live row is found */
 }
 const boolStr=v=>v===true||String(v).toLowerCase()==='true'?'true':(v===''||v==null?'':'false');
+/* ---- Edit crop: ONE crop-profile form. Default view = "Crop profile" (Identity / How we start it / Where we can produce
+ *      it / How it grows / How we harvest it / How the ranch operates it), every field tagged with the tab it is stored in.
+ *      "Crop reference" and "Crop lifecycle" remain as sub-views that show only that tab's fields. All views share ONE set
+ *      of pending edits and ONE Save (save-crop: CROP_REFERENCE + CROP_LIFECYCLE + CROP_PROPAGATION_PARAMETERS, all or none). */
+const CE_VIEWS=[{id:'profile',label:'Crop profile',hint:'The whole crop in one place. Each field says which tab it is stored in; one Save updates every tab that changed.'},
+  {id:'ref',label:'Crop reference',tab:'ref',hint:'Only the fields stored in CROP_REFERENCE. The crop ID and the Oregon planting-window fields are not editable here.'},
+  {id:'life',label:'Crop lifecycle',tab:'life',hint:'Only the fields stored in CROP_LIFECYCLE. Days to first harvest, planting method, DOB type and cycle class mirror CROP_REFERENCE; change them there.'}];
+const CE_TAB={ref:'CROP_REFERENCE',life:'CROP_LIFECYCLE',prop:'CROP_PROPAGATION_PARAMETERS'};
+const CE_GROUPS=['Identity','How we start it','Where we can produce it','How it grows','How we harvest it','How the ranch operates it'];
+const PROP_FIELDS=[{k:'Propagation_Method',label:'Propagation method (lead times)'},{k:'Germination_Days',label:'Germination days',num:true},{k:'Nursery_Days',label:'Nursery days',num:true},
+  {k:'Harden_Days',label:'Hardening days',num:true},{k:'Establish_Days',label:'Transplant / field establishment days',num:true},{k:'Propagation_Notes',label:'Propagation notes',note:true}];
+const CE_LITE_GROUP={'ref.Crop_Name':0,'ref.Category':0,'ref.Cycle_Class':0,'ref.Propagation_Path':1,'ref.Planting_Method':1,'ref.DOB_Type':1,'life.DOB_Basis':1,'life.Planting_Method_Detail':1,
+  'prop.Propagation_Method':1,'prop.Germination_Days':1,'life.Germination_Occurs_Pre_DOB':1,'prop.Nursery_Days':1,'prop.Harden_Days':1,'prop.Establish_Days':1,'prop.Propagation_Notes':1,
+  'life.Production_Path':2,'ref.Preferred_Block':2,'ref.First_Harvest_Min':3,'ref.First_Harvest_Max':3,'life.Lifecycle_Status':3,'ref.Harvest_Type':4,'life.Harvest_Window_Type':4,
+  'life.Planning_Harvest_Window_Days':4,'life.Harvest_Interval_Min_Days':4,'life.Harvest_Interval_Max_Days':4,'life.Harvest_Notes':4,'ref.Irrigation_Profile_ID':5,'ref.HT_Eligible':5};
+/* Fallback when the deployed CropEdit.gs is the older one (no `sections` in get-crop-profile): build the same groups here. */
+function ceLiteSections(r){
+  const prof=r.profile||{}, lf=r.lifecycle||null, pr=r.propagation||null, lo=r.lifecycleOptions||{};
+  const optsFor=k=>[...new Set(CROP_MASTER.map(c=>c[k]).filter(Boolean))];
+  const groups=CE_GROUPS.map(t=>({title:t,fields:[]}));
+  const add=(tab,x,kind,opts,has,src)=>{ const g=CE_LITE_GROUP[tab+'.'+x.k]; if(g===undefined) return;
+    const v=src?src[x.k]:''; groups[g].fields.push({key:tab+'.'+x.k,tab,column:x.k,label:x.label,value:v==null?'':v,editable:!(tab==='prop'&&!pr),kind,options:opts||null,
+      createsRow:tab==='life'&&!lf,mismatch:false,sources:[{tab:CE_TAB[tab],column:x.k,role:'edit',hasRow:has}],note:''}); };
+  CROP_FIELDS.forEach(x=>add('ref',x,x.bool?'bool':x.num?'num':(x.list&&x.list!=='category'?'strict':'text'),(x.list&&x.list!=='category')?optsFor(x.list):null,true,prof));
+  LIFE_FIELDS.forEach(x=>{ if(x.k==='Germination_Days'||x.k==='Propagation_Method') return;
+    add('life',x,x.bool?'bool':x.num?(x.req?'numreq':'num'):x.opt?'strict':(x.k==='Harvest_Notes'?'note':'text'),x.opt?(lo[x.opt]||null):null,!!lf,lf); });
+  PROP_FIELDS.forEach(x=>add('prop',x,x.num?'num':x.note?'note':'text',null,!!pr,pr));
+  return groups.filter(g=>g.fields.length);
+}
+function ceNotices(r,legacy){
+  const n=((r&&r.notices)||[]).slice();
+  if(legacy&&r){ if(!r.lifecycle) n.push('No CROP_LIFECYCLE row was returned for this crop. Saving any lifecycle field will create one.'); if(!r.propagation) n.push('No CROP_PROPAGATION_PARAMETERS row was returned for this crop, so lead times cannot be edited.'); }
+  return n;
+}
+/* Push what the server returned into the in-memory crop master so the profile screen is current without a reload. */
+function ceApplyExtras(id,r){
+  if(!r) return; const prof=r.profile||r.crop;
+  if(r.lifecycle) applyCropLifecycle(id,r.lifecycle);   /* first, so the reference overlay below can fill c.life.harvestMin/Max */
+  if(prof) applyCropProfile(id,prof);
+  const c=CROP_MASTER.find(x=>x.id===id), pr=r.propagation; if(!c||!pr) return;
+  const n=v=>(v===''||v==null)?null:Number(v); c.lead=c.lead||{};
+  c.lead.method=pr.Propagation_Method||c.lead.method; c.lead.germ=n(pr.Germination_Days); c.lead.nursery=n(pr.Nursery_Days); c.lead.harden=n(pr.Harden_Days);
+  c.lead.establish=n(pr.Establish_Days); c.lead.total=n(pr.Total_Pre_DOB_Days); c.lead.notes=pr.Propagation_Notes||'';
+}
 async function openCropEdit(cropId){
-  openModal('crop-edit',{cropId,tab:'ref',loading:true,fields:{},orig:{},lfields:{},lorig:{},lopts:null,lexists:false,err:'',busy:false});
+  openModal('crop-edit',{cropId,view:'profile',loading:true,sections:[],notices:[],legacy:false,pending:{ref:{},life:{},prop:{}},err:'',busy:false});
   try{
-    const r=await apiCall('get-crop-profile',{cropId}), prof=(r&&(r.profile||r.crop))||r||{};
+    const raw=await apiCall('get-crop-profile',{cropId}); const r=(raw&&raw.profile)?raw:{profile:(raw&&raw.crop)||raw||{}};
     if(ui.modal!=='crop-edit'||ui.modalDraft.cropId!==cropId) return;
-    const f={}; CROP_FIELDS.forEach(x=>{ const v=prof[x.k]; f[x.k]=x.bool?boolStr(v):(v==null?'':v); });
-    const lf=(r&&r.lifecycle)||null, lv={};
-    LIFE_FIELDS.forEach(x=>{ const v=lf?lf[x.k]:''; lv[x.k]=x.bool?boolStr(v):(v==null?'':v); });
-    Object.assign(ui.modalDraft,{loading:false,fields:f,orig:Object.assign({},f),lfields:lv,lorig:Object.assign({},lv),lopts:(r&&r.lifecycleOptions)||null,lexists:!!lf,lallowable:lf?lf.Allowable_Planting_Window:''});
+    ceApplyExtras(cropId,r);
+    const legacy=!(r.sections&&r.sections.length);
+    Object.assign(ui.modalDraft,{loading:false,legacy,sections:legacy?ceLiteSections(r):r.sections,notices:ceNotices(r,legacy),name:(r.profile&&r.profile.Crop_Name)||''});
   }catch(e){ if(ui.modal==='crop-edit') Object.assign(ui.modalDraft,{loading:false,err:e.message}); }
   render();
 }
-function ceSet(i,v){ ui.modalDraft.fields[CROP_FIELDS[i].k]=v; }
-function leSet(i,v){ ui.modalDraft.lfields[LIFE_FIELDS[i].k]=v; }
-function ceTab(t){ ui.modalDraft.tab=t; ui.modalDraft.err=''; render(); }
-const ceDirty=(f,o)=>Object.keys(f).some(k=>String(f[k]==null?'':f[k]).trim()!==String(o[k]==null?'':o[k]).trim());
+const ceShow=v=>v===true?'Yes':v===false?'No':(v===''||v==null?'—':v);
+const ceCount=d=>Object.keys(d.pending.ref).length+Object.keys(d.pending.life).length+Object.keys(d.pending.prop).length;
+function ceField(d,tab,col){ for(const g of d.sections) for(const f of g.fields) if(f.tab===tab&&f.column===col) return f; return null; }
+function ceCur(d,f){ return Object.prototype.hasOwnProperty.call(d.pending[f.tab],f.column)?d.pending[f.tab][f.column]:f.value; }
+function ceIn(tab,col,raw){
+  const d=ui.modalDraft, f=ceField(d,tab,col); if(!f) return;
+  const val=f.kind==='bool'?(raw===''?'':raw==='true'):raw;
+  if(String(f.value==null?'':f.value).trim()===String(val).trim()) delete d.pending[tab][col]; else d.pending[tab][col]=val;
+  d.err=''; const b=document.getElementById('ce-save'), n=ceCount(d);
+  if(b){ b.disabled=!n||d.busy; b.textContent='Save crop'+(n?' ('+n+' change'+(n>1?'s':'')+')':''); }
+  const row=document.getElementById('ce-row-'+tab+'-'+col); if(row) row.style.background=d.pending[tab][col]!==undefined||Object.prototype.hasOwnProperty.call(d.pending[tab],col)?'#EAF3FF':'';
+}
+function ceView(v){ ui.modalDraft.view=v; ui.modalDraft.err=''; render(); }
+function ceFieldHTML(d,f){
+  if(f.missing) return `<div class="field"><label>${esc(f.label)}</label><div class="note" style="margin:0;">${esc(f.note||'Not in the workbook yet.')}</div></div>`;
+  const cur=ceCur(d,f), chg=Object.prototype.hasOwnProperty.call(d.pending[f.tab]||{},f.column);
+  const chips=(f.sources||[]).map(s=>{ const warn=f.mismatch&&s.role==='copy', val=s.role!=='edit'&&s.value!==undefined?' = '+ceShow(s.value):'';
+    return `<span class="chip ${warn?'chip-warn':'chip-neutral'}" style="font-size:10px;margin:2px 4px 0 0;" title="${s.role==='edit'?'stored here, editable':s.role==='copy'?'copy kept in step':s.role==='related'?'related field':'read-only'}">${esc(s.tab)}.${esc(s.column)}${esc(val)}</span>`; }).join('');
+  let inp;
+  if(!f.editable) inp=`<div style="padding:6px 0;">${esc(ceShow(f.value))}</div>`;
+  else{
+    const on=`onchange="ceIn('${f.tab}','${esc(f.column)}',this.value)"`, oi=`oninput="ceIn('${f.tab}','${esc(f.column)}',this.value)"`;
+    if(f.kind==='bool') inp=`<select ${on}><option value=""></option><option value="true" ${cur===true?'selected':''}>Yes</option><option value="false" ${cur===false?'selected':''}>No</option></select>`;
+    else if((f.kind==='strict'||f.kind==='block')&&f.options&&f.options.length){ const all=(cur===''||f.options.includes(cur))?f.options:[cur].concat(f.options);
+      inp=`<select ${on}>${f.kind==='block'||cur===''?'<option value=""></option>':''}${all.map(o=>`<option ${String(o)===String(cur)?'selected':''}>${esc(o)}</option>`).join('')}</select>`; }
+    else if(f.kind==='num'||f.kind==='numreq') inp=`<input type="number" step="1" min="0" value="${esc(cur)}" ${oi}>`;
+    else inp=`<input type="text" maxlength="${f.kind==='note'?200:60}" value="${esc(cur)}" ${oi}>`;
+  }
+  return `<div class="field" id="ce-row-${f.tab}-${esc(f.column)}" style="${chg?'background:#EAF3FF;':f.mismatch?'background:#FBEBD6;':''}border-radius:8px;"><label>${esc(f.label)}${f.kind==='numreq'?' *':''}</label>${inp}<div>${chips}</div>${f.note?`<div class="note" style="margin:2px 0 0;">${esc(f.note)}</div>`:''}</div>`;
+}
 function cropEditModal(){
-  const d=ui.modalDraft, life=d.tab==='life';
-  const optsFor=k=>[...new Set(CROP_MASTER.map(c=>c[k]).filter(Boolean))];
-  const dl=[...new Set(CROP_FIELDS.filter(x=>x.list).map(x=>x.list))].map(k=>`<datalist id="ce-dl-${k}">${optsFor(k).map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`).join('');
-  const yn=(fn,i,v)=>`<select onchange="${fn}(${i},this.value)"><option value=""></option><option value="true" ${v==='true'?'selected':''}>Yes</option><option value="false" ${v==='false'?'selected':''}>No</option></select>`;
+  const d=ui.modalDraft, v=CE_VIEWS.find(x=>x.id===d.view)||CE_VIEWS[0];
   let body;
   if(d.loading) body=`<div class="empty">Loading crop profile…</div>`;
-  else if(!life) body=CROP_FIELDS.map((x,i)=>{
-    const v=d.fields[x.k]==null?'':d.fields[x.k];
-    if(x.bool) return `<div class="field"><label>${esc(x.label)}</label>${yn('ceSet',i,v)}</div>`;
-    return `<div class="field"><label>${esc(x.label)}${x.req?' *':''}</label><input ${x.num?'type="number" step="1" min="0"':''} ${x.list?`list="ce-dl-${x.list}"`:''} value="${esc(v)}" oninput="ceSet(${i},this.value)"></div>`;
-  }).join('');
-  else if(!d.lexists) body=`<div class="empty">This crop has no row in CROP_LIFECYCLE yet, so there is nothing to edit here.</div>`;
-  else body=LIFE_FIELDS.map((x,i)=>{
-    const v=d.lfields[x.k]==null?'':d.lfields[x.k], list=x.opt&&d.lopts&&d.lopts[x.opt];
-    const lab=`<label>${esc(x.label)}${x.req?' *':''}</label>`;
-    if(x.bool) return `<div class="field">${lab}${yn('leSet',i,v)}</div>`;
-    if(list&&list.length){ const all=list.includes(v)||v===''?list:[v].concat(list);
-      return `<div class="field">${lab}<select onchange="leSet(${i},this.value)">${all.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`; }
-    return `<div class="field">${lab}<input ${x.num?'type="number" step="1" min="0"':''} value="${esc(v)}" oninput="leSet(${i},this.value)"></div>`;
-  }).join('')+`<div class="note" style="margin:0 0 10px;">Not editable here: allowable planting window (${esc(d.lallowable||'—')}), days to first harvest, planting method, DOB type and cycle class. Those mirror CROP_REFERENCE, so change them on the Crop reference tab.</div>`;
-  const dirtyRef=!d.loading&&ceDirty(d.fields,d.orig), dirtyLife=!d.loading&&d.lexists&&ceDirty(d.lfields,d.lorig);
-  const tab=(k,l,dirty)=>`<button class="${(life?'life':'ref')===k?'active':''}" onclick="ceTab('${k}')">${l}${dirty?' •':''}</button>`;
-  const saveLabel=d.busy?'Saving…':(life?'Save crop lifecycle':'Save crop reference');
-  const dis=d.loading||d.busy||(life&&!d.lexists);
-  return `<h2 style="font-size:15px;">Edit crop ${esc(d.cropId)}</h2>
-  <div class="seg" style="margin:0 0 10px;">${tab('ref','Crop reference',dirtyRef)}${tab('life','Crop lifecycle',dirtyLife)}</div>
-  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">${life?'Edits the CROP_LIFECYCLE row. Each tab saves on its own; a • marks unsaved edits.':'Edits the CROP_REFERENCE row. The crop ID and the Oregon planting-window fields are not editable here.'}</p>
-  ${d.err?`<div class="error">${esc(d.err)}</div>`:''}${dl}${body}
-  <button class="btn btn-primary" ${dis?'disabled':''} onclick="ceSave()">${saveLabel}</button>
+  else body=(d.sections||[]).map(g=>{ const fs=g.fields.filter(f=>!v.tab||f.tab===v.tab); return fs.length?crSectionHead(g.title)+fs.map(f=>ceFieldHTML(d,f)).join(''):''; }).join('');
+  const dirty=t=>!d.loading&&Object.keys(d.pending[t]).length>0, n=ceCount(d);
+  const tabBtn=x=>`<button class="${d.view===x.id?'active':''}" onclick="ceView('${x.id}')">${x.label}${x.tab&&dirty(x.tab)?' •':''}</button>`;
+  return `<h2 style="font-size:15px;">Edit crop ${esc(d.cropId)}${d.name?' · '+esc(d.name):''}</h2>
+  ${(d.notices||[]).map(t=>`<div class="note" style="background:#FBEBD6;color:#5B4300;padding:8px 10px;border-radius:9px;margin:0 0 8px;">⚠ ${esc(t)}</div>`).join('')}
+  <div class="seg" style="margin:0 0 10px;">${CE_VIEWS.map(tabBtn).join('')}</div>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">${esc(v.hint)} A • marks unsaved edits.</p>
+  ${d.err?`<div class="error">${esc(d.err)}</div>`:''}${body}
+  <button id="ce-save" class="btn btn-primary" ${d.loading||d.busy||!n?'disabled':''} onclick="ceSave()">${d.busy?'Saving…':'Save crop'+(n?' ('+n+' change'+(n>1?'s':'')+')':'')}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
-function ceSave(){ return ui.modalDraft.tab==='life' ? ceSaveLife() : ceSaveRef(); }
-async function ceSaveRef(){
-  const d=ui.modalDraft, changes={};
-  for(const x of CROP_FIELDS){
-    let v=d.fields[x.k]; v=v==null?'':String(v).trim();
-    if(x.req&&!v){ d.err=x.label+' is required.'; render(); return; }
-    if(v===String(d.orig[x.k]==null?'':d.orig[x.k]).trim()) continue;
-    if(x.num&&v!==''){ if(isNaN(Number(v))||Number(v)<0){ d.err=x.label+' must be a positive number.'; render(); return; } v=Number(v); }
-    if(x.bool) v=(v==='true');
-    changes[x.k]=v;
+async function ceSave(){
+  const d=ui.modalDraft, body={cropId:d.cropId,ref:{},life:{},prop:{}};
+  if(!ceCount(d)){ d.err='Nothing changed.'; render(); return; }
+  for(const tab of ['ref','life','prop']) for(const col of Object.keys(d.pending[tab])){
+    const f=ceField(d,tab,col)||{label:col}, raw=d.pending[tab][col]; let v=raw;
+    if(col==='Crop_Name'&&!String(raw).trim()){ d.err='Crop name is required.'; render(); return; }
+    if(f.kind==='num'||f.kind==='numreq'){ const s=String(raw).trim();
+      if(s===''){ if(f.kind==='numreq'){ d.err=f.label+' is required (use 0 for single-harvest crops).'; render(); return; } v=''; }
+      else{ const n=Number(s); if(isNaN(n)||n<0||!Number.isInteger(n)){ d.err=f.label+' must be a whole number, 0 or more.'; render(); return; } v=n; } }
+    else if(typeof raw==='string') v=raw.trim();
+    body[tab][col]=v;
   }
-  const mn=changes.First_Harvest_Min!==undefined?changes.First_Harvest_Min:Number(d.fields.First_Harvest_Min), mx=changes.First_Harvest_Max!==undefined?changes.First_Harvest_Max:Number(d.fields.First_Harvest_Max);
-  if(d.fields.First_Harvest_Min!==''&&d.fields.First_Harvest_Max!==''&&mn>mx){ d.err='Minimum days to first harvest cannot exceed the maximum.'; render(); return; }
-  if(!Object.keys(changes).length){ d.err='Nothing changed.'; render(); return; }
+  const mn=ceCur(d,ceField(d,'ref','First_Harvest_Min')||{tab:'ref',column:'',value:''}), mx=ceCur(d,ceField(d,'ref','First_Harvest_Max')||{tab:'ref',column:'',value:''});
+  if(mn!==''&&mx!==''&&Number(mn)>Number(mx)){ d.err='Minimum days to first harvest cannot exceed the maximum.'; render(); return; }
   d.busy=true; d.err=''; render();
   try{
-    const r=await apiCall('update-crop',{cropId:d.cropId,changes});
-    const id=d.cropId; applyCropProfile(id,(r&&(r.profile||r.crop))||Object.assign({},changes)); cropPulled[id]=true;
-    d.busy=false; d.orig=Object.assign({},d.fields);
-    if(ceDirty(d.lfields,d.lorig)){ toast('Crop reference saved. Crop lifecycle still has unsaved edits.'); render(); }
-    else { closeModal(); toast('Crop '+id+' reference saved.'); }
-  }catch(e){ d.busy=false; d.err=e.message; render(); }
-}
-async function ceSaveLife(){
-  const d=ui.modalDraft, changes={};
-  for(const x of LIFE_FIELDS){
-    let v=d.lfields[x.k]; v=v==null?'':String(v).trim();
-    if(v===String(d.lorig[x.k]==null?'':d.lorig[x.k]).trim()) continue;
-    if(x.req&&v===''){ d.err=x.label+' is required (use 0 for single-harvest crops).'; render(); return; }
-    if(x.num&&v!==''){ if(isNaN(Number(v))||Number(v)<0||!Number.isInteger(Number(v))){ d.err=x.label+' must be a whole number, 0 or more.'; render(); return; } v=Number(v); }
-    if(x.bool&&v!=='') v=(v==='true');
-    changes[x.k]=v;
-  }
-  const imn=changes.Harvest_Interval_Min_Days!==undefined?changes.Harvest_Interval_Min_Days:d.lfields.Harvest_Interval_Min_Days, imx=changes.Harvest_Interval_Max_Days!==undefined?changes.Harvest_Interval_Max_Days:d.lfields.Harvest_Interval_Max_Days;
-  if(imn!==''&&imx!==''&&Number(imn)>Number(imx)){ d.err='Days between picks: the minimum cannot exceed the maximum.'; render(); return; }
-  if(!Object.keys(changes).length){ d.err='Nothing changed.'; render(); return; }
-  d.busy=true; d.err=''; render();
-  try{
-    const r=await apiCall('update-crop-lifecycle',{cropId:d.cropId,changes});
-    const id=d.cropId; applyCropLifecycle(id,(r&&r.lifecycle)||Object.assign({},changes));
-    d.busy=false; d.lorig=Object.assign({},d.lfields);
-    if(ceDirty(d.fields,d.orig)){ toast('Crop lifecycle saved. Crop reference still has unsaved edits.'); render(); }
-    else { closeModal(); toast('Crop '+id+' lifecycle saved.'); }
+    let r;
+    try{ r=await apiCall('save-crop',body); }
+    catch(e){
+      /* backend without the save-crop route yet: fall back to the two older routes (not all-or-nothing, no lead-time edits) */
+      if(!/unknown|unsupported|invalid action|no such action|not recognised|not recognized|unrecognized/i.test(e.message||'')||(e.code||'').indexOf('CROP_')===0) throw e;
+      if(Object.keys(body.prop).length) throw apiError('Lead-time (propagation) edits need the save-crop action added to the backend router. Nothing was saved.','NO_SAVE_CROP');
+      r={}; 
+      if(Object.keys(body.ref).length){ const a=await apiCall('update-crop',{cropId:d.cropId,changes:body.ref}); r.profile=(a&&(a.profile||a.crop))||Object.assign({},body.ref); }
+      if(Object.keys(body.life).length){ try{ const b=await apiCall('update-crop-lifecycle',{cropId:d.cropId,changes:body.life}); r.lifecycle=(b&&b.lifecycle)||null; }
+        catch(e3){ if(r.profile) ceApplyExtras(d.cropId,r); throw apiError('CROP_REFERENCE was saved but CROP_LIFECYCLE was not: '+e3.message,e3.code); } }
+    }
+    const id=d.cropId; ceApplyExtras(id,r); cropPulled[id]=true;
+    const w=((r&&r.warnings)||[]).filter(x=>x!=='Nothing changed.').join(' ');
+    closeModal(); toast('Crop '+id+' saved.'+(r&&r.createdLifecycle?' A new CROP_LIFECYCLE row was created.':'')+(w?' '+w:''));
   }catch(e){ d.busy=false; d.err=e.message; render(); }
 }
 
