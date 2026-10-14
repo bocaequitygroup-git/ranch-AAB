@@ -189,7 +189,7 @@ const YEAR_OPTIONS=[2027,2028,2029,2030]; // selectable years (only 2027 has dat
 const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', focusCohort:null, focusPending:false, generating:false, resetScroll:false, filter:'ALL', year:YEAR_OPTIONS[0], loading:false,
   pMode:'plan', pBlock:'B1', pYear:2027, pSelectedCrop:null, pModifying:false, pSelBeds:[], pAdvOpen:false, pEditingRotation:false, pRotDraft:{},
   ppSelectedKey:null /* selected crop group key "cropId|wave" in real Planting Plan mode */, ppSelectedBed:null, ppBedModify:false, ppBedDraftCrop:'', ppBusy:false, ppHistoryOpen:false,
-  calCrop:null, calSel:null, crSelectedId:null, crFilter:'', bedSearch:'' /* Crop Reference mode: selected crop id, list search text */ };
+  calTab:'prop', calView:'month', calMonth:null, calDay:null, crSelectedId:null, crFilter:'', bedSearch:'' /* Crop Reference mode: selected crop id, list search text */ };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
 function toast(msg){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},3200); }
@@ -2219,41 +2219,54 @@ function calWave(w){ // phase dates + task list, all derived backwards from w.pl
   ev.push({d:calAdd(w.plant,w.hmin),t:'First harvest ('+w.slot+')',k:'harvest'});
   return {tot,phases,ev,sow:calAdd(w.plant,-tot),h1:calAdd(w.plant,w.hmin),h2:calAdd(w.plant,w.hmax),dobLabel};
 }
-function calSetCrop(c){ ui.calCrop=c||null; ui.calSel=null; render(); }
-function calSetWave(id){ ui.calSel=ui.calSel===id?null:id; render(); }
-function calCropList(){
-  const crops={}; CAL_DATA.forEach(w=>{ (crops[w.crop]=crops[w.crop]||{id:w.crop,name:w.name,n:0}).n++; });
-  const item=(id,name,n)=>`<div class="croprow ${((ui.calCrop||'')===id)?'active':''}" style="cursor:pointer;padding:9px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;font-size:12.5px;${((ui.calCrop||'')===id)?'background:var(--sand);font-weight:800;':''}" onclick="calSetCrop('${id}')"><span>${esc(name)}</span><span style="color:var(--ink-soft)">${n}</span></div>`;
-  return `<div style="padding:10px 12px;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--forest)">Production calendar</div>`+item('','All crops',CAL_DATA.length)+Object.values(crops).sort((a,b)=>a.name.localeCompare(b.name)).map(c=>item(c.id,c.name,c.n)).join('');
+const CAL_TABS=[['prop','Propagation'],['plant','Planting'],['harv','First-harvest windows']];
+const calLong=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
+const calToday=()=>new Date().toISOString().slice(0,10);
+function calEvents(tab){
+  const out=[]; CAL_DATA.forEach(w=>{ const c=calWave(w), who=w.id+' · Bed TBD';
+    if(tab==='prop'&&c.tot>0) out.push({d:c.sow,k:'prop',t:'Start propagation',crop:w.name,sub:`${who} · ${c.phases.map(p=>p.name+' '+p.days+'d').join(' + ')} · transplant ${calShort(w.plant)}`});
+    if(tab==='plant') out.push({d:w.plant,k:'plant',t:c.dobLabel,crop:w.name,sub:`${who} · DOB ${calShort(w.plant)} · first harvest ${calShort(c.h1)}`});
+    if(tab==='harv'){ out.push({d:c.h1,k:'open',t:'Harvest window opens',crop:w.name,sub:`${who} · window ${calFmt(c.h1)} · planting ${calShort(w.plant)}, ${w.plant.slice(0,4)}`});
+      out.push({d:c.h2,k:'close',t:'Harvest window closes',crop:w.name,sub:`${who} · window ${calFmt(c.h2)} · planting ${calShort(w.plant)}, ${w.plant.slice(0,4)}`}); } });
+  return out.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.crop.localeCompare(b.crop));
 }
-function calLegend(){ return CAL_PH.map(p=>`<span><i class="sw" style="background:${p[1]}"></i>${p[0]}</span>`).join('')+`<span><i class="sw" style="background:#1F3A2E"></i>DOB (planting)</span><span><i class="sw" style="background:#A9CFA4"></i>Field growth</span><span><i class="sw" style="background:#2E7D32"></i>First-harvest window</span>`; }
-function calGantt(){
-  const ws=CAL_DATA.filter(w=>!ui.calCrop||w.crop===ui.calCrop).map(w=>Object.assign({c:calWave(w)},w));
-  if(!ws.length) return '<div style="padding:20px">No plantings.</div>';
-  const t0=Math.min(...ws.map(w=>calDay(w.c.sow)))-5, t1=Math.max(...ws.map(w=>calDay(w.c.h2)))+5, px=ui.calCrop?3:1.1, L=190, RH=24, H=40+ws.length*RH, W=L+(t1-t0)*px+20;
-  const X=d=>L+(calDay(d)-t0)*px; let s='', last='';
-  for(let d=t0;d<=t1;d++){ const iso=new Date(d*864e5).toISOString().slice(0,10); if(iso.slice(8)==='01'){ const x=L+(d-t0)*px; s+=`<line x1="${x}" x2="${x}" y1="28" y2="${H}" stroke="var(--line)"/><text x="${x+3}" y="20" font-size="10" fill="var(--ink-soft)">${calShort(iso).slice(0,3)}${iso.slice(5,7)==='01'||!last?' '+iso.slice(0,4):''}</text>`; last=iso; } }
-  const today=new Date().toISOString().slice(0,10); if(calDay(today)>=t0&&calDay(today)<=t1) s+=`<line x1="${X(today)}" x2="${X(today)}" y1="28" y2="${H}" stroke="var(--danger)" stroke-dasharray="3 3"/>`;
-  ws.forEach((w,i)=>{ const y=36+i*RH, c=w.c, sel=ui.calSel===w.id, bar=(a,b,col,h,dy)=>`<rect x="${X(a)}" y="${y+dy}" width="${Math.max(1.5,X(b)-X(a))}" height="${h}" rx="2" fill="${col}"/>`;
-    s+=`<g style="cursor:pointer" onclick="calSetWave('${w.id}')"><rect x="0" y="${y-3}" width="${W}" height="${RH}" fill="${sel?'var(--sand)':'transparent'}"/><text x="6" y="${y+11}" font-size="11" font-weight="${sel?800:600}" fill="var(--ink)">${esc(w.name)} · ${esc(calShort(w.plant))}</text>`;
-    c.phases.forEach(p=>s+=bar(p.start,p.end,p.color,12,0));
-    s+=bar(w.plant,c.h1,'#A9CFA4',12,0)+bar(c.h1,c.h2,'#2E7D32',12,0)+`<rect x="${X(w.plant)-1}" y="${y-2}" width="2.5" height="16" fill="#1F3A2E"/></g>`; });
-  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="font-family:inherit">${s}</svg>`;
+const CAL_CHIP={prop:['#E3EEF9','var(--irrigation)','Sow'],plant:['#EFE9D6','var(--forest)','Plant'],open:['#E4F1E5','var(--ok)','Harvest'],close:['#FBEBD6','var(--warn)','Close']};
+function calSetTab(t){ ui.calTab=t; ui.calMonth=null; ui.calDay=null; render(); }
+function calSetView(v){ ui.calView=v; render(); }
+function calNav(n){ const [y,m]=ui.calMonth.split('-').map(Number), d=new Date(Date.UTC(y,m-1+n,1)); ui.calMonth=d.toISOString().slice(0,7); ui.calDay=null; render(); }
+function calGoToday(){ ui.calMonth=calToday().slice(0,7); ui.calDay=calToday(); render(); }
+function calPick(d){ ui.calDay=d; render(); }
+function calCSV(){ const rows=[['Date','Event','Crop','Details']].concat(calEvents(ui.calTab||'prop').map(e=>[e.d,e.t,e.crop,e.sub]));
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n')],{type:'text/csv'})); a.download='production-calendar-'+(ui.calTab||'prop')+'.csv'; a.click(); }
+function calItem(e){ const c=CAL_CHIP[e.k]; return `<div class="card" style="border-left:4px solid ${c[1]}"><div class="row"><span style="font-size:11px;font-weight:800;color:${c[1]}">${esc(e.t)}</span></div><div style="font-weight:800;font-size:13.5px">${esc(e.crop)}</div><div style="font-size:11.5px;color:var(--ink-soft)">${esc(e.sub)}</div></div>`; }
+function calScreen(){
+  const tab=ui.calTab||'prop', view=ui.calView||'month', all=calEvents(tab), t=calToday();
+  const nextOf=k=>{ const e=calEvents(k).find(x=>x.d>=t&&x.k!=='close'); return e?calShort(e.d):'—'; };
+  const n7=calEvents('plant').filter(e=>e.d>=t&&e.d<=calAdd(t,7)).length;
+  if(!ui.calMonth){ const nx=all.find(e=>e.d>=t)||all[0]; ui.calMonth=(nx?nx.d:t).slice(0,7); }
+  const [y,m]=ui.calMonth.split('-').map(Number), mname=new Date(Date.UTC(y,m-1,1)).toLocaleDateString('en-US',{month:'long',year:'numeric',timeZone:'UTC'});
+  const inMonth=all.filter(e=>e.d.slice(0,7)===ui.calMonth), by={}; inMonth.forEach(e=>(by[e.d]=by[e.d]||[]).push(e));
+  const cards=[['prop','Propagation','Next: '+nextOf('prop')],['plant','Planting',n7+' in next 7 days'],['harv','Harvest','Next: '+nextOf('harv')]].map(([k,l,v])=>`<div class="card" onclick="calSetTab('${k}')" style="flex:1;min-width:150px;cursor:pointer;margin:0;${tab===k?'border:2px solid var(--forest);':''}"><div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--ink-soft)">${l}</div><div style="font-size:15px;font-weight:800">${v}</div></div>`).join('');
+  const lead=tab==='harv'?'windows opening':tab==='prop'?'propagation starts':'plantings', nOpen=inMonth.filter(e=>e.k!=='close').length;
+  let body;
+  if(view==='agenda') body=Object.keys(by).length?Object.keys(by).map(d=>`<h3 style="font-size:13px;margin:14px 0 6px">${calLong(d)}</h3>`+by[d].map(calItem).join('')).join(''):'<div class="card">Nothing scheduled this month.</div>';
+  else { const first=new Date(Date.UTC(y,m-1,1)).getUTCDay(), dim=new Date(Date.UTC(y,m,0)).getUTCDate(); let cells='';
+    ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>cells+=`<div style="font-size:11px;font-weight:800;color:var(--ink-soft);text-align:center">${d}</div>`);
+    for(let i=0;i<first;i++) cells+='<div></div>';
+    for(let d=1;d<=dim;d++){ const iso=`${ui.calMonth}-${String(d).padStart(2,'0')}`, ev=by[iso]||[];
+      cells+=`<div onclick="calPick('${iso}')" style="min-height:84px;border:1px solid var(--line);border-radius:8px;padding:4px;cursor:pointer;background:${ui.calDay===iso?'var(--sand)':'var(--paper)'};${iso===t?'outline:2px solid var(--forest);':''}overflow:hidden"><div style="font-size:11px;font-weight:800">${d}</div>${ev.slice(0,2).map(e=>`<div style="font-size:10px;margin-top:2px;padding:1px 4px;border-radius:4px;background:${CAL_CHIP[e.k][0]};color:${CAL_CHIP[e.k][1]};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${CAL_CHIP[e.k][2]} ${esc(e.crop)}</div>`).join('')}${ev.length>2?`<div style="font-size:10px;color:var(--ink-soft)">+${ev.length-2} more</div>`:''}</div>`; }
+    const sel=ui.calDay&&by[ui.calDay]; body=`<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px">${cells}</div>`+(ui.calDay?`<h3 style="font-size:14px;margin:16px 0 6px">${calLong(ui.calDay)}</h3>${sel?by[ui.calDay].map(calItem).join(''):'<div class="card">Nothing scheduled.</div>'}`:''); }
+  const leg=tab==='harv'?`<span><i class="sw" style="background:var(--ok)"></i>Harvest window opens</span><span><i class="sw" style="background:var(--warn)"></i>Harvest window closes</span>`:tab==='prop'?`<span><i class="sw" style="background:var(--irrigation)"></i>Start propagation (sow)</span>`:`<span><i class="sw" style="background:var(--forest)"></i>Planting (DOB)</span>`;
+  return `<div style="flex:1;min-width:0;overflow:auto;padding:14px"><h2 style="margin:0 0 10px;font-size:16px">Production calendars</h2>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${cards}</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><b style="font-size:13px">${CAL_TABS.find(x=>x[0]===tab)[1]}</b>
+    <div class="seg"><button class="${view==='month'?'active':''}" onclick="calSetView('month')">Month</button><button class="${view==='agenda'?'active':''}" onclick="calSetView('agenda')">Agenda</button></div>
+    <span class="legend" style="padding:0">${leg}</span><span style="flex:1"></span>
+    <button class="btn btn-outline" style="width:auto;margin:0" onclick="calCSV()">Download CSV</button><button class="btn btn-outline" style="width:auto;margin:0" onclick="window.print()">Print</button></div>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><button class="btn btn-ghost" style="width:auto;margin:0" onclick="calNav(-1)">‹</button><div><b>${mname}</b><div style="font-size:11.5px;color:var(--ink-soft)">${nOpen} ${lead}</div></div><button class="btn btn-ghost" style="width:auto;margin:0" onclick="calNav(1)">›</button><button class="btn btn-ghost" style="width:auto;margin:0" onclick="calGoToday()">Today</button></div>
+  ${body}
+  <div style="font-size:11px;color:var(--ink-soft);margin-top:16px">DOB = planting date from Open Field Operation. Sow date = DOB minus pre-DOB days (germination + nursery + harden-off + establish); crops without a nursery go straight into the field on their DOB. Harvest window = planting date plus Days to First Harvest (min to max).</div></div>`;
 }
-function calDetail(){
-  const w=CAL_DATA.find(x=>x.id===ui.calSel);
-  if(!w){ const t=new Date().toISOString().slice(0,10), end=calAdd(t,14), ev=[];
-    CAL_DATA.forEach(x=>calWave(x).ev.forEach(e=>{ if(e.d>=t&&e.d<=end) ev.push(Object.assign({crop:x.name},e)); })); ev.sort((a,b)=>a.d<b.d?-1:1);
-    return `<div class="panelhead"><div><h2>Next 14 days</h2><div class="meta">Tap a bar to see a planting's full schedule</div></div></div><div class="panelbody">${ev.length?ev.map(e=>`<div class="card"><div class="row"><b>${esc(e.crop)}</b><span>${esc(calShort(e.d))}</span></div><div style="font-size:12px;color:var(--ink-soft)">${esc(e.t)}</div></div>`).join(''):'<div class="card" style="font-size:12.5px">No calendar tasks in the next 14 days.</div>'}</div>`; }
-  const c=calWave(w), row=(l,v,b)=>`<div class="row"><span>${l}</span><span${b?' style="font-weight:800"':''}>${v}</span></div>`;
-  return `<div class="panelhead"><div><h2>${esc(w.name)}</h2><div class="meta">${esc(w.method.replace('_',' '))} · ${esc(w.dobType)} · ${esc(w.slot)}</div></div></div><div class="panelbody">
-  <div class="card">${row('Planting date (DOB)',esc(calFmt(w.plant)),1)}${c.tot?row('Propagation start',esc(calFmt(c.sow)))+row('Pre-DOB days',c.tot):row('Propagation','None — '+esc(w.method.toLowerCase().replace('_',' '))+' at DOB')}${row('First harvest',esc(calShort(c.h1))+' – '+esc(calShort(c.h2)))}${w.iv[0]?row('Harvest interval',w.iv[0]+'–'+w.iv[1]+' days'):''}${w.win?row('Harvest window',w.win+' days'):''}${row('Allowable window',esc(w.window||'—'))}</div>
-  <div class="card"><div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--forest);margin-bottom:6px">Schedule</div>${
-    c.phases.map(p=>row(`<i class="sw" style="background:${p.color}"></i> ${p.name} (${p.days}d)`,esc(calShort(p.start))+' → '+esc(calShort(p.end)))).join('')}
-    ${row('<b>'+esc(c.dobLabel)+'</b>',esc(calShort(w.plant)),1)}${w.germ&&!c.tot?row('Expected emergence',esc(calShort(calAdd(w.plant,w.germ)))):''}${row('First harvest ('+w.hmin+'–'+w.hmax+'d)',esc(calShort(c.h1))+' – '+esc(calShort(c.h2)))}</div>
-  ${w.notes?`<div style="font-size:11.5px;color:var(--ink-soft)">${esc(w.notes)}</div>`:''}</div>`;
-}
-function calScreen(){ return planLayout(calCropList(),calGantt(),calLegend(),calDetail()); }
 
 /* ---- render: screen shell ---- */
 function planningScreen(){
