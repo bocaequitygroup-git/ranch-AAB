@@ -60,6 +60,39 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .tabs button{flex:1;background:none;border:none;padding:10px 4px;font-family:inherit;font-size:11.5px;font-weight:700;color:var(--ink-soft);cursor:pointer;border-bottom:2px solid transparent;}
 .tabs button.active{color:var(--forest);border-color:var(--forest);}
 .panelbody{flex:1;overflow-y:auto;padding:14px 16px;}
+/* ---- Operation planner ---- */
+.op{flex:1;min-width:0;overflow:auto;padding:16px;}
+.op-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;}
+.op-top h2{margin:0;font-size:20px;font-weight:800;letter-spacing:-.01em;}
+.op-top .sum{font-size:13px;color:var(--ink-soft);margin-top:2px;}
+.op-ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+.op-ctl input[type=search]{padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;background:var(--paper);color:var(--ink);min-width:200px;}
+.op-help{font-size:12.5px;color:var(--ink-soft);line-height:1.5;margin-bottom:12px;max-width:980px;}
+.op-wrap{border:1px solid var(--line);border-radius:12px;background:var(--paper);overflow:auto;max-height:calc(100vh - 290px);min-height:240px;}
+.op-t{border-collapse:separate;border-spacing:0;width:100%;min-width:1120px;font-size:12.5px;}
+.op-t th{position:sticky;top:0;z-index:2;background:var(--sand);text-align:left;font-size:10px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-soft);padding:9px 7px;border-bottom:1px solid var(--line);white-space:normal;line-height:1.25;}
+.op-t td{padding:7px 7px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;}
+.op-t tr.dirty td{background:color-mix(in srgb,var(--warn) 7%,var(--paper));}
+.op-t tr.dirty td:first-child{box-shadow:inset 4px 0 0 var(--warn);}
+.op-t .nm{font-weight:800;font-size:13px;}
+.op-t .id{font-size:11px;color:var(--ink-soft);}
+.op-t .mt{font-size:10.5px;color:var(--ink-soft);}
+.op-t input{font-family:inherit;font-size:13px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px;background:var(--paper);color:var(--ink);}
+.op-t input[type=date]{width:132px;} .op-t input[type=number]{width:58px;}
+.op-t input:disabled{opacity:.5;}
+.op-t .calc{font-variant-numeric:tabular-nums;}
+.op-t .dim{color:var(--ink-soft);}
+.op-chk{display:inline-block;font-size:11px;font-weight:800;padding:3px 10px;border-radius:12px;white-space:normal;max-width:280px;line-height:1.3;}
+.op-chk.ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 13%,transparent);}
+.op-chk.warn,.op-chk.clear{color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);}
+.op-chk.bad{color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent);}
+.op-chk.none{color:var(--ink-soft);background:color-mix(in srgb,var(--ink-soft) 10%,transparent);}
+.op-det > td{background:var(--sand);padding:10px 14px 14px 24px;white-space:normal;}
+.op-det table{border-collapse:collapse;font-size:12px;}
+.op-det table th{position:static;background:none;padding:3px 16px 3px 0;border:none;}
+.op-det table td{background:none;border:none;padding:3px 16px 3px 0;}
+.op-t td.chkc{min-width:150px;}
+@media print{.op-ctl,.op-help{display:none !important;} .op-wrap{max-height:none;}}
 /* ---- Production calendar ---- */
 .cal{flex:1;min-width:0;overflow:auto;padding:16px;max-width:1180px;margin:0 auto;width:100%;}
 .cal-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
@@ -198,6 +231,35 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .task-title{font-weight:700;margin-bottom:4px;}
 .syncrow{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;}
 .syncrow button{background:none;border:none;font-family:inherit;font-size:11.5px;font-weight:700;color:var(--forest);cursor:pointer;padding:2px 4px;}
+
+/* Team + Labor hours panels */
+.tm-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;}
+.tm-head h2{margin:0;font-size:17px;}
+.tm-close{background:none;border:1.5px solid var(--line);color:var(--ink);border-radius:8px;font-family:inherit;font-size:12.5px;font-weight:700;padding:6px 12px;cursor:pointer;}
+.tm-form{border:1.5px solid var(--line);border-radius:12px;padding:12px 14px 6px;margin-bottom:14px;background:var(--sand);}
+.tm-form h3{margin:0 0 10px;font-size:13px;}
+.tm-two{display:grid;grid-template-columns:1fr 1fr;gap:10px;} @media (max-width:520px){.tm-two{grid-template-columns:1fr;}}
+.tm-in{width:100%;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;background:var(--paper);color:var(--ink);}
+.tm-wrap{overflow-x:auto;}
+.tm-t{width:100%;border-collapse:collapse;font-size:12.5px;}
+.tm-t th{text-align:left;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);padding:8px 8px;border-bottom:1.5px solid var(--line);white-space:nowrap;}
+.tm-t td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle;}
+.tm-t .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.tm-t th.num{text-align:right;}
+.tm-id{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--ink-soft);}
+.tm-dim{color:var(--ink-soft);font-size:11.5px;} .tm-warn{color:var(--danger);font-weight:700;}
+.tm-mini{background:transparent;color:var(--forest);border:1.5px solid var(--forest);border-radius:8px;font-family:inherit;font-size:12px;font-weight:700;padding:5px 10px;cursor:pointer;white-space:nowrap;}
+.tm-mini.tm-go{background:var(--forest);color:#fff;} .tm-mini:disabled{opacity:.45;cursor:not-allowed;}
+.tm-resetrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;} .tm-resetrow .tm-in{flex:1;min-width:200px;width:auto;}
+.tm-reset td{background:var(--sand);}
+.tm-notice{border:2px solid var(--ok);background:#E4F1E5;color:#173a19;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;}
+.tm-notice .tm-pin{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:26px;font-weight:800;letter-spacing:.18em;margin:6px 0;user-select:all;}
+.tm-notice .tm-sub{font-size:12px;}
+.lb-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px;}
+.lb-filters .field{margin:0;} .lb-filters .tm-in{width:auto;min-width:130px;}
+.lb-row-w td{font-weight:800;background:var(--sand);} .lb-row-k td:first-child{padding-left:24px;color:var(--ink-soft);}
+.lb-total td{font-weight:800;border-top:2px solid var(--ink);border-bottom:none;}
+.lb-note{font-size:11.5px;color:var(--ink-soft);margin:10px 0 0;}
 </style>
 </head>
 <body><div id="app"></div>
@@ -635,7 +697,7 @@ function boardScreen(){
   ${IS_DEMO?`<div class="demo-strip">Demo mode with generated sample data. Set WEB_APP_URL to connect to your live backend.</div>`:''}
   <div class="topbar">
     <div><div class="brand">Activity Assignment Board</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button onclick="goPlanning()">Season Planning</button><button onclick="logout()">Log out</button></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
   </div>
   <div class="wrap">
     <div class="mapcol">
@@ -1095,7 +1157,9 @@ function modalHTML(){
   else if(ui.modal==='terminate') inner=terminateModal();
   else if(ui.modal==='bed-edit') inner=bedEditModal();
   else if(ui.modal==='crop-edit') inner=cropEditModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'?' wide':(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity)?' xwide':''}">${inner}</div></div>`;
+  else if(ui.modal==='team') inner=teamModal();
+  else if(ui.modal==='labor') inner=laborModal();
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -1529,12 +1593,174 @@ function terminateModal(){
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 
+/* ============================== TEAM + LABOR HOURS ==============================
+ * Team  : get-team, add-worker, reset-worker-pin   (Auth.gs: authTeamList_ / authAddWorker_ / authResetWorkerPin_)
+ * Labor : get-labor-hours {from,to}                (Code_main.gs: getLaborHours_ - FIELD_ACTIVITY_LOG.Elapsed_Minutes)
+ * Typed values are written into ui.modalDraft on every keystroke, so a toast / re-render never wipes a half-filled form.
+ * A PIN is shown ONCE, right after it is created or reset (the server keeps only a hash). */
+state.team={ loaded:false, loading:false, error:'', rows:[], addableRoles:['Worker','Technician','Scout'] };
+
+async function loadTeam(){
+  state.team.loading=true; state.team.error=''; if(ui.modal==='team') render();
+  try{
+    const d=await apiCall('get-team',{});
+    state.team.rows=d.team||[]; state.team.addableRoles=(d.addableRoles&&d.addableRoles.length)?d.addableRoles:['Worker','Technician','Scout']; state.team.loaded=true;
+  }catch(e){ state.team.error=e.message; }
+  finally{ state.team.loading=false; if(ui.modal==='team') render(); }
+}
+function openTeam(){ openModal('team',{ name:'', id:'', pin:'', role:'Worker', busy:false, notice:null, resetIdx:-1, resetPin:'' }); loadTeam(); }
+function tmPinInput(el){ el.value=el.value.replace(/\D/g,'').slice(0,8); ui.modalDraft.pin=el.value; }
+function tmResetPinInput(el){ el.value=el.value.replace(/\D/g,'').slice(0,8); ui.modalDraft.resetPin=el.value; }
+function tmDismiss(){ ui.modalDraft.notice=null; render(); }
+function tmResetOpen(i){ ui.modalDraft.resetIdx=i; ui.modalDraft.resetPin=''; render(); }
+
+async function tmAdd(){
+  const d=ui.modalDraft; if(d.busy) return;
+  const name=String(d.name||'').trim(), pin=String(d.pin||'').trim();
+  if(name.length<2){ toast('Enter the worker\u2019s name.'); return; }
+  if(pin && !/^\d{4,8}$/.test(pin)){ toast('A PIN must be 4 to 8 digits, or leave it blank to generate one.'); return; }
+  d.busy=true; render();
+  try{
+    const r=await apiCall('add-worker',{ name, workerId:String(d.id||'').trim(), pin, role:d.role });
+    d.notice={ title:'Added '+r.worker.name+' \u00b7 Worker ID: '+r.worker.workerId, pin:r.pin,
+      sub:(r.pinGenerated?'Generated PIN':'PIN')+' \u2014 give it to the worker now. It is stored only as a hash and cannot be shown again.' };
+    d.name=''; d.id=''; d.pin='';
+    await loadTeam();
+  }catch(e){ toast(e.message); }
+  finally{ d.busy=false; if(ui.modal==='team') render(); }
+}
+async function tmReset(i){
+  const d=ui.modalDraft, w=state.team.rows[i]; if(!w||d.busy) return;
+  const pin=String(d.resetPin||'').trim();
+  if(pin && !/^\d{4,8}$/.test(pin)){ toast('A PIN must be 4 to 8 digits, or leave it blank to generate one.'); return; }
+  d.busy=true; render();
+  try{
+    const r=await apiCall('reset-worker-pin',{ workerId:w.workerId, pin });
+    d.notice={ title:'PIN reset for '+r.name+' \u00b7 Worker ID: '+r.workerId, pin:r.pin,
+      sub:(r.pinGenerated?'Generated PIN':'PIN')+' \u2014 give it to the worker now. It is stored only as a hash and cannot be shown again.' };
+    d.resetIdx=-1; d.resetPin='';
+    await loadTeam();
+  }catch(e){ toast(e.message); }
+  finally{ d.busy=false; if(ui.modal==='team') render(); }
+}
+
+function teamModal(){
+  const d=ui.modalDraft, t=state.team;
+  const notice=d.notice?`<div class="tm-notice"><b>${esc(d.notice.title)}</b><div class="tm-pin">${esc(d.notice.pin)}</div><div class="tm-sub">${esc(d.notice.sub)}</div><button class="tm-mini" style="margin-top:8px;" onclick="tmDismiss()">Done</button></div>`:'';
+  const form=`<div class="tm-form"><h3>Add worker</h3>
+    <div class="field"><label>Name</label><input class="tm-in" placeholder="e.g. Maria Lopez" value="${esc(d.name)}" oninput="ui.modalDraft.name=this.value" autocomplete="off"></div>
+    <div class="tm-two">
+      <div class="field"><label>Worker ID (optional)</label><input class="tm-in" placeholder="auto from name" value="${esc(d.id)}" oninput="ui.modalDraft.id=this.value" autocapitalize="off" autocomplete="off"></div>
+      <div class="field"><label>PIN (optional, 4-8 digits)</label><input class="tm-in" inputmode="numeric" maxlength="8" placeholder="blank = generate" value="${esc(d.pin)}" oninput="tmPinInput(this)" autocomplete="off"></div>
+    </div>
+    <div class="field"><label>Role</label><select class="tm-in" onchange="ui.modalDraft.role=this.value">${t.addableRoles.map(r=>`<option ${r===d.role?'selected':''}>${esc(r)}</option>`).join('')}</select></div>
+    <button class="btn btn-primary" ${d.busy?'disabled':''} onclick="tmAdd()">${d.busy?'Working\u2026':'Add worker'}</button></div>`;
+  const rows=t.rows.map((w,i)=>{
+    const open=d.resetIdx===i;
+    return `<tr><td><b>${esc(w.name)}</b></td><td class="tm-id">${esc(w.workerId)}</td><td>${esc(w.role)}</td><td>${esc(w.status||'')}</td>
+      <td>${w.hasPin?'PIN set':'<span class="tm-warn">No PIN</span>'}</td>
+      <td style="text-align:right;">${w.canReset?`<button class="tm-mini" onclick="tmResetOpen(${open?-1:i})">${open?'Cancel':'Reset PIN'}</button>`:'<span class="tm-dim" title="Only a Founder can reset this PIN">Founder only</span>'}</td></tr>`
+      +(open?`<tr class="tm-reset"><td colspan="6"><div class="tm-resetrow"><input class="tm-in" inputmode="numeric" maxlength="8" placeholder="New PIN (4-8 digits) \u2014 blank = generate" value="${esc(d.resetPin)}" oninput="tmResetPinInput(this)" autocomplete="off"><button class="tm-mini tm-go" ${d.busy?'disabled':''} onclick="tmReset(${i})">${d.busy?'Working\u2026':'Set PIN'}</button></div></td></tr>`:'');
+  }).join('');
+  const table=t.error?`<div class="error">${esc(t.error)}</div>`
+    :(t.loading&&!t.loaded)?`<div class="note" style="margin-top:0;">Loading team\u2026</div>`
+    :`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>Name</th><th>ID</th><th>Role</th><th>Status</th><th>PIN</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="tm-dim">No team members yet.</td></tr>'}</tbody></table></div>`;
+  return `<div class="tm-head"><h2>Team</h2><div style="display:flex;gap:8px;"><button class="tm-mini" onclick="closeModal();openLabor()">Total labor hours</button><button class="tm-close" onclick="closeModal()">Close</button></div></div>${notice}${form}${table}`;
+}
+
+/* ---- Total labor hours ---- */
+function lbYmd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function lbRange(days){ const to=new Date(), from=new Date(); from.setDate(from.getDate()-(days-1)); return { from:lbYmd(from), to:lbYmd(to) }; }
+const lbHM=m=>{ const t=Math.round(m); return Math.floor(t/60)+':'+String(t%60).padStart(2,'0'); };
+const lbDec=m=>(Math.round(m/60*100)/100).toFixed(2);
+function openLabor(){ const r=lbRange(7); openModal('labor',{ from:r.from, to:r.to, preset:'7', view:'worker', loading:true, error:'', sessions:null, missing:0 }); lbLoad(); }
+async function lbLoad(){
+  const d=ui.modalDraft, n=++lbLoad._n; d.loading=true; d.error=''; render();
+  try{
+    const r=await apiCall('get-labor-hours',{ from:d.from||'', to:d.to||'' }, 60000);
+    if(ui.modalDraft!==d||n!==lbLoad._n) return;
+    d.sessions=r.sessions||[]; d.missing=r.missingElapsed||0;
+  }catch(e){ if(ui.modalDraft!==d||n!==lbLoad._n) return; d.error=e.message; d.sessions=null; }
+  d.loading=false; if(ui.modal==='labor'&&ui.modalDraft===d) render();
+}
+lbLoad._n=0;
+function lbPreset(p){
+  const d=ui.modalDraft; d.preset=p;
+  if(p==='all'){ d.from=''; d.to=''; } else if(p==='7'||p==='30'){ const r=lbRange(Number(p)); d.from=r.from; d.to=r.to; }
+  lbLoad();
+}
+function lbDate(which,v){ const d=ui.modalDraft; d[which]=v; d.preset='custom'; lbLoad(); }
+function lbView(v){ ui.modalDraft.view=v; render(); }
+
+/* Group sessions by two levels; every level carries sessions + minutes. */
+function lbGroup(sessions, aKey, aLabel, bKey, bLabel){
+  const g={};
+  sessions.forEach(s=>{
+    const ak=String(aKey(s)), bk=String(bKey(s));
+    const a=g[ak]||(g[ak]={label:aLabel(s),n:0,min:0,kids:{}}); a.n++; a.min+=s.minutes;
+    const b=a.kids[bk]||(a.kids[bk]={label:bLabel(s),n:0,min:0}); b.n++; b.min+=s.minutes;
+  });
+  const by=(x,y)=>y.min-x.min||String(x.label).localeCompare(String(y.label));
+  return Object.values(g).sort(by).map(a=>Object.assign(a,{kidList:Object.values(a.kids).sort(by)}));
+}
+function lbGroups(d){
+  const S=d.sessions||[];
+  return d.view==='activity'
+    ? lbGroup(S, s=>s.activity||'(no activity)', s=>s.activity||'(no activity)', s=>s.workerId||'(no worker)', s=>s.worker||s.workerId||'(no worker)')
+    : lbGroup(S, s=>s.workerId||'(no worker)', s=>s.worker||s.workerId||'(no worker)', s=>s.activity||'(no activity)', s=>s.activity||'(no activity)');
+}
+function laborModal(){
+  const d=ui.modalDraft, S=d.sessions||[], total=S.reduce((a,s)=>a+s.minutes,0);
+  const filters=`<div class="lb-filters">
+    <div class="field"><label>From</label><input class="tm-in" type="date" value="${esc(d.from)}" onchange="lbDate('from',this.value)"></div>
+    <div class="field"><label>To</label><input class="tm-in" type="date" value="${esc(d.to)}" onchange="lbDate('to',this.value)"></div>
+    <div class="field"><label>Show</label><select class="tm-in" onchange="lbPreset(this.value)">
+      ${[['7','Last 7 days'],['30','Last 30 days'],['all','All time']].map(([k,l])=>`<option value="${k}" ${d.preset===k?'selected':''}>${l}</option>`).join('')}${d.preset==='custom'?'<option value="custom" selected>Custom range</option>':''}</select></div>
+    <div class="seg">${[['worker','By worker'],['activity','By activity'],['sessions','All sessions']].map(([k,l])=>`<button class="${d.view===k?'active':''}" onclick="lbView('${k}')">${l}</button>`).join('')}</div>
+    <button class="tm-mini" ${S.length?'':'disabled'} onclick="lbCsv()">Download CSV</button></div>`;
+  let body='';
+  if(d.error) body=`<div class="error">${esc(d.error)}</div>`;
+  else if(d.loading&&!d.sessions) body=`<div class="note" style="margin-top:0;">Loading labor hours\u2026</div>`;
+  else if(!S.length) body=`<div class="note" style="margin-top:0;">No completed sessions in this period.</div>`;
+  else if(d.view==='sessions'){
+    body=`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>Worker</th><th>Activity</th><th>Bed</th><th>Started</th><th>Ended</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th></tr></thead><tbody>
+      ${S.map(s=>`<tr><td>${esc(s.worker||s.workerId)}</td><td>${esc(s.activity)}</td><td>${esc(s.bedId)}</td><td>${esc(s.start)}</td><td>${esc(s.end)}</td><td class="num">${lbHM(s.minutes)}</td><td class="num">${lbDec(s.minutes)}</td></tr>`).join('')}
+      <tr class="lb-total"><td colspan="5">Total \u00b7 ${S.length} session${S.length===1?'':'s'}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td></tr></tbody></table></div>`;
+  } else {
+    const G=lbGroups(d);
+    body=`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>${d.view==='activity'?'Activity / worker':'Worker / activity'}</th><th class="num">Sessions</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th></tr></thead><tbody>
+      ${G.map(a=>`<tr class="lb-row-w"><td>${esc(a.label)}</td><td class="num">${a.n}</td><td class="num">${lbHM(a.min)}</td><td class="num">${lbDec(a.min)}</td></tr>`
+        +a.kidList.map(k=>`<tr class="lb-row-k"><td>${esc(k.label)}</td><td class="num">${k.n}</td><td class="num">${lbHM(k.min)}</td><td class="num">${lbDec(k.min)}</td></tr>`).join('')).join('')}
+      <tr class="lb-total"><td>Total</td><td class="num">${S.length}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td></tr></tbody></table></div>`;
+  }
+  const notes=`<p class="lb-note">Completed sessions only, dated by the time they ended. Time while a session was paused is not counted; a session still running appears once it is completed. Reassignment handoffs are not counted as work.${d.missing?` ${d.missing} session${d.missing===1?' has':'s have'} no recorded duration and show as 0:00.`:''}</p>`;
+  return `<div class="tm-head"><h2>Total labor hours</h2><div style="display:flex;gap:8px;"><button class="tm-mini" onclick="closeModal();openTeam()">Team</button><button class="tm-close" onclick="closeModal()">Close</button></div></div>${filters}${body}${notes}`;
+}
+const lbCsvCell=v=>{ let s=String(v==null?'':v); if(/^[=+\-@\t\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
+function lbCsv(){
+  const d=ui.modalDraft, S=d.sessions||[]; if(!S.length) return;
+  const total=S.reduce((a,s)=>a+s.minutes,0); let rows;
+  if(d.view==='sessions'){
+    rows=[['Worker ID','Worker','Activity','Bed','Started','Ended','Hours (h:mm)','Hours (decimal)']]
+      .concat(S.map(s=>[s.workerId,s.worker,s.activity,s.bedId,s.start,s.end,lbHM(s.minutes),lbDec(s.minutes)]))
+      .concat([['Total','','','','','',lbHM(total),lbDec(total)]]);
+  } else {
+    const act=d.view==='activity';
+    rows=[[act?'Activity':'Worker', act?'Worker':'Activity','Sessions','Hours (h:mm)','Hours (decimal)']];
+    lbGroups(d).forEach(a=>a.kidList.forEach(k=>rows.push([a.label,k.label,k.n,lbHM(k.min),lbDec(k.min)])));
+    rows.push(['Total','',S.length,lbHM(total),lbDec(total)]);
+  }
+  const name='labor-hours-'+d.view+'_'+(d.from||'start')+'_to_'+(d.to||'today')+'.csv';
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(lbCsvCell).join(',')).join('\n')],{type:'text/csv'})); a.download=name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },500);
+}
+
 /* ============================== SEASON PLANNING (BED_PLANTING_PLAN / BLOCK_ROTATION_PLAN) ==============================
  * A separate season-level planning surface from the daily board above. Client-only data model for now:
  * plug in get/set calls to a real backend (Apps Script actions get-planting-plan / confirm-planting-layout /
  * modify-planting-layout / reset-planting-plan / mark-crop-planted / mark-bed-planted / mark-harvest-complete /
  * apply-cover-crop / get-rotation-plan / edit-rotation / approve-rotation) once those exist server-side. */
-const PLAN_MODES=[['plan','Season Planning'],['exec','Planting Execution'],['harvest','Harvest'],['cover','Cover Crop'],['rotation','Rotation'],['cropref','Crop Profile'],['addcrop','Add Crop'],['cohorts','Cohort Production'],['calendar','Production Calendar']];
+const PLAN_MODES=[['plan','Season Planning'],['exec','Planting Execution'],['harvest','Harvest'],['cover','Cover Crop'],['rotation','Rotation'],['cropref','Crop Profile'],['addcrop','Add Crop'],['cohorts','Cohort Production'],['calendar','Production Calendar'],['operation','Operation Planner']];
 /* CROP_MASTER: crop-identity master, reconciled per the ranch's authority model:
  *  - CROP_REFERENCE is canonical for identity/production fields (id, name, category, cycle class,
  *    propagation path, planting method, DOB type).
@@ -1605,7 +1831,7 @@ function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete
 function setPMode(m){ ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
-function refreshPlanning(){ if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
+function refreshPlanning(){ if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
 function selectCrop(id){ ui.pSelectedCrop=id; ui.pModifying=false; render(); }
 function selectCropByBed(n){ const c=getPlan(ui.pBlock,ui.pYear).crops.find(x=>x.bedNums.includes(n)); if(c){ ui.pSelectedCrop=c.id; render(); } }
 
@@ -2239,6 +2465,130 @@ function ppRightHTML(){
   </div>`;
 }
 
+/* ============================== OPERATION PLANNER ==============================
+ * The manager enters ONE planting date (+ waves, + optional interval) per crop; the screen derives
+ *   sow / propagation start = planting - lead days, first harvest = planting + days to first harvest,
+ *   harvest window closes = planting + max days. Save writes the wave dates to the workbook through
+ *   'save-operation-plan' (OperationPlanner.gs): GREENHOUSE -> Master Calendar, FIELD -> Open Field Operation
+ *   (open field must sit inside the Oregon allowable window). Each wave is filed under the month of its
+ *   first harvest (max 2 per month: "Harvest 1" / "Harvest 2"). */
+const OP_DEF_INT=14, OP_MAX=24, OP_MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const opState={target:'GREENHOUSE',data:{},busy:false,error:null,filter:'',open:{},saving:false};
+const opIso=n=>new Date(n*864e5).toISOString().slice(0,10);
+const opSig=r=>JSON.stringify([r.first,r.waves,r.interval,r.custom]);
+const opRows=()=>opState.data[opState.target]||[];
+function opTypicalGap(d){ if(d.length<2) return ''; const g=[]; for(let i=1;i<d.length;i++) g.push(calDay(d[i])-calDay(d[i-1])); g.sort((a,b)=>a-b); return g[Math.floor(g.length/2)]; }
+function opMakeRow(c){ const d=(c.dates||[]).slice().sort();
+  const r=Object.assign({},c,{first:d[0]||'',waves:d.length||'',interval:'',custom:d.length>0,existing:d,gap:opTypicalGap(d),srv:'',srvSig:''}); r.orig=opSig(r); return r; }
+function opDemoCrops(){ const seen={}, out=[];
+  (typeof CAL_DATA!=='undefined'?CAL_DATA:[]).forEach(w=>{ if(seen[w.name]) return; seen[w.name]=1;
+    const lead=(w.pre[1]+w.pre[2]+w.pre[3]>0)?w.pre.reduce((a,b)=>a+b,0):0;
+    out.push({cropId:w.crop,name:w.name,method:w.method,hmin:w.hmin,hmax:w.hmax,lead,windows:[{start:'2027-04-01',end:'2027-09-30'}],dates:[]}); });
+  return out; }
+async function opLoad(force){
+  const tg=opState.target; if(opState.busy||(opState.data[tg]&&!force)) return;
+  opState.busy=true; opState.error=null; render();
+  try{ const crops=IS_DEMO?opDemoCrops():((await apiCall('get-operation-plan',{target:tg})).crops||[]); opState.data[tg]=crops.map(opMakeRow); }
+  catch(e){ opState.error=e.message||'Could not load the operation planner.'; }
+  opState.busy=false; render();
+}
+function opDates(r){ if(r.custom) return r.existing.slice().sort();
+  const n=Math.floor(Number(r.waves)); if(!r.first||!(n>=1)) return [];
+  const st=Math.floor(Number(r.interval))||OP_DEF_INT, a=calDay(r.first), out=[]; for(let i=0;i<Math.min(n,OP_MAX);i++) out.push(opIso(a+i*st)); return out; }
+function opInWin(md,w){ const a=w.start.slice(5), b=w.end.slice(5); return a<=b ? (md>=a&&md<=b) : (md>=a||md<=b); }
+function opEval(r,tg){
+  const res={dates:[],waves:[],level:'none',text:'Enter date + waves'};
+  if(!r.cropId){ res.level='bad'; res.text='No CROP_REFERENCE match'; return res; }
+  if(r.srv&&r.srvSig===opSig(r)){ res.level='bad'; res.text=r.srv; return res; }
+  const n=Number(r.waves);
+  if(!r.custom){ if(r.waves!==''&&(!Number.isInteger(n)||n<0||n>OP_MAX)){ res.level='bad'; res.text='Waves must be 0 to '+OP_MAX; return res; }
+    if(r.interval!==''&&!(Number(r.interval)>=1)){ res.level='bad'; res.text='Interval must be 1 or more'; return res; } }
+  const dates=opDates(r); res.dates=dates;
+  if(!dates.length){ if(r.existing.length&&r.orig!==opSig(r)){ res.level='clear'; res.text='Will clear '+r.existing.length+' dates'; } return res; }
+  const per={}; let bad='', tight=false;
+  dates.forEach((d,i)=>{ const h=opIso(calDay(d)+r.hmin), m=Number(h.slice(5,7))-1; per[m]=(per[m]||0)+1;
+    const slot=per[m]<=2?('H'+per[m]+' '+OP_MON[m]):'no slot';
+    const gap=i?calDay(d)-calDay(dates[i-1]):null; if(gap!==null&&gap<OP_DEF_INT) tight=true;
+    res.waves.push({n:i+1,plant:d,sow:opIso(calDay(d)-r.lead),h1:h,h2:opIso(calDay(d)+r.hmax),gap,slot}); });
+  const over=Object.keys(per).filter(m=>per[m]>2);
+  if(over.length) bad='More than 2 harvests start in '+OP_MON[over[0]]+' (max 2 per month)';
+  if(!bad&&tg==='FIELD'){ if(!r.windows.length) bad='No Oregon window on file';
+    else{ const out=dates.filter(d=>!r.windows.some(w=>opInWin(d.slice(5),w))); if(out.length) bad='OUT OF WINDOW ('+out.length+' of '+dates.length+')'; } }
+  if(bad){ res.level='bad'; res.text=bad; } else if(tight){ res.level='warn'; res.text='OK · gap under '+OP_DEF_INT+' d'; } else { res.level='ok'; res.text='OK'; }
+  return res; }
+const opFmt=iso=>iso?calFull(iso):'-';
+function opCells(r,e){ const w=e.waves, f=w[0], l=w[w.length-1];
+  return {sow:f?opFmt(f.sow):'-',h1:f?opFmt(f.h1):'-',lp:l?opFmt(l.plant):'-',he:l?opFmt(l.h2):'-'}; }
+function opDetail(r,e){ if(!e.waves.length) return '<div class="dim">No waves planned.</div>';
+  return `<table><tr><th>Wave</th><th>Plant</th><th>Sow / propagate</th><th>First harvest</th><th>Window closes</th><th>Gap</th><th>Slot</th></tr>${e.waves.map(w=>`<tr><td>${w.n}</td><td>${opFmt(w.plant)}</td><td>${r.lead?opFmt(w.sow):'direct'}</td><td>${opFmt(w.h1)}</td><td>${opFmt(w.h2)}</td><td>${w.gap===null?'-':w.gap+' d'}</td><td>${w.slot}</td></tr>`).join('')}</table>`; }
+function opRowHTML(r,i,tg){ const e=opEval(r,tg), c=opCells(r,e), dis=r.cropId?'':'disabled', dirty=r.orig!==opSig(r), open=!!opState.open[tg+i];
+  const hide=opState.filter&&!(r.name+' '+r.cropId).toLowerCase().includes(opState.filter.toLowerCase());
+  return `<tr id="op-r-${i}" data-q="${esc((r.name+' '+r.cropId).toLowerCase())}" class="${dirty?'dirty':''}" ${hide?'style="display:none"':''}>
+    <td><div class="nm">${esc(r.name)}</div><div class="id">${esc(r.cropId||'no match')}</div></td>
+    <td class="calc">${r.hmin} d</td>
+    <td class="calc">${r.lead?r.lead+' d':'<span class="dim">none</span>'}<div class="mt">${esc(r.method||'')}</div></td>
+    <td><input type="date" value="${esc(r.first)}" ${dis} onchange="opSet(${i},'first',this.value)" aria-label="First planting date ${esc(r.name)}"></td>
+    <td><input type="number" min="0" max="${OP_MAX}" step="1" value="${esc(r.waves)}" ${dis} onchange="opSet(${i},'waves',this.value)" aria-label="Waves ${esc(r.name)}"></td>
+    <td><input type="number" min="1" step="1" value="${esc(r.interval)}" placeholder="${r.gap||OP_DEF_INT}" ${dis} onchange="opSet(${i},'interval',this.value)" aria-label="Interval days ${esc(r.name)}"></td>
+    <td class="calc" data-k="sow">${c.sow}</td><td class="calc" data-k="h1">${c.h1}</td><td class="calc" data-k="lp">${c.lp}</td><td class="calc" data-k="he">${c.he}</td>
+    <td class="chkc"><span class="op-chk ${e.level}" data-k="chk">${esc(e.text)}</span></td>
+    <td><button class="btn btn-ghost" style="width:auto;margin:0;padding:4px 10px" onclick="opToggle(${i})">${open?'Hide':'Waves'}</button></td></tr>`
+    +(open?`<tr class="op-det" id="op-d-${i}"><td colspan="12">${opDetail(r,e)}</td></tr>`:''); }
+function opSummary(){ const rows=opRows(), tg=opState.target; let planned=0, dirty=0;
+  rows.forEach(r=>{ if(opDates(r).length) planned++; if(r.orig!==opSig(r)) dirty++; });
+  return {txt:`${rows.length} crops, ${planned} with waves planned`, dirty}; }
+function opChrome(){ const s=opSummary(), a=document.getElementById('op-sum'), b=document.getElementById('op-save');
+  if(a) a.textContent=s.txt; if(b){ b.textContent=s.dirty?`Save (${s.dirty})`:'Save'; b.disabled=!s.dirty||opState.saving; } }
+function opRefresh(i){ const r=opRows()[i], tg=opState.target, tr=document.getElementById('op-r-'+i); if(!r||!tr) return;
+  const e=opEval(r,tg), c=opCells(r,e); tr.classList.toggle('dirty',r.orig!==opSig(r));
+  ['sow','h1','lp','he'].forEach(k=>{ const el=tr.querySelector(`[data-k="${k}"]`); if(el) el.textContent=c[k]; });
+  const chk=tr.querySelector('[data-k="chk"]'); chk.className='op-chk '+e.level; chk.textContent=e.text;
+  const d=document.getElementById('op-d-'+i); if(d) d.firstElementChild.innerHTML=opDetail(r,e);
+  opChrome(); }
+function opSet(i,field,val){ const r=opRows()[i]; if(!r) return;
+  if(r.custom){ /* first edit of an existing plan: switch to generated mode from what is shown */ r.custom=false; }
+  r[field]=field==='waves'?(val===''?'':Number(val)):val; opRefresh(i); }
+function opToggle(i){ const k=opState.target+i; opState.open[k]=!opState.open[k]; render(); }
+function opFilter(v){ opState.filter=v; document.querySelectorAll('#op-body tr[data-q]').forEach(tr=>{ tr.style.display=(!v||tr.dataset.q.includes(v.toLowerCase()))?'':'none'; }); }
+function opSetTarget(t){ if(t===opState.target) return; opState.target=t; opState.open={}; render(); }
+function opReload(){ const rows=opRows(); if(rows.some(r=>r.orig!==opSig(r))&&!confirm('Discard your unsaved changes and reload from the workbook?')) return; opState.data[opState.target]=null; opLoad(true); }
+async function opSave(){
+  const tg=opState.target, rows=opRows(), sheet=tg==='FIELD'?'Open Field Operation':'Master Calendar';
+  const dirty=rows.map((r,i)=>({r,i,e:opEval(r,tg)})).filter(x=>x.r.orig!==opSig(x.r));
+  if(!dirty.length){ toast('No changes to save.'); return; }
+  const bad=dirty.filter(x=>x.e.level==='bad');
+  if(bad.length){ toast(`Fix ${bad.length} crop${bad.length>1?'s':''} first: ${bad.slice(0,3).map(x=>x.r.name).join(', ')}${bad.length>3?'…':''}`); return; }
+  const over=dirty.filter(x=>x.r.existing.length).length;
+  if(!confirm(`Save ${dirty.length} crop${dirty.length>1?'s':''} to ${sheet}?\n\n`+(over?`This replaces ALL existing planting dates for ${over} of them (each crop is rewritten as its new waves).`:'No existing dates are replaced.'))) return;
+  opState.saving=true; opChrome();
+  try{
+    let results;
+    if(IS_DEMO) results=dirty.map(x=>({cropId:x.r.cropId,ok:true}));
+    else results=(await apiCall('save-operation-plan',{target:tg,plans:dirty.map(x=>({cropId:x.r.cropId,dates:x.e.dates}))})).results||[];
+    let ok=0, fail=0;
+    dirty.forEach(x=>{ const res=results.find(q=>q.cropId===x.r.cropId)||{ok:false,error:'No result returned.'};
+      if(res.ok){ ok++; x.r.existing=x.e.dates.slice(); x.r.orig=opSig(x.r); x.r.srv=''; }
+      else{ fail++; x.r.srv=res.error||'Could not save.'; x.r.srvSig=opSig(x.r); } });
+    calState.data=null; calState.error=null;          // Production calendars re-read the workbook next time
+    opState.saving=false;
+    toast((IS_DEMO?'Demo mode (nothing written): ':'')+`${ok} saved`+(fail?`, ${fail} refused - see the Check column`:'')+'.');
+  }catch(err){ opState.saving=false; toast(err.message||'Could not save.'); }
+}
+function opScreen(){
+  const tg=opState.target; if(!opState.data[tg]&&!opState.busy&&!opState.error) opLoad();
+  const head=(inner)=>`<div class="op"><div class="op-top"><div><h2>Operation planner</h2><div class="sum" id="op-sum">${opState.data[tg]?opSummary().txt:'Loading…'}</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" id="op-save" style="width:auto;margin:0" onclick="opSave()">${opState.data[tg]&&opSummary().dirty?'Save ('+opSummary().dirty+')':'Save'}</button><button class="btn btn-outline" style="width:auto;margin:0" onclick="opReload()">Reload</button><button class="btn btn-outline" style="width:auto;margin:0" onclick="goBoard()">Close</button></div></div>${inner}</div>`;
+  const seg=`<div class="seg"><button class="${tg==='GREENHOUSE'?'active':''}" onclick="opSetTarget('GREENHOUSE')">Greenhouse</button><button class="${tg==='FIELD'?'active':''}" onclick="opSetTarget('FIELD')">Open field</button></div>`;
+  if(opState.busy&&!opState.data[tg]) return head(`<div class="op-ctl">${seg}</div><div class="card">Loading operation planner…</div>`);
+  if(opState.error&&!opState.data[tg]) return head(`<div class="op-ctl">${seg}</div><div class="card">${esc(opState.error)}<br><button class="btn btn-outline" style="width:auto;margin-top:8px" onclick="opState.error=null;opLoad(true)">Retry</button></div>`);
+  const rows=opRows(), sheet=tg==='FIELD'?'Open Field Operation':'Master Calendar';
+  const help=`Enter the first planting date and the number of waves (0 to ${OP_MAX}); leave the interval blank to use ${OP_DEF_INT} days. Sow (propagation) date = planting date minus the crop's lead days; harvest = planting date plus days to first harvest. Saving rewrites each changed crop in <b>${sheet}</b>, filing every wave under the month of its first harvest (max 2 per month).${tg==='FIELD'?' Open-field waves must be inside the crop\'s Oregon allowable window.':' Greenhouse planting is not limited to the Oregon window.'}${IS_DEMO?' <b>Demo mode: nothing is written.</b>':''}`;
+  const th=['Crop','Days to 1st harvest','Propagation lead','First planting date','Waves','Interval (days)','First sow','First harvest','Last planting','Last harvest ends','Check',''].map(h=>`<th>${h}</th>`).join('');
+  return head(`<div class="op-ctl">${seg}<input type="search" placeholder="Find a crop" value="${esc(opState.filter)}" oninput="opFilter(this.value)"></div><div class="op-help">${help}</div>
+    <div class="op-wrap"><table class="op-t"><thead><tr>${th}</tr></thead><tbody id="op-body">${rows.map((r,i)=>opRowHTML(r,i,tg)).join('')}</tbody></table></div>`)
+    .replace('id="op-save" ','id="op-save" '+(opSummary().dirty&&!opState.saving?'':'disabled '));
+}
+
 /* ============================== PRODUCTION CALENDAR ==============================
  * Source: live via action 'get-production-calendar' -> Master Calendar (all 24 slots/crop) + Open Field Operation
  * (slot filled there = open field, otherwise greenhouse). CAL_DATA below is only the offline/demo snapshot (open field only).
@@ -2350,11 +2700,11 @@ function planningScreen(){
   if(ui.pMode==='plan') ensurePlanLoaded();
   return `<div class="topbar">
     <div><div class="brand">Season Planning</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')} · Season ${ui.pYear}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><button onclick="goBoard()">← Daily board</button><button onclick="logout()">Log out</button></div>
+    <div style="display:flex;align-items:center;gap:8px;"><button onclick="goBoard()">← Daily board</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
   </div>
   <div class="toolbar">
     <div class="seg" style="flex-wrap:wrap;">${PLAN_MODES.map(([k,l])=>`<button class="${ui.pMode===k?'active':''}" onclick="setPMode('${k}')">${l}</button>`).join('')}</div>
-    ${ui.pMode==='addcrop'||ui.pMode==='calendar'?'':ui.pMode==='cohorts'?`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`:ui.pMode==='cropref'?`<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`:`
+    ${ui.pMode==='addcrop'||ui.pMode==='calendar'||ui.pMode==='operation'?'':ui.pMode==='cohorts'?`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`:ui.pMode==='cropref'?`<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`:`
     <select onchange="setPBlock(this.value)" aria-label="Block">${PLAN_BLOCKS.map(b=>`<option value="${b}" ${b===ui.pBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select>
     <select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>
     <button class="btn btn-ghost" style="width:auto;margin:0;" onclick="refreshPlanning()">↻ Refresh</button>${ui.pMode==='plan'?`
@@ -2368,6 +2718,7 @@ function planningScreen(){
     ui.pMode==='cropref' ? cropRefLayout(cropRefListHTML(), cropRefProfile()) :
     ui.pMode==='addcrop' ? addCropScreen() :
     ui.pMode==='calendar' ? calScreen() :
+    ui.pMode==='operation' ? opScreen() :
     ui.pMode==='cohorts' ? cohortScreen() :
     planLayout(rotationLeftHTML(), rotationMatrixHTML(), '', rotationEditorHTML())
   }</div>
@@ -3110,6 +3461,25 @@ async function mockBackend(action, p){
       bed.cohortStatus='TERMINATED'; bed.cohortId=''; bed.cropName=''; bed.currentStage='';
       return ok({done:true});
     }
+    case 'get-team':
+      return ok({ team:Object.entries(demoUsers).map(([id,u])=>({ workerId:id.toLowerCase(), name:u.name, role:u.role, status:'ACTIVE', hasPin:!!u.pin, canReset:me.role==='Founder'||['Worker','Technician','Scout'].includes(u.role)||id===me.id })), addableRoles:me.role==='Founder'?['Worker','Manager','Founder','Technician','Scout']:['Worker','Technician','Scout'] });
+    case 'add-worker': {
+      const nm=String(p.name||'').trim(); if(nm.length<2) return bad('Enter the worker\u2019s name (2 to 60 characters).','TEAM_ERROR');
+      let id=String(p.workerId||'').trim().toLowerCase()||nm.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g,'')||'worker';
+      if(demoUsers[id.toUpperCase()]) return bad('Worker ID "'+id+'" is already in use.','TEAM_ERROR');
+      const pin=String(p.pin||'')||String(Math.floor(100000+Math.random()*900000));
+      demoUsers[id.toUpperCase()]={ pin, name:nm, role:p.role||'Worker' };
+      return ok({ worker:{ workerId:id, name:nm, role:p.role||'Worker', status:'ACTIVE' }, pin, pinGenerated:!p.pin });
+    }
+    case 'reset-worker-pin': {
+      const u=demoUsers[String(p.workerId||'').toUpperCase()]; if(!u) return bad('No worker with ID '+p.workerId+'.','TEAM_ERROR');
+      const pin=String(p.pin||'')||String(Math.floor(100000+Math.random()*900000)); u.pin=pin;
+      return ok({ workerId:p.workerId, name:u.name, pin, pinGenerated:!p.pin });
+    }
+    case 'get-labor-hours':
+      return ok({ missingElapsed:0, sessions:[
+        { sessionId:'S-1', workerId:'jo', worker:'Jo Lindqvist', activity:'Weeding', bedId:'B1-02', start:'2026-10-13 08:00', end:'2026-10-13 10:30', minutes:150 },
+        { sessionId:'S-2', workerId:'jo', worker:'Jo Lindqvist', activity:'Planting', bedId:'B1-03', start:'2026-10-14 08:00', end:'2026-10-14 09:15', minutes:75 } ] });
     default: return bad('That action is not available.','UNKNOWN_ACTION');
   }
 }
