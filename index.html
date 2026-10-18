@@ -260,6 +260,16 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .lb-row-w td{font-weight:800;background:var(--sand);} .lb-row-k td:first-child{padding-left:24px;color:var(--ink-soft);}
 .lb-total td{font-weight:800;border-top:2px solid var(--ink);border-bottom:none;}
 .lb-note{font-size:11.5px;color:var(--ink-soft);margin:10px 0 0;}
+.sh-ctl{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;} .sh-ctl label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px;}
+.sh-ctl select,.sh-ctl input{padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;background:var(--paper);color:var(--ink);}
+.sh-blocks button{padding:9px 16px;font-size:13px;}
+.sh-tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+.sh-tbl th{background:var(--paper);text-align:left;font-size:11px;color:var(--ink-soft);padding:8px;border-bottom:2px solid var(--line);}
+.sh-tbl td{padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:middle;}
+.sh-tbl select,.sh-tbl input{width:100%;min-width:120px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px;font-family:inherit;font-size:12.5px;background:var(--paper);color:var(--ink);}
+.sh-tbl tr.sh-chg td{background:rgba(199,119,0,.08);}
+.sh-bed{font-weight:800;white-space:nowrap;} .sh-now{color:var(--ink-soft);font-size:11.5px;}
+@media (max-width:700px){ .sh-now-col{display:none;} .sh-tbl th,.sh-tbl td{padding:4px 3px;} .sh-tbl select,.sh-tbl input{min-width:0;padding:5px 4px;font-size:12px;} .sh-tbl .chip{font-size:9.5px;padding:2px 6px;} .sh-bed{font-size:11.5px;} }
 </style>
 </head>
 <body><div id="app"></div>
@@ -1760,7 +1770,7 @@ function lbCsv(){
  * plug in get/set calls to a real backend (Apps Script actions get-planting-plan / confirm-planting-layout /
  * modify-planting-layout / reset-planting-plan / mark-crop-planted / mark-bed-planted / mark-harvest-complete /
  * apply-cover-crop / get-rotation-plan / edit-rotation / approve-rotation) once those exist server-side. */
-const PLAN_MODES=[['plan','Season Planning'],['exec','Planting Execution'],['harvest','Harvest'],['cover','Cover Crop'],['rotation','Rotation'],['cropref','Crop Profile'],['addcrop','Add Crop'],['cohorts','Cohort Production'],['calendar','Production Calendar'],['operation','Operation Planner']];
+const PLAN_MODES=[['plan','Season Planning'],['sheet','Bed Plan Sheet'],['exec','Planting Execution'],['harvest','Harvest'],['cover','Cover Crop'],['rotation','Rotation'],['cropref','Crop Profile'],['addcrop','Add Crop'],['cohorts','Cohort Production'],['calendar','Production Calendar'],['operation','Operation Planner']];
 /* CROP_MASTER: crop-identity master, reconciled per the ranch's authority model:
  *  - CROP_REFERENCE is canonical for identity/production fields (id, name, category, cycle class,
  *    propagation path, planting method, DOB type).
@@ -1828,7 +1838,7 @@ function harvestStatusOf(c){ return c.harvestStatus==='Complete'?'Complete':(c.p
 function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete:'chip-ok',Modified:'chip-warn','In progress':'chip-warn',Pending:'chip-neutral','Not planted':'chip-neutral','Not started':'chip-neutral'}[s]||'chip-neutral'; }
 
 /* ---- nav / selection ---- */
-function setPMode(m){ ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
+function setPMode(m){ if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function refreshPlanning(){ if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
@@ -2128,6 +2138,239 @@ function ppEditActionsHTML(){
     <button class="btn btn-primary" ${ui.ppBusy?'disabled':''} onclick="ppConfirmRows()">Confirm edited rows</button>
     <button class="btn btn-outline" onclick="ppToggleMulti()">Apply a crop to many beds…</button>${ppMsgHTML()}
     <div class="note" style="margin-top:0;">Click any bed — including an empty one — to add or change its crop. Confirm turns MODIFIED/PENDING rows with a crop and date into CONFIRMED; once confirmed they are ready for Cohort Production.</div>`;
+}
+
+/* ============================== BED PLAN SHEET (quick deploy of one bed layout to any block) ==============================
+ * Bed numbers are identical in every block (B1-01 … B4-55), and crop rotation only changes WHICH block a layout goes to.
+ * So this screen keeps ONE editable layout keyed by bed position (1…55) and lets the manager choose the target block:
+ *   1. copy a layout from any existing year/block (or start blank), 2. pick the target block + year (bed IDs relabel,
+ *   crops and dates stay), 3. tweak any row, 4. Deploy.
+ * Deploy only writes beds that differ from what the target block already has, using the existing save-plan-beds action
+ * (one call per distinct crop+date), then optionally confirm-plan-rows. No new backend actions are needed. */
+const SHEET_BLOCKS=['B1','B2','B3','B4'];
+const sh={ init:false, srcYear:2027, srcBlock:'B1', tgtYear:2027, tgtBlock:'B1', rows:[], N:BLOCK_BEDS, names:{}, tgtNow:{}, tgtBeds:null,
+  loadingSrc:false, loadingTgt:false, busy:false, progress:'', err:'', msg:null, dirty:false, clearBlank:false, confirmAfter:true,
+  range:{from:1,to:10,cropId:'',date:''}, srcNote:'' };
+const shIso=v=>{ const s=String(v||''); return /^\d{4}-\d{2}-\d{2}/.test(s)?s.slice(0,10):''; };
+const shLeap=y=>y%4===0&&(y%100!==0||y%400===0);
+function shToYear(d,y){ if(!d) return ''; let s=y+d.slice(4); if(s.slice(5)==='02-29'&&!shLeap(+y)) s=y+'-02-28'; return s; }
+const shPad=n=>String(n).padStart(2,'0');
+const shBedId=pos=>sh.tgtBlock+'-'+shPad(pos);
+const shPos=bedId=>parseInt(String(bedId).split('-').pop(),10);
+function shEnsureRows(n){ for(let i=sh.rows.length;i<n;i++) sh.rows.push({pos:i+1,cropId:'',date:''}); sh.N=Math.max(sh.N,n); }
+function shBlankRows(){ sh.rows=[]; shEnsureRows(sh.N); }
+function shCropName(id){ const c=((po[sh.tgtYear]||{}).crops||[]).find(x=>x.cropId===id); return (c&&c.cropName)||sh.names[id]||id||''; }
+function shCropObj(id){ return ((po[sh.tgtYear]||{}).crops||[]).find(x=>x.cropId===id); }
+const shNowCrop=p=>p&&p.cropId&&String(p.cropId).toUpperCase()!=='OPEN'?p.cropId:'';
+function shOutside(r){
+  const c=shCropObj(r.cropId); if(!c||!(c.windows||[]).length||!r.date) return false;
+  const md=r.date.slice(5);
+  return !c.windows.some(w=>w.start<=w.end ? (md>=w.start&&md<=w.end) : (md>=w.start||md<=w.end));
+}
+async function shFetchCtx(y,b,force){
+  const k=ppKey(y,b); if(!force&&state.pp[k]&&!state.pp[k].error) return state.pp[k];
+  const d=await apiCall('get-planning-context',{year:y,blockId:b}); state.pp[k]=d; return d;
+}
+async function shLoadCrops(){
+  if(po[sh.tgtYear]) return;
+  try{ po[sh.tgtYear]=await apiCall('get-planner-options',{year:sh.tgtYear}); }catch(e){ sh.err='Could not load the crop list: '+errMsg(e); }
+}
+function shInit(){
+  sh.srcYear=sh.tgtYear=ui.pYear; sh.srcBlock=sh.tgtBlock=SHEET_BLOCKS.includes(ui.pBlock)?ui.pBlock:'B1';
+  shBlankRows(); sh.loadingSrc=sh.loadingTgt=true;
+  Promise.all([shLoadCrops(),shLoadTarget(true,true)]).then(()=>shLoadSource(true));
+}
+async function shLoadTarget(force,noRender){
+  const y=sh.tgtYear,b=sh.tgtBlock; sh.loadingTgt=true; if(!noRender) render();
+  try{
+    const ctx=await shFetchCtx(y,b,force);
+    if(y!==sh.tgtYear||b!==sh.tgtBlock) return;          /* user moved on while this was loading */
+    sh.tgtNow={}; ((ctx.plan&&ctx.plan.found&&ctx.plan.beds)||[]).forEach(p=>{ sh.tgtNow[p.bedId]=p; if(p.cropId) sh.names[p.cropId]=p.cropName||sh.names[p.cropId]; });
+    const pbs=ctx.physicalBeds||[]; sh.tgtBeds=pbs.length?new Set(pbs.map(x=>x.bedId)):null;
+    if(pbs.length) shEnsureRows(Math.max(...pbs.map(x=>shPos(x.bedId)).filter(n=>n>0)));
+  }catch(e){ if(y===sh.tgtYear&&b===sh.tgtBlock){ sh.tgtNow={}; sh.tgtBeds=null; sh.err='Could not read '+BLOCK_LABELS[b]+' '+y+': '+errMsg(e); } }
+  if(y===sh.tgtYear&&b===sh.tgtBlock){ sh.loadingTgt=false; render(); }
+}
+async function shLoadSource(initial){
+  if(!initial&&sh.dirty&&!confirm('Replace the layout you are editing with the one from '+BLOCK_LABELS[sh.srcBlock]+' '+sh.srcYear+'?')) return;
+  sh.loadingSrc=true; sh.err=''; sh.msg=null; render();
+  try{
+    const ctx=await shFetchCtx(sh.srcYear,sh.srcBlock,!initial);
+    shBlankRows(); let n=0;
+    const beds=(ctx.plan&&ctx.plan.found&&ctx.plan.beds)||[];
+    beds.forEach(p=>{ const pos=shPos(p.bedId), id=shNowCrop(p); if(!id||!(pos>0)) return;
+      shEnsureRows(pos); sh.rows[pos-1]={pos,cropId:id,date:shToYear(shIso(p.plantingDate),sh.tgtYear)}; sh.names[id]=p.cropName||sh.names[id]; n++; });
+    sh.srcNote=n?('Layout copied from '+BLOCK_LABELS[sh.srcBlock]+' '+sh.srcYear+' ('+n+' beds'+(sh.srcYear!==sh.tgtYear?', dates moved to '+sh.tgtYear:'')+').')
+                 :('There is no plan yet for '+BLOCK_LABELS[sh.srcBlock]+' '+sh.srcYear+' — starting with an empty sheet.');
+    sh.dirty=false;
+  }catch(e){ sh.err='Could not load that layout: '+errMsg(e); }
+  sh.loadingSrc=false; render();
+}
+function shStartBlank(){ if(sh.dirty&&!confirm('Clear the layout you are editing?')) return; shBlankRows(); sh.dirty=false; sh.srcNote='Empty sheet.'; sh.msg=null; render(); }
+function shSetSrc(k,v){ sh[k]=k==='srcYear'?+v:v; }
+function shSetTgtBlock(b){ if(sh.busy||b===sh.tgtBlock) return; sh.tgtBlock=b; sh.msg=null; sh.err=''; sh.tgtNow={}; shLoadTarget(false); }
+function shSetTgtYear(y){ if(sh.busy) return; sh.tgtYear=+y; sh.rows.forEach(r=>{ r.date=shToYear(r.date,sh.tgtYear); }); sh.msg=null; sh.err=''; sh.tgtNow={}; shLoadCrops().then(()=>shLoadTarget(false)); }
+function shDefaultDate(cropId){ const c=shCropObj(cropId); return c&&(c.windows||[]).length?sh.tgtYear+'-'+c.windows[0].start:''; }
+function shSetCrop(i,v){
+  const r=sh.rows[i]; r.cropId=v; if(v&&!r.date) r.date=shDefaultDate(v); if(!v) r.date='';
+  sh.dirty=true; sh.msg=null; const d=document.getElementById('shd-'+i); if(d) d.value=r.date; shRefreshRow(i);
+}
+function shSetDate(i,v){ sh.rows[i].date=v; sh.dirty=true; sh.msg=null; shRefreshRow(i); }
+function shRange(k,v){ sh.range[k]=(k==='from'||k==='to')?(+v||1):v; if(k==='cropId'&&v&&!sh.range.date){ sh.range.date=shDefaultDate(v); const d=document.getElementById('sh-rdate'); if(d) d.value=sh.range.date; } }
+function shApplyRange(clear){
+  const a=Math.min(sh.range.from,sh.range.to), b=Math.max(sh.range.from,sh.range.to);
+  if(!clear&&(!sh.range.cropId||!sh.range.date)){ sh.msg={lines:[{t:'Choose a crop and a planting date for the range first.',bad:true}]}; render(); return; }
+  shEnsureRows(b);
+  for(let p=a;p<=b;p++){ const r=sh.rows[p-1]; r.cropId=clear?'':sh.range.cropId; r.date=clear?'':sh.range.date; }
+  sh.dirty=true; sh.msg=null; render();
+}
+/* what each row would do on the target block */
+function shRowState(r){
+  const id=shBedId(r.pos), now=sh.tgtNow[id], nowCrop=shNowCrop(now), nowDate=shIso(now&&now.plantingDate);
+  if(sh.tgtBeds&&!sh.tgtBeds.has(id)) return {k:'nobed',id,now,nowCrop};
+  if(r.cropId&&!r.date) return {k:'needdate',id,now,nowCrop};
+  if(!r.cropId&&r.date) return {k:'needcrop',id,now,nowCrop};
+  if(r.cropId){
+    if(nowCrop===r.cropId&&nowDate===r.date) return {k:'same',id,now,nowCrop};
+    return {k:nowCrop?'change':'new',id,now,nowCrop};
+  }
+  return {k:(nowCrop&&sh.clearBlank)?'clear':'blank',id,now,nowCrop};
+}
+function shPlan(){
+  const p={groups:{},clears:[],counts:{same:0,change:0,new:0,clear:0,blank:0,nobed:0},problems:[],confirmedHit:0,total:0};
+  sh.rows.forEach(r=>{ const s=shRowState(r); p.counts[s.k]!==undefined&&p.counts[s.k]++;
+    if(r.cropId) p.total++;
+    if(s.k==='needdate'||s.k==='needcrop') p.problems.push(s.id+(s.k==='needdate'?' needs a planting date':' has a date but no crop'));
+    if(s.k==='new'||s.k==='change'){ const key=r.cropId+'|'+r.date; (p.groups[key]=p.groups[key]||{cropId:r.cropId,date:r.date,bedIds:[]}).bedIds.push(s.id);
+      if(s.now&&String(s.now.status||'').toUpperCase()==='CONFIRMED') p.confirmedHit++; }
+    if(s.k==='clear') p.clears.push(s.id);
+  });
+  p.groupList=Object.values(p.groups); p.writes=p.counts.new+p.counts.change+p.counts.clear;
+  return p;
+}
+function shChip(s,r){
+  const m={same:['chip-neutral','No change'],new:['chip-ok','New'],change:['chip-warn','Will change'],clear:['chip-danger','Will clear'],blank:['chip-neutral','Left as is'],
+    needdate:['chip-danger','Needs date'],needcrop:['chip-danger','Needs crop'],nobed:['chip-danger','No such bed']}[s.k];
+  return `<span class="chip ${m[0]}">${m[1]}</span>${r.cropId&&shOutside(r)?` <span class="chip chip-warn" title="${esc((shCropObj(r.cropId)||{}).windowText||'')}">Outside window</span>`:''}`;
+}
+function shNowText(s){
+  if(sh.loadingTgt) return '…';
+  if(!s.nowCrop) return 'Empty';
+  return esc(shCropName(s.nowCrop))+' · '+esc(shIso(s.now.plantingDate)||'no date')+' · '+esc(String(s.now.status||'').toUpperCase()||'PENDING');
+}
+function shResultCell(i){ const r=sh.rows[i],s=shRowState(r); return shChip(s,r); }
+function shRefreshRow(i){
+  const r=sh.rows[i], s=shRowState(r), tr=document.getElementById('shr-'+i);
+  if(tr) tr.className=(s.k==='new'||s.k==='change'||s.k==='clear')?'sh-chg':'';
+  const c=document.getElementById('shs-'+i); if(c) c.innerHTML=shChip(s,r);
+  shRefreshSummary();
+}
+function shRefreshSummary(){ const e=document.getElementById('sh-sum'); if(e) e.innerHTML=shSummaryInner(); const b=document.getElementById('sh-deploybtn'); if(b){ const p=shPlan(); b.textContent=shDeployLabel(p); } }
+function shDeployLabel(p){ return sh.busy?('Deploying… '+sh.progress):('Deploy to '+BLOCK_LABELS[sh.tgtBlock]+' '+sh.tgtYear+(p.writes?' ('+p.writes+' bed'+(p.writes===1?'':'s')+')':'')); }
+function shSummaryInner(){
+  const p=shPlan(), c=p.counts, byCrop={};
+  sh.rows.forEach(r=>{ if(r.cropId) byCrop[r.cropId]=(byCrop[r.cropId]||0)+1; });
+  return `<div class="row"><span>Beds with a crop in this layout</span><span>${p.total} of ${sh.N}</span></div>
+    <div class="row"><span>${esc(BLOCK_LABELS[sh.tgtBlock])} ${sh.tgtYear} — new / will change / will clear / no change</span><span>${c.new} / ${c.change} / ${c.clear} / ${c.same}</span></div>
+    ${Object.keys(byCrop).length?`<div class="note" style="margin:6px 0 0;">${Object.keys(byCrop).map(id=>esc(shCropName(id))+' '+byCrop[id]).join(' · ')}</div>`:''}
+    ${p.problems.length?`<div class="error" style="margin:8px 0 0;">Fix before deploying: ${p.problems.slice(0,6).map(esc).join('; ')}${p.problems.length>6?' … (+'+(p.problems.length-6)+' more)':''}</div>`:''}`;
+}
+async function shDeploy(){
+  const p=shPlan(), y=sh.tgtYear, b=sh.tgtBlock, label=BLOCK_LABELS[b]+' '+y;
+  if(p.problems.length){ sh.msg={lines:p.problems.map(t=>({t,bad:true}))}; render(); return; }
+  if(!p.writes && !(sh.confirmAfter&&(p.counts.same||0)>0)){ sh.msg={lines:[{t:'Nothing to deploy — '+label+' already matches this layout.'}]}; render(); return; }
+  const warn=(p.confirmedHit?'\n\n'+p.confirmedHit+' bed(s) are already CONFIRMED in '+label+'; changing them marks those rows MODIFIED'+(sh.confirmAfter?' and they will be re-confirmed.':'.'):'');
+  if(!confirm('Deploy this layout to '+label+'?\n\n• '+p.counts.new+' new, '+p.counts.change+' changed'+(p.clears.length?', '+p.clears.length+' cleared':'')+', '+p.counts.same+' unchanged'
+    +'\n• '+(sh.confirmAfter?'Rows will then be CONFIRMED (ready for Cohort Production).':'Rows will be saved as MODIFIED; confirm them afterwards.')+warn)) return;
+  sh.busy=true; sh.err=''; sh.msg=null; sh.progress='0/'+(p.groupList.length+(p.clears.length?1:0)); render();
+  const lines=[]; let saved=0, failed=0, done=0;
+  const jobs=p.groupList.map(g=>({payload:{year:y,bedIds:g.bedIds,cropId:g.cropId,plantingDate:g.date},what:shCropName(g.cropId)+' '+g.date}));
+  if(p.clears.length) jobs.push({payload:{year:y,bedIds:p.clears,clear:true},what:'clear'});
+  for(const j of jobs){
+    try{
+      const r=await apiCall('save-plan-beds',j.payload);
+      saved+=r.saved||0; failed+=r.failed||0;
+      (r.errors||[]).forEach(e=>lines.push({t:e.bedId+' — '+e.message,bad:true}));
+      [].concat(...(r.results||[]).map(x=>(x.warnings||[]).map(w=>({t:x.bedId+': '+w})))).forEach(w=>lines.push(w));
+    }catch(e){ failed+=j.payload.bedIds.length; lines.push({t:j.what+' ('+j.payload.bedIds.length+' beds) — '+errMsg(e),bad:true}); }
+    done++; sh.progress=done+'/'+jobs.length; shRefreshSummary();
+  }
+  lines.unshift({t:saved+' bed(s) saved to '+label+(failed?', '+failed+' refused:':'.'),bad:!!failed&&!saved});
+  if(sh.confirmAfter&&!failed){
+    try{ const c=await apiCall('confirm-plan-rows',{year:y,blockId:b});
+      lines.splice(1,0,{t:c.confirmed+' confirmed · '+c.alreadyConfirmed+' already confirmed.'});
+      (c.skipped||[]).forEach(s=>lines.push({t:s.planId+' skipped — '+s.reason,bad:true}));
+    }catch(e){ lines.push({t:'Saved, but could not confirm: '+errMsg(e),bad:true}); }
+  } else if(sh.confirmAfter&&failed) lines.push({t:'Not confirmed because some beds were refused. Fix them and deploy again — beds already saved will show "No change".'});
+  delete state.pp[ppKey(y,b)]; sh.busy=false; sh.msg={lines};
+  if(y===sh.tgtYear&&b===sh.tgtBlock) await shLoadTarget(true); else render();
+}
+function shCropSelect(cur,attrs){
+  const crops=(((po[sh.tgtYear]||{}).crops)||[]).slice().sort((a,b)=>String(a.cropName).localeCompare(b.cropName));
+  const has=crops.some(c=>c.cropId===cur);
+  return `<select ${attrs}><option value="">— empty —</option>${(!has&&cur)?`<option value="${esc(cur)}" selected>${esc(shCropName(cur))}</option>`:''}
+    ${crops.map(c=>`<option value="${esc(c.cropId)}" ${c.cropId===cur?'selected':''} ${c.readyForCohorts||c.cropId===cur?'':'disabled'}>${esc(c.cropName)}${c.readyForCohorts?'':' — incomplete'}</option>`).join('')}</select>`;
+}
+function shRowHTML(i){
+  const r=sh.rows[i], s=shRowState(r), dis=(s.k==='nobed'||sh.busy)?'disabled':'';
+  return `<tr id="shr-${i}" class="${(s.k==='new'||s.k==='change'||s.k==='clear')?'sh-chg':''}">
+    <td class="sh-bed">${esc(s.id)}</td>
+    <td>${shCropSelect(r.cropId,`${dis} aria-label="Crop for ${esc(s.id)}" onchange="shSetCrop(${i},this.value)"`)}</td>
+    <td><input id="shd-${i}" type="date" ${dis} value="${esc(r.date)}" min="${sh.tgtYear}-01-01" max="${sh.tgtYear}-12-31" aria-label="Planting date for ${esc(s.id)}" onchange="shSetDate(${i},this.value)"></td>
+    <td class="sh-now sh-now-col">${shNowText(s)}</td>
+    <td id="shs-${i}">${shChip(s,r)}</td></tr>`;
+}
+function sheetScreen(){
+  if(!sh.init){ sh.init=true; shInit(); }
+  const p=shPlan(), yopt=(sel)=>PLAN_YEARS.map(y=>`<option value="${y}" ${y===sel?'selected':''}>${y}</option>`).join('');
+  const busy=sh.busy||sh.loadingSrc;
+  return `<div class="mapcol"><div class="mapscroll"><div style="max-width:1020px;margin:0 auto;">
+    <h2 style="margin:0 0 4px;">Bed Plan Sheet</h2>
+    <div class="note" style="margin-top:0;">One layout, any block. Bed numbers are the same in every block, so pick where it goes and the crops and dates carry over bed-for-bed. Change only what is different this season.</div>
+    ${sh.err?`<div class="error">${esc(sh.err)}</div>`:''}
+    <div class="card">
+      <div class="dc-sec" style="margin:0 0 8px;"><h2 style="margin:0 0 6px;">1 · Layout to start from</h2></div>
+      <div class="sh-ctl">
+        <div><label>Year</label><select ${busy?'disabled':''} onchange="shSetSrc('srcYear',this.value)">${yopt(sh.srcYear)}</select></div>
+        <div><label>Block</label><select ${busy?'disabled':''} onchange="shSetSrc('srcBlock',this.value)">${SHEET_BLOCKS.map(b=>`<option value="${b}" ${b===sh.srcBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select></div>
+        <button class="btn btn-outline" style="width:auto;margin:0;padding:9px 16px;" ${busy?'disabled':''} onclick="shLoadSource()">${sh.loadingSrc?'Loading…':'Load this layout'}</button>
+        <button class="btn btn-ghost" style="width:auto;margin:0;" ${busy?'disabled':''} onclick="shStartBlank()">Start blank</button>
+      </div>
+      ${sh.srcNote?`<div class="note" style="margin:8px 0 0;">${esc(sh.srcNote)}</div>`:''}
+    </div>
+    <div class="card">
+      <div class="dc-sec" style="margin:0 0 8px;"><h2 style="margin:0 0 6px;">2 · Deploy to block</h2></div>
+      <div class="sh-ctl">
+        <div class="seg sh-blocks">${SHEET_BLOCKS.map(b=>`<button class="${b===sh.tgtBlock?'active':''}" ${sh.busy?'disabled':''} onclick="shSetTgtBlock('${b}')">${esc(BLOCK_LABELS[b])}</button>`).join('')}</div>
+        <div><label>Year</label><select ${sh.busy?'disabled':''} onchange="shSetTgtYear(this.value)">${yopt(sh.tgtYear)}</select></div>
+      </div>
+      <div class="note" style="margin:8px 0 0;">Switching block relabels the beds (${esc(shBedId(1))} … ${esc(shBedId(sh.N))}) and keeps every crop and date you have set below.</div>
+    </div>
+    <div class="card">
+      <div class="dc-sec" style="margin:0 0 8px;"><h2 style="margin:0 0 6px;">3 · Quick edit a range of beds <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></h2></div>
+      <div class="sh-ctl">
+        <div><label>From bed</label><input type="number" min="1" max="${sh.N}" value="${sh.range.from}" style="width:70px;" oninput="shRange('from',this.value)"></div>
+        <div><label>To bed</label><input type="number" min="1" max="${sh.N}" value="${sh.range.to}" style="width:70px;" oninput="shRange('to',this.value)"></div>
+        <div style="min-width:170px;"><label>Crop</label>${shCropSelect(sh.range.cropId,`onchange="shRange('cropId',this.value)"`)}</div>
+        <div><label>Planting date</label><input id="sh-rdate" type="date" value="${esc(sh.range.date)}" min="${sh.tgtYear}-01-01" max="${sh.tgtYear}-12-31" onchange="shRange('date',this.value)"></div>
+        <button class="btn btn-outline" style="width:auto;margin:0;padding:9px 16px;" ${sh.busy?'disabled':''} onclick="shApplyRange(false)">Apply to range</button>
+        <button class="btn btn-reject" style="width:auto;margin:0;padding:9px 16px;" ${sh.busy?'disabled':''} onclick="shApplyRange(true)">Empty range</button>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:visible;">
+      <table class="sh-tbl"><thead><tr><th>Bed</th><th>Crop</th><th>Planting date</th><th class="sh-now-col">Currently in ${esc(BLOCK_LABELS[sh.tgtBlock])} ${sh.tgtYear}</th><th>On deploy</th></tr></thead>
+      <tbody>${sh.rows.map((_,i)=>shRowHTML(i)).join('')}</tbody></table>
+    </div>
+    <div class="card">
+      <div class="dc-sec" style="margin:0 0 8px;"><h2 style="margin:0 0 6px;">4 · Deploy</h2></div>
+      <div id="sh-sum">${shSummaryInner()}</div>
+      <label class="note" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" ${sh.confirmAfter?'checked':''} onchange="sh.confirmAfter=this.checked"> Confirm the rows after saving (makes them ready for Cohort Production)</label>
+      <label class="note" style="display:flex;gap:8px;align-items:center;margin-top:0;"><input type="checkbox" ${sh.clearBlank?'checked':''} onchange="sh.clearBlank=this.checked;render()"> Also empty beds in ${esc(BLOCK_LABELS[sh.tgtBlock])} that are blank in this layout</label>
+      <button id="sh-deploybtn" class="btn btn-primary btn-cta" style="margin-top:6px;" ${sh.busy||sh.loadingSrc||sh.loadingTgt?'disabled':''} onclick="shDeploy()">${esc(shDeployLabel(p))}</button>
+      ${sh.msg?`<div class="ma-res">${sh.msg.lines.map(l=>`<div class="${l.bad?'bad':''}">${esc(l.t)}</div>`).join('')}</div>`:''}
+      <div class="note">Only beds that differ from what ${esc(BLOCK_LABELS[sh.tgtBlock])} already has are written. A bed whose cohort is already in the ground is refused by the server and listed above; nothing else is affected.</div>
+    </div>
+  </div></div></div>`;
 }
 
 /* ---------- COHORT PRODUCTION ---------- */
@@ -2704,13 +2947,14 @@ function planningScreen(){
   </div>
   <div class="toolbar">
     <div class="seg" style="flex-wrap:wrap;">${PLAN_MODES.map(([k,l])=>`<button class="${ui.pMode===k?'active':''}" onclick="setPMode('${k}')">${l}</button>`).join('')}</div>
-    ${ui.pMode==='addcrop'||ui.pMode==='calendar'||ui.pMode==='operation'?'':ui.pMode==='cohorts'?`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`:ui.pMode==='cropref'?`<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`:`
+    ${ui.pMode==='addcrop'||ui.pMode==='calendar'||ui.pMode==='operation'||ui.pMode==='sheet'?'':ui.pMode==='cohorts'?`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`:ui.pMode==='cropref'?`<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`:`
     <select onchange="setPBlock(this.value)" aria-label="Block">${PLAN_BLOCKS.map(b=>`<option value="${b}" ${b===ui.pBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select>
     <select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>
     <button class="btn btn-ghost" style="width:auto;margin:0;" onclick="refreshPlanning()">↻ Refresh</button>${ui.pMode==='plan'?`
     <button class="btn btn-outline" style="width:auto;margin:0;" onclick="openBedEdit('')">+ Add bed</button>`:''}`}
   </div>
   <div class="wrap">${
+    ui.pMode==='sheet' ? sheetScreen() :
     ui.pMode==='plan' ? planLayout(ppLeftHTML(), ppBedGridSVG(), ppLegend(), ppRightHTML()) :
     ui.pMode==='exec' ? planLayout(cropListHTML('exec'), planBedGridSVG('exec'), planLegend('exec'), executionProfile()) :
     ui.pMode==='harvest' ? planLayout(cropListHTML('harvest'), planBedGridSVG('harvest'), planLegend('harvest'), harvestProfile()) :
