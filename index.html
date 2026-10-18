@@ -2209,7 +2209,7 @@ async function shLoadSource(initial){
 function shStartBlank(){ if(sh.dirty&&!confirm('Clear the layout you are editing?')) return; shBlankRows(); sh.dirty=false; sh.srcNote='Empty sheet.'; sh.msg=null; render(); }
 function shSetSrc(k,v){ sh[k]=k==='srcYear'?+v:v; }
 function shSetTgtBlock(b){ if(sh.busy||b===sh.tgtBlock) return; sh.tgtBlock=b; sh.msg=null; sh.err=''; sh.tgtNow={}; shLoadTarget(false); }
-function shSetTgtYear(y){ if(sh.busy) return; sh.tgtYear=+y; sh.rows.forEach(r=>{ r.date=shToYear(r.date,sh.tgtYear); }); sh.msg=null; sh.err=''; sh.tgtNow={}; shLoadCrops().then(()=>shLoadTarget(false)); }
+function shSetTgtYear(y){ if(sh.busy) return; sh.tgtYear=+y; sh.rows.forEach(r=>{ r.date=shToYear(r.date,sh.tgtYear); }); sh.msg=null; sh.err=''; sh.tgtNow={}; sh.loadingTgt=true; render(); shLoadCrops().then(()=>shLoadTarget(false)); }
 function shDefaultDate(cropId){ const c=shCropObj(cropId); return c&&(c.windows||[]).length?sh.tgtYear+'-'+c.windows[0].start:''; }
 function shSetCrop(i,v){
   const r=sh.rows[i]; r.cropId=v; if(v&&!r.date) r.date=shDefaultDate(v); if(!v) r.date='';
@@ -2275,25 +2275,31 @@ function shSummaryInner(){
     ${Object.keys(byCrop).length?`<div class="note" style="margin:6px 0 0;">${Object.keys(byCrop).map(id=>esc(shCropName(id))+' '+byCrop[id]).join(' · ')}</div>`:''}
     ${p.problems.length?`<div class="error" style="margin:8px 0 0;">Fix before deploying: ${p.problems.slice(0,6).map(esc).join('; ')}${p.problems.length>6?' … (+'+(p.problems.length-6)+' more)':''}</div>`:''}`;
 }
-async function shDeploy(){
-  const p=shPlan(), y=sh.tgtYear, b=sh.tgtBlock, label=BLOCK_LABELS[b]+' '+y;
-  if(p.problems.length){ sh.msg={lines:p.problems.map(t=>({t,bad:true}))}; render(); return; }
-  if(!p.writes && !(sh.confirmAfter&&(p.counts.same||0)>0)){ sh.msg={lines:[{t:'Nothing to deploy — '+label+' already matches this layout.'}]}; render(); return; }
-  const warn=(p.confirmedHit?'\n\n'+p.confirmedHit+' bed(s) are already CONFIRMED in '+label+'; changing them marks those rows MODIFIED'+(sh.confirmAfter?' and they will be re-confirmed.':'.'):'');
-  if(!confirm('Deploy this layout to '+label+'?\n\n• '+p.counts.new+' new, '+p.counts.change+' changed'+(p.clears.length?', '+p.clears.length+' cleared':'')+', '+p.counts.same+' unchanged'
-    +'\n• '+(sh.confirmAfter?'Rows will then be CONFIRMED (ready for Cohort Production).':'Rows will be saved as MODIFIED; confirm them afterwards.')+warn)) return;
-  sh.busy=true; sh.err=''; sh.msg=null; sh.progress='0/'+(p.groupList.length+(p.clears.length?1:0)); render();
+const SHEET_DEPLOY_TIMEOUT_MS=240000;   /* one request writes the whole block; allow Apps Script time to finish */
+/* result lines for the one-request path (deploy-bed-layout, BedLayoutDeploy.gs) */
+function shBatchLines(r,label){
+  const lines=[{t:(r.saved||0)+' bed(s) saved to '+label+(r.failed?', '+r.failed+' refused:':'.'),bad:!!r.failed&&!r.saved}];
+  (r.errors||[]).forEach(e=>lines.push({t:e.bedId+' — '+e.message,bad:true}));
+  if(r.confirm) lines.splice(1,0,{t:r.confirm.confirmed+' confirmed · '+r.confirm.alreadyConfirmed+' already confirmed.'});
+  (r.confirm&&r.confirm.skipped||[]).forEach(x=>lines.push({t:x.planId+' skipped — '+x.reason,bad:true}));
+  if(r.confirmNote) lines.push({t:r.confirmNote});
+  (r.warnings||[]).forEach(w=>lines.push({t:w.bedId+': '+w.message}));
+  return lines;
+}
+/* fallback when the server has not been updated with deploy-bed-layout: one save-plan-beds call per distinct crop + date */
+async function shDeployGrouped(p,y,b,label){
   const lines=[]; let saved=0, failed=0, done=0;
   const jobs=p.groupList.map(g=>({payload:{year:y,bedIds:g.bedIds,cropId:g.cropId,plantingDate:g.date},what:shCropName(g.cropId)+' '+g.date}));
   if(p.clears.length) jobs.push({payload:{year:y,bedIds:p.clears,clear:true},what:'clear'});
   for(const j of jobs){
+    sh.progress=done+'/'+jobs.length; shRefreshSummary();
     try{
       const r=await apiCall('save-plan-beds',j.payload);
       saved+=r.saved||0; failed+=r.failed||0;
       (r.errors||[]).forEach(e=>lines.push({t:e.bedId+' — '+e.message,bad:true}));
       [].concat(...(r.results||[]).map(x=>(x.warnings||[]).map(w=>({t:x.bedId+': '+w})))).forEach(w=>lines.push(w));
     }catch(e){ failed+=j.payload.bedIds.length; lines.push({t:j.what+' ('+j.payload.bedIds.length+' beds) — '+errMsg(e),bad:true}); }
-    done++; sh.progress=done+'/'+jobs.length; shRefreshSummary();
+    done++;
   }
   lines.unshift({t:saved+' bed(s) saved to '+label+(failed?', '+failed+' refused:':'.'),bad:!!failed&&!saved});
   if(sh.confirmAfter&&!failed){
@@ -2302,6 +2308,26 @@ async function shDeploy(){
       (c.skipped||[]).forEach(s=>lines.push({t:s.planId+' skipped — '+s.reason,bad:true}));
     }catch(e){ lines.push({t:'Saved, but could not confirm: '+errMsg(e),bad:true}); }
   } else if(sh.confirmAfter&&failed) lines.push({t:'Not confirmed because some beds were refused. Fix them and deploy again — beds already saved will show "No change".'});
+  lines.push({t:'Note: the server update (deploy-bed-layout) is not installed, so this used one slower save per crop and date.'});
+  return lines;
+}
+async function shDeploy(){
+  const p=shPlan(), y=sh.tgtYear, b=sh.tgtBlock, label=BLOCK_LABELS[b]+' '+y;
+  if(p.problems.length){ sh.msg={lines:p.problems.map(t=>({t,bad:true}))}; render(); return; }
+  if(!p.writes && !(sh.confirmAfter&&(p.counts.same||0)>0)){ sh.msg={lines:[{t:'Nothing to deploy — '+label+' already matches this layout.'}]}; render(); return; }
+  const warn=(p.confirmedHit?'\n\n'+p.confirmedHit+' bed(s) are already CONFIRMED in '+label+'; changing them marks those rows MODIFIED'+(sh.confirmAfter?' and they will be re-confirmed.':'.'):'');
+  if(!confirm('Deploy this layout to '+label+'?\n\n• '+p.counts.new+' new, '+p.counts.change+' changed'+(p.clears.length?', '+p.clears.length+' cleared':'')+', '+p.counts.same+' unchanged'
+    +'\n• '+(sh.confirmAfter?'Rows will then be CONFIRMED (ready for Cohort Production).':'Rows will be saved as MODIFIED; confirm them afterwards.')+warn)) return;
+  sh.busy=true; sh.err=''; sh.msg=null; sh.progress=''; render();
+  const beds=[]; p.groupList.forEach(g=>g.bedIds.forEach(id=>beds.push({bedId:id,cropId:g.cropId,plantingDate:g.date}))); p.clears.forEach(id=>beds.push({bedId:id,clear:true}));
+  let lines;
+  try{
+    const r=await apiCall('deploy-bed-layout',{year:y,blockId:b,beds,confirm:sh.confirmAfter},SHEET_DEPLOY_TIMEOUT_MS);
+    lines=shBatchLines(r,label);
+  }catch(e){
+    if(String(e.code)==='UNKNOWN_ACTION') lines=await shDeployGrouped(p,y,b,label);
+    else lines=[{t:errMsg(e),bad:true},{t:'If this was a timeout or a dropped connection, the server may still have finished. The table below reloads from the server, so check it before deploying again.'}];
+  }
   delete state.pp[ppKey(y,b)]; sh.busy=false; sh.msg={lines};
   if(y===sh.tgtYear&&b===sh.tgtBlock) await shLoadTarget(true); else render();
 }
