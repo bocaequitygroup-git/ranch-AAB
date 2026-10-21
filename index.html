@@ -2860,8 +2860,8 @@ function opScreen(){
 }
 
 /* ============================== PRODUCTION CALENDAR ==============================
- * Source: live via action 'get-production-calendar' -> Master Calendar (all 24 slots/crop) + Open Field Operation
- * (slot filled there = open field, otherwise greenhouse). Open Field Operation is the source of truth for open-field dates.
+ * Source: Open Field Operation ONLY. The feed 'get-production-calendar' still sends Master Calendar slots, but only the ones
+ * Open Field Operation lists (verified via 'get-operation-plan' FIELD) are shown; everything else is dropped.
  * CAL_DATA below is only the offline/demo snapshot (open field only): the 202 Open Field Operation plantings, 35 crops.
  * Peppers (PEP) have no Open Field Operation plantings, so they are greenhouse-only.
  * Original source note: Open Field Operation (planting date = DOB, slot = harvest month column),
@@ -2894,30 +2894,36 @@ const CAL_TABCOL={prop:'#3A78C9',plant:'#7A5C2E',harv:'#2E7D32'};
 const calFull=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const calLong=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const calToday=()=>new Date().toISOString().slice(0,10);
-const calState={data:null,busy:false,error:null,counts:null,raw:null,hidden:[],showHidden:false};
+const calState={data:null,busy:false,error:null,counts:null,raw:null,hidden:[],missing:[],ofoSet:null};
 async function loadCalendar(force){
   if(calState.busy||(calState.data&&!force)) return;
   calState.busy=true; calState.error=null; render();
   try{
     if(IS_DEMO){ calState.raw=null; calState.hidden=[]; calState.data=CAL_DATA.map(w=>Object.assign({loc:'FIELD'},w)); }
-    else{ const r=await apiCall('get-production-calendar'); calState.raw=r.plantings||[]; calRebuild(); calState.counts=r.counts||null;
+    else{ const r=await apiCall('get-production-calendar'); calState.raw=r.plantings||[]; await calVerifyOFO(); calRebuild(); calState.counts=r.counts||null;
       if(r.unmatched&&r.unmatched.length) toast('Calendar: no CROP_REFERENCE match for '+r.unmatched.join(', ')); }
   }catch(err){ calState.error=err.message||'Could not load the production calendar.'; }
   calState.busy=false; render();
 }
-/* Open Field Operation is the source of truth. Master Calendar is a year-round grid (24 slots for every crop); the slots
- * that are NOT in Open Field Operation are greenhouse "filler" for field crops (e.g. Clover, Rye, Vetch, Onions in a
- * greenhouse in January). The calendar therefore keeps: every open-field planting, plus greenhouse plantings only for
- * greenhouse-only crops (no Open Field Operation planting AND a greenhouse production path). The rest are counted and
- * can be revealed with the "Show them" link. */
-function calRebuild(){
-  const all=calState.raw||[], fieldCrops=new Set(all.filter(w=>w.loc==='FIELD').map(w=>w.crop));
-  const ghOnly=id=>{ const c=CROP_MASTER.find(x=>x.id===id); return !!(c&&c.life&&c.life.productionPath==='GREENHOUSE'); };
-  const kept=[], hidden=[];
-  all.forEach(w=>{ if(w.loc==='FIELD'||(!fieldCrops.has(w.crop)&&ghOnly(w.crop))) kept.push(w); else hidden.push(w); });
-  calState.hidden=hidden; calState.data=calState.showHidden?all:kept;
+/* RULE: Open Field Operation is the ONLY source of entries on the production calendar. Master Calendar is a
+ * year-round grid (24 slots for every crop) and is NOT used to add plantings: slots that are not in Open Field
+ * Operation (including greenhouse-only crops such as Cassava, Plantains and True Yams) never appear here.
+ * The feed's FIELD plantings are checked against the dates read straight from Open Field Operation
+ * ('get-operation-plan' target FIELD); a planting is shown only if Open Field Operation lists that crop on that date. */
+async function calVerifyOFO(){
+  try{ const r=await apiCall('get-operation-plan',{target:'FIELD'}), set=new Set();
+    (r.crops||[]).forEach(c=>(c.dates||[]).forEach(d=>set.add(c.cropId+'|'+String(d).slice(0,10))));
+    calState.ofoSet=set.size?set:null;
+  }catch(e){ calState.ofoSet=null; }
 }
-function calToggleHidden(){ calState.showHidden=!calState.showHidden; calRebuild(); ui.calDay=null; render(); }
+function calRebuild(){
+  const all=calState.raw||[], ofo=calState.ofoSet||null;
+  const kept=all.filter(w=>w.loc==='FIELD'&&(!ofo||ofo.has(w.crop+'|'+w.plant)));
+  const have=new Set(kept.map(w=>w.crop+'|'+w.plant));
+  calState.hidden=all.filter(w=>!(w.loc==='FIELD'&&(!ofo||ofo.has(w.crop+'|'+w.plant))));
+  calState.missing=ofo?[...ofo].filter(k=>!have.has(k)):[];
+  calState.data=kept;
+}
 function calEvents(tab){
   const f=ui.calLoc||'ALL', out=[];
   (calState.data||[]).forEach(w=>{ if(f!=='ALL'&&w.loc!==f) return;
@@ -2966,7 +2972,7 @@ function calScreen(){
   const monthBody=`<div class="cal-grid">${cells}</div>`+(selDay&&selDay.slice(0,7)===ui.calMonth?`<div class="cal-day-h">${calLong(selDay)}</div>${by[selDay]?by[selDay].map(calItem).join(''):'<div class="card">Nothing scheduled.</div>'}`:'');
   const agendaBody=days.length?days.map(d=>`<div class="cal-agenda-d">${calLong(d)}</div>${by[d].map(calItem).join('')}`).join(''):'<div class="card">Nothing scheduled this month.</div>';
   const seg=(items,cur,fn)=>`<div class="seg">${items.map(([k,l])=>`<button class="${cur===k?'active':''}" onclick="${fn}('${k}')">${l}</button>`).join('')}</div>`;
-  const locSeg=seg([['ALL','All'],['FIELD','Open field'],['GREENHOUSE','Greenhouse']],loc,'calSetLoc');
+  const locSeg='';
   const viewSeg=seg([['month','Month'],['agenda','Agenda']],view,'calSetView');
   const dot=(c,l)=>`<span><i style="background:${c}"></i>${l}</span>`;
   const leg=tab==='harv'?dot(CAL_KCOL.open,'Harvest window opens')+dot(CAL_KCOL.close,'Harvest window closes'):tab==='prop'?dot(CAL_KCOL.prop,'Start propagation'):dot(CAL_KCOL.plant,'Planting (DOB)');
@@ -2977,7 +2983,7 @@ function calScreen(){
   ${insight?`<div class="cal-insight">${insight}</div>`:''}
   <div class="cal-nav"><button class="cal-noprint" onclick="calNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b>${mname}</b><span>${nOpen} ${lead}</span></div><button class="cal-noprint" onclick="calNav(1)" aria-label="Next month">›</button><button class="cal-noprint" onclick="calGoToday()">Today</button></div>
   ${view==='agenda'?agendaBody:monthBody}
-  <div class="cal-note">Read live from the workbook. Open-field plantings come from Open Field Operation, the source of truth for planting dates. Greenhouse plantings (Master Calendar) are shown only for greenhouse-only crops. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).${calState.hidden&&calState.hidden.length?` <b>${calState.hidden.length} Master Calendar greenhouse slots for field crops are ${calState.showHidden?'shown':'hidden'}</b> because they are not in Open Field Operation. <a href="#" onclick="calToggleHidden();return false">${calState.showHidden?'Hide them':'Show them'}</a>.`:''}${IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
+  <div class="cal-note">Read live from the workbook. Every entry comes from Open Field Operation, the source of truth for planting dates. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).${calState.missing&&calState.missing.length?` <b style="color:var(--danger)">${calState.missing.length} Open Field Operation planting(s) are missing from the calendar feed: ${esc(calState.missing.slice(0,6).join(', '))}${calState.missing.length>6?'…':''}.</b>`:''}${!IS_DEMO&&!calState.ofoSet?' <b style="color:var(--warn)">Could not re-read Open Field Operation to verify; showing the feed\'s open-field plantings.</b>':''}${calState.hidden&&calState.hidden.length?` ${calState.hidden.length} Master Calendar slot(s) not in Open Field Operation are not shown.`:''} ${IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
 }
 
 /* ---- render: screen shell ---- */
