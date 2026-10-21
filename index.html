@@ -2894,17 +2894,30 @@ const CAL_TABCOL={prop:'#3A78C9',plant:'#7A5C2E',harv:'#2E7D32'};
 const calFull=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const calLong=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const calToday=()=>new Date().toISOString().slice(0,10);
-const calState={data:null,busy:false,error:null,counts:null};
+const calState={data:null,busy:false,error:null,counts:null,raw:null,hidden:[],showHidden:false};
 async function loadCalendar(force){
   if(calState.busy||(calState.data&&!force)) return;
   calState.busy=true; calState.error=null; render();
   try{
-    if(IS_DEMO){ calState.data=CAL_DATA.map(w=>Object.assign({loc:'FIELD'},w)); }
-    else{ const r=await apiCall('get-production-calendar'); calState.data=r.plantings||[]; calState.counts=r.counts||null;
+    if(IS_DEMO){ calState.raw=null; calState.hidden=[]; calState.data=CAL_DATA.map(w=>Object.assign({loc:'FIELD'},w)); }
+    else{ const r=await apiCall('get-production-calendar'); calState.raw=r.plantings||[]; calRebuild(); calState.counts=r.counts||null;
       if(r.unmatched&&r.unmatched.length) toast('Calendar: no CROP_REFERENCE match for '+r.unmatched.join(', ')); }
   }catch(err){ calState.error=err.message||'Could not load the production calendar.'; }
   calState.busy=false; render();
 }
+/* Open Field Operation is the source of truth. Master Calendar is a year-round grid (24 slots for every crop); the slots
+ * that are NOT in Open Field Operation are greenhouse "filler" for field crops (e.g. Clover, Rye, Vetch, Onions in a
+ * greenhouse in January). The calendar therefore keeps: every open-field planting, plus greenhouse plantings only for
+ * greenhouse-only crops (no Open Field Operation planting AND a greenhouse production path). The rest are counted and
+ * can be revealed with the "Show them" link. */
+function calRebuild(){
+  const all=calState.raw||[], fieldCrops=new Set(all.filter(w=>w.loc==='FIELD').map(w=>w.crop));
+  const ghOnly=id=>{ const c=CROP_MASTER.find(x=>x.id===id); return !!(c&&c.life&&c.life.productionPath==='GREENHOUSE'); };
+  const kept=[], hidden=[];
+  all.forEach(w=>{ if(w.loc==='FIELD'||(!fieldCrops.has(w.crop)&&ghOnly(w.crop))) kept.push(w); else hidden.push(w); });
+  calState.hidden=hidden; calState.data=calState.showHidden?all:kept;
+}
+function calToggleHidden(){ calState.showHidden=!calState.showHidden; calRebuild(); ui.calDay=null; render(); }
 function calEvents(tab){
   const f=ui.calLoc||'ALL', out=[];
   (calState.data||[]).forEach(w=>{ if(f!=='ALL'&&w.loc!==f) return;
@@ -2964,7 +2977,7 @@ function calScreen(){
   ${insight?`<div class="cal-insight">${insight}</div>`:''}
   <div class="cal-nav"><button class="cal-noprint" onclick="calNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b>${mname}</b><span>${nOpen} ${lead}</span></div><button class="cal-noprint" onclick="calNav(1)" aria-label="Next month">›</button><button class="cal-noprint" onclick="calGoToday()">Today</button></div>
   ${view==='agenda'?agendaBody:monthBody}
-  <div class="cal-note">Read live from the workbook. Open-field plantings come from Open Field Operation, the source of truth for planting dates; every other Master Calendar slot is a greenhouse planting. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).${IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
+  <div class="cal-note">Read live from the workbook. Open-field plantings come from Open Field Operation, the source of truth for planting dates. Greenhouse plantings (Master Calendar) are shown only for greenhouse-only crops. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).${calState.hidden&&calState.hidden.length?` <b>${calState.hidden.length} Master Calendar greenhouse slots for field crops are ${calState.showHidden?'shown':'hidden'}</b> because they are not in Open Field Operation. <a href="#" onclick="calToggleHidden();return false">${calState.showHidden?'Hide them':'Show them'}</a>.`:''}${IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
 }
 
 /* ---- render: screen shell ---- */
