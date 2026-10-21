@@ -563,8 +563,8 @@ async function verifyHarvestReady(cohortId, bedId){
   catch(e){ toast(e.message); }
 }
 async function verifyHarvestComplete(cohortId){
-  try{ await apiCall('verify-harvest-complete', { cohortId }); toast('Cohort marked harvest complete.'); await loadToday(); }
-  catch(e){ toast(e.message); }
+  /* verify-harvest-complete is retired server-side. Ending production is Terminate Cohort (ACT_053): open its modal. */
+  openModal('terminate',{cohortId});
 }
 
 /* ==================== ASSIGNMENT ENGINE WRITE-BACK ACTIONS ====================
@@ -906,7 +906,7 @@ function harvestTab(b,hr){
     <div class="row"><span>Target date</span><span>${esc(hr.targetDate||'—')}</span></div>
     <div class="row"><span>Notes</span><span>${esc(hr.notes||'—')}</span></div></div>
     <button class="btn btn-primary" onclick="verifyHarvestReady('${esc(b.cohortId)}','${esc(b.id)}')">Verify harvest ready</button>
-    <button class="btn btn-outline" onclick="verifyHarvestComplete('${esc(b.cohortId)}')">Mark harvest complete</button>`;
+    <button class="btn btn-outline" onclick="verifyHarvestComplete('${esc(b.cohortId)}')">Terminate cohort (end production)</button>`;
 }
 
 /* ============================== ACTIONS & LIVE TASKS (Bed Profile command center) ==============================
