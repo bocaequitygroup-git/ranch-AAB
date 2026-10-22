@@ -132,6 +132,11 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .cal-item .nm{font-size:14.5px;font-weight:800;margin-top:1px;}
 .cal-item .sb{font-size:12px;color:var(--ink-soft);margin-top:2px;}
 .cal-item .loc{display:inline-block;font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:999px;margin-right:6px;color:var(--lc);background:color-mix(in srgb,var(--lc) 14%,transparent);}
+.irr-beds{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;}
+.irr-bed{display:flex;align-items:center;gap:6px;font-size:13px;}
+.irr-st{font-size:11px;font-weight:800;color:var(--c);background:color-mix(in srgb,var(--c) 13%,transparent);padding:1px 7px;border-radius:999px;}
+.irr-w{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+.irr-chip{display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;border:1.5px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--paper);}
 .cal-agenda-d{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--line);}
 .cal-note{font-size:11.5px;color:var(--ink-soft);margin-top:22px;line-height:1.5;}
 .cal-align{border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:9px 12px;font-size:12.5px;margin-bottom:12px;line-height:1.45;}
@@ -1777,7 +1782,7 @@ function lbCsv(){
  * plug in get/set calls to a real backend (Apps Script actions get-planting-plan / confirm-planting-layout /
  * modify-planting-layout / reset-planting-plan / mark-crop-planted / mark-bed-planted / mark-harvest-complete /
  * apply-cover-crop / get-rotation-plan / edit-rotation / approve-rotation) once those exist server-side. */
-const PLAN_MODES=[['plan','Season Planning'],['sheet','Bed Plan Sheet'],['exec','Planting Execution'],['harvest','Harvest'],['cover','Cover Crop'],['rotation','Rotation'],['cropref','Crop Profile'],['addcrop','Add Crop'],['cohorts','Cohort Production'],['calendar','Production Calendar'],['operation','Operation Planner']];
+const PLAN_MODES=[['plan','Season Planning'],['sheet','Bed Plan Sheet'],['exec','Planting Execution'],['harvest','Harvest'],['cover','Cover Crop'],['rotation','Rotation'],['cropref','Crop Profile'],['addcrop','Add Crop'],['cohorts','Cohort Production'],['calendar','Production Calendar'],['irrigation','Irrigation Calendar'],['operation','Operation Planner']];
 /* CROP_MASTER: crop-identity master, reconciled per the ranch's authority model:
  *  - CROP_REFERENCE is canonical for identity/production fields (id, name, category, cycle class,
  *    propagation path, planting method, DOB type).
@@ -1848,7 +1853,7 @@ function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete
 function setPMode(m){ if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
-function refreshPlanning(){ if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
+function refreshPlanning(){ if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
 function selectCrop(id){ ui.pSelectedCrop=id; ui.pModifying=false; render(); }
 function selectCropByBed(n){ const c=getPlan(ui.pBlock,ui.pYear).crops.find(x=>x.bedNums.includes(n)); if(c){ ui.pSelectedCrop=c.id; render(); } }
 
@@ -3017,6 +3022,86 @@ function calScreen(){
   <div class="cal-note">Read live from the workbook. Every entry comes from Open Field Operation, the source of truth for planting dates. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).${calState.missing&&calState.missing.length?` <b style="color:var(--danger)">${calState.missing.length} Open Field Operation planting(s) are missing from the calendar feed: ${esc(calState.missing.slice(0,6).join(', '))}${calState.missing.length>6?'…':''}.</b>`:''}${!IS_DEMO&&!calState.ofoSet?' <b style="color:var(--warn)">Could not re-read Open Field Operation to verify; showing the feed\'s open-field plantings.</b>':''}${calState.hidden&&calState.hidden.length?` ${calState.hidden.length} Master Calendar slot(s) not in Open Field Operation are not shown.`:''} ${IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
 }
 
+/* ============================== IRRIGATION CALENDAR ==============================
+ * A cohort's irrigation calendar switches on when its planting is VERIFIED (COHORT_PRODUCTION.Actual_DOB, written by
+ * verify-planting). Watering dates run from that verified planting date using IRRIGATION_PROFILE (IrrigationCalendar.gs).
+ * The manager then assigns workers: 'assign-irrigation' starts Irrigation sessions through the same path as start-sessions.
+ * Crops with no irrigation profile are listed, never guessed. */
+const IRR_ST={OVERDUE:['Overdue','#B3261E'],DUE:['Due today','#C77700'],UPCOMING:['Upcoming','#6B6B5E'],ASSIGNED:['Assigned','#3A78C9'],IN_PROGRESS:['In progress','#2E7D32'],COMPLETED:['Done','#5B3F8C']};
+const irr={data:null,busy:false,error:null,month:null,day:null,loaded:null,pick:{},workers:null,sending:false};
+const irrToday=()=>calToday();
+function irrRange(){ const [y,m]=irr.month.split('-').map(Number); return {from:`${irr.month}-01`,to:`${irr.month}-${String(new Date(Date.UTC(y,m,0)).getUTCDate()).padStart(2,'0')}`}; }
+async function irrLoad(force){
+  if(!irr.month) irr.month=irrToday().slice(0,7);
+  if(irr.busy||(!force&&irr.loaded===irr.month&&irr.data)) return;
+  irr.busy=true; irr.error=null; render();
+  try{
+    if(IS_DEMO){ irr.data={items:[],activeCohorts:0,waitingForVerification:0,noSchedule:[],demo:true}; }
+    else{ irr.data=await apiCall('get-irrigation-calendar',irrRange()); irr.pick={}; }
+    irr.loaded=irr.month;
+  }catch(err){ irr.error=err.message||'Could not load the irrigation calendar.'; }
+  irr.busy=false; render();
+}
+async function irrWorkers(){
+  if(irr.workers) return irr.workers;
+  let list=(state.workers||[]).map(w=>({id:w.workerId,name:w.name,role:w.role}));
+  if(!list.length&&!IS_DEMO){ try{ const r=await apiCall('list-workers'); list=(r.workers||r||[]).filter(u=>String(u.Status||'ACTIVE').toUpperCase()==='ACTIVE').map(u=>({id:u.Worker_ID,name:u.Name,role:u.Role})); }catch(e){} }
+  irr.workers=list.filter(w=>!/^(manager|founder)$/i.test(w.role||'')); render(); return irr.workers;
+}
+function irrNav(n){ const [y,m]=irr.month.split('-').map(Number); irr.month=new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7); irr.day=null; irrLoad(true); }
+function irrGoToday(){ irr.month=irrToday().slice(0,7); irr.day=irrToday(); irrLoad(true); }
+function irrPickDay(d){ irr.day=d; irrWorkers(); render(); }
+function irrWorst(it){ const o=['OVERDUE','DUE','IN_PROGRESS','ASSIGNED','UPCOMING','COMPLETED']; return o.find(s=>it.beds.some(b=>b.status===s))||'UPCOMING'; }
+const irrAssignable=b=>b.status==='OVERDUE'||b.status==='DUE'||b.status==='UPCOMING';
+function irrSel(it){ const k=it.cohortId+'|'+it.date; return irr.pick[k]=irr.pick[k]||{beds:it.beds.filter(irrAssignable).map(b=>b.bedId),workers:[]}; }
+function irrToggle(i,kind,v){ const it=irrDayItems()[i]; if(!it) return; const s=irrSel(it), a=s[kind], at=a.indexOf(v); if(at<0) a.push(v); else a.splice(at,1); render(); }
+function irrDayItems(){ return ((irr.data&&irr.data.items)||[]).filter(x=>x.date===irr.day); }
+async function irrAssign(i){
+  const it=irrDayItems()[i]; if(!it||irr.sending) return; const s=irrSel(it);
+  if(!s.beds.length){ toast('Choose at least one bed.'); return; }
+  if(!s.workers.length){ toast('Choose at least one worker.'); return; }
+  irr.sending=true; render();
+  try{ const r=await apiCall('assign-irrigation',{cohortId:it.cohortId,date:it.date,bedIds:s.beds,workerIds:s.workers},60000);
+    toast(r.created?`Irrigation assigned: ${r.created} task${r.created===1?'':'s'}.`+(r.failed&&r.failed.length?` ${r.failed.length} failed.`:''):'Nothing was assigned'+(r.failed&&r.failed.length?` (${r.failed.length} failed).`:'.'));
+    irr.sending=false; await irrLoad(true);
+  }catch(err){ irr.sending=false; toast(err.message||'Could not assign irrigation.'); render(); }
+}
+function irrCardHTML(it,i){
+  const st=irrWorst(it), c=IRR_ST[st], sel=irrSel(it), canAssign=it.beds.some(irrAssignable), workers=irr.workers||[];
+  const beds=it.beds.map(b=>{ const a=irrAssignable(b), x=IRR_ST[b.status];
+    return `<label class="irr-bed">${a?`<input type="checkbox" ${sel.beds.includes(b.bedId)?'checked':''} onchange="irrToggle(${i},'beds','${esc(b.bedId)}')">`:''}<b>${esc(b.bedId)}</b><span class="irr-st" style="--c:${x[1]}">${x[0]}${b.workerName?' · '+esc(b.workerName):''}</span></label>`; }).join('');
+  const ws=canAssign?`<div class="irr-w">${workers.length?workers.map(w=>`<label class="irr-chip"><input type="checkbox" ${sel.workers.includes(w.id)?'checked':''} onchange="irrToggle(${i},'workers','${esc(w.id)}')">${esc(w.name||w.id)}</label>`).join(''):'<span class="note">Loading workers…</span>'}</div>
+     <button class="btn" style="width:auto;margin:8px 0 0" ${irr.sending?'disabled':''} onclick="irrAssign(${i})">${irr.sending?'Assigning…':'Assign irrigation'}</button>`:'';
+  return `<div class="cal-item" style="--c:${c[1]}"><div class="kind">${c[0]} · irrigation ${it.seq} of ${it.of}</div><div class="nm">${esc(it.cropName)} <span style="font-weight:600;color:var(--ink-soft)">${esc(it.cohortId)}</span></div>
+    <div class="sb">Day ${it.dayAfterPlanting} after verified planting (${calFull(it.plantingDate)})${it.depthInches!=null?` · ${it.depthInches} in`:''}${it.reducedDepth?' · <b>reduced depth (pre-harvest dry-down)</b>':''}</div>
+    <div class="irr-beds">${beds}</div>${ws}</div>`;
+}
+function irrScreen(){
+  if(!irr.data&&!irr.busy&&!irr.error) irrLoad();
+  const shell=inner=>`<div class="cal"><div class="cal-top"><h2>Irrigation calendar</h2><button class="btn btn-outline" style="width:auto;margin:0" onclick="goBoard()">Close</button></div>${inner}</div>`;
+  if(irr.busy&&!irr.data) return shell('<div class="card">Loading irrigation calendar…</div>');
+  if(irr.error&&!irr.data) return shell(`<div class="card">${esc(irr.error)}<br><button class="btn btn-outline" style="width:auto;margin-top:8px" onclick="irr.error=null;irrLoad(true)">Retry</button></div>`);
+  const d=irr.data||{items:[]}, t=irrToday(), items=d.items||[], by={}; items.forEach(x=>(by[x.date]=by[x.date]||[]).push(x));
+  const [y,m]=irr.month.split('-').map(Number), mname=new Date(Date.UTC(y,m-1,1)).toLocaleDateString('en-US',{month:'long',year:'numeric',timeZone:'UTC'});
+  const first=new Date(Date.UTC(y,m-1,1)).getUTCDay(), dim=new Date(Date.UTC(y,m,0)).getUTCDate(); let cells='';
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(n=>cells+=`<div class="cal-dow">${n}</div>`);
+  for(let i=0;i<first;i++) cells+='<div class="cal-cell empty"></div>';
+  for(let n=1;n<=dim;n++){ const iso=`${irr.month}-${String(n).padStart(2,'0')}`, ev=by[iso]||[];
+    cells+=`<button class="cal-cell ${ev.length?'has':''} ${iso===t?'today':''} ${iso===irr.day?'sel':''}" onclick="irrPickDay('${iso}')"><span class="d">${n}</span>${ev.slice(0,2).map(e=>`<div class="cal-chip" style="--c:${IRR_ST[irrWorst(e)][1]}" title="${esc(e.cropName+' · '+e.cohortId)}">💧 ${esc(e.cropName)}</div>`).join('')}${ev.length>2?`<div class="cal-more">+${ev.length-2} more</div>`:''}</button>`; }
+  const dayItems=irr.day?irrDayItems():[];
+  const dayBody=irr.day?`<div class="cal-day-h">${calLong(irr.day)}</div>${dayItems.length?dayItems.map(irrCardHTML).join(''):'<div class="card">No irrigation scheduled this day.</div>'}`:'';
+  const over=items.filter(x=>x.beds.some(b=>b.status==='OVERDUE')).length, due=items.filter(x=>x.beds.some(b=>b.status==='DUE')).length;
+  const cards=[['Verified cohorts',d.activeCohorts||0,'#2E7D32'],['Overdue this month',over,'#B3261E'],['Due today',due,'#C77700'],['Waiting for planting verification',d.waitingForVerification||0,'#6B6B5E']]
+    .map(([k,v,c])=>`<div class="cal-card" style="--c:${c};cursor:default"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  const ns=(d.noSchedule||[]).length?`<div class="cal-align warn"><b>${d.noSchedule.length} verified cohort(s) have no irrigation schedule</b> (add or fix the crop's IRRIGATION_PROFILE): ${esc(d.noSchedule.slice(0,8).map(x=>x.cohortId+' '+x.cropName).join(', '))}${d.noSchedule.length>8?'…':''}</div>`:'';
+  const empty=!d.activeCohorts?`<div class="cal-insight">${d.demo?'Irrigation needs the live workbook.':'No cohort has a verified planting yet. A cohort\'s irrigation calendar switches on as soon as its planting is verified.'}</div>`:'';
+  const leg=Object.values(IRR_ST).map(([l,c])=>`<span><i style="background:${c}"></i>${l}</span>`).join('');
+  return shell(`<div class="cal-cards">${cards}</div>${empty}${ns}<div class="cal-legend" style="margin-bottom:10px">${leg}</div>
+  <div class="cal-nav"><button onclick="irrNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b>${mname}</b><span>${items.length} irrigation${items.length===1?'':'s'} scheduled${irr.busy?' · updating…':''}</span></div><button onclick="irrNav(1)" aria-label="Next month">›</button><button onclick="irrGoToday()">Today</button></div>
+  <div class="cal-grid">${cells}</div>${dayBody}
+  <div class="cal-note">Schedule starts on each cohort's verified planting date and repeats at its IRRIGATION_PROFILE frequency until harvest (dry-down rules applied). Assigning starts Irrigation tasks for the chosen beds and workers.</div>`);
+}
+
 /* ---- render: screen shell ---- */
 function planningScreen(){
   if(ui.pMode==='plan') ensurePlanLoaded();
@@ -3026,7 +3111,7 @@ function planningScreen(){
   </div>
   <div class="toolbar">
     <div class="seg" style="flex-wrap:wrap;">${PLAN_MODES.map(([k,l])=>`<button class="${ui.pMode===k?'active':''}" onclick="setPMode('${k}')">${l}</button>`).join('')}</div>
-    ${ui.pMode==='addcrop'||ui.pMode==='calendar'||ui.pMode==='operation'||ui.pMode==='sheet'?'':ui.pMode==='cohorts'?`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`:ui.pMode==='cropref'?`<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`:`
+    ${ui.pMode==='addcrop'||ui.pMode==='calendar'||ui.pMode==='irrigation'||ui.pMode==='operation'||ui.pMode==='sheet'?'':ui.pMode==='cohorts'?`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`:ui.pMode==='cropref'?`<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`:`
     <select onchange="setPBlock(this.value)" aria-label="Block">${PLAN_BLOCKS.map(b=>`<option value="${b}" ${b===ui.pBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select>
     <select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>
     <button class="btn btn-ghost" style="width:auto;margin:0;" onclick="refreshPlanning()">↻ Refresh</button>${ui.pMode==='plan'?`
@@ -3041,6 +3126,7 @@ function planningScreen(){
     ui.pMode==='cropref' ? cropRefLayout(cropRefListHTML(), cropRefProfile()) :
     ui.pMode==='addcrop' ? addCropScreen() :
     ui.pMode==='calendar' ? calScreen() :
+    ui.pMode==='irrigation' ? irrScreen() :
     ui.pMode==='operation' ? opScreen() :
     ui.pMode==='cohorts' ? cohortScreen() :
     planLayout(rotationLeftHTML(), rotationMatrixHTML(), '', rotationEditorHTML())
