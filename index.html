@@ -134,6 +134,13 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .cal-item .loc{display:inline-block;font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:999px;margin-right:6px;color:var(--lc);background:color-mix(in srgb,var(--lc) 14%,transparent);}
 .cal-agenda-d{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--line);}
 .cal-note{font-size:11.5px;color:var(--ink-soft);margin-top:22px;line-height:1.5;}
+.cal-align{border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:9px 12px;font-size:12.5px;margin-bottom:12px;line-height:1.45;}
+.cal-align.ok{border-color:color-mix(in srgb,var(--ok) 40%,var(--line));background:color-mix(in srgb,var(--ok) 8%,var(--paper));}
+.cal-align.bad{border-color:color-mix(in srgb,var(--danger) 45%,var(--line));background:color-mix(in srgb,var(--danger) 7%,var(--paper));}
+.cal-align.warn{color:var(--ink-soft);}
+.cal-align .h{font-weight:700;margin-bottom:3px;} .cal-align .r{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--ink-soft);} .cal-align em{color:var(--danger);font-style:normal;font-weight:700;}
+.cal-align details{margin-top:6px;} .cal-align summary{cursor:pointer;font-weight:600;} .cal-align .i{margin-top:4px;font-size:12px;color:var(--ink-soft);}
+.cal-tag{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;margin-right:6px;color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);}
 @media (max-width:640px){ .cal{padding:10px;} .cal-cell{min-height:64px;padding:3px;} .cal-chip{font-size:9px;padding:1px 3px;} .cal-top h2{font-size:17px;} }
 @media print{ .topbar,.toolbar,.cal-noprint,.toast{display:none !important;} .cal{overflow:visible;padding:0;max-width:none;} .cal-cell{min-height:80px;break-inside:avoid;} body{background:#fff;} }
 .card{background:var(--sand);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;}
@@ -2838,7 +2845,7 @@ async function opSave(){
     dirty.forEach(x=>{ const res=results.find(q=>q.cropId===x.r.cropId)||{ok:false,error:'No result returned.'};
       if(res.ok){ ok++; x.r.existing=x.e.dates.slice(); x.r.orig=opSig(x.r); x.r.srv=''; }
       else{ fail++; x.r.srv=res.error||'Could not save.'; x.r.srvSig=opSig(x.r); } });
-    calState.data=null; calState.error=null;          // Production calendars re-read the workbook next time
+    calState.data=null; calState.error=null; calState.align=null;          // Production calendars re-read the workbook next time
     if(tg==='FIELD'&&ok){ state.pp={}; try{ const cs_=cpS(); cs_.status=null; cs_.preview=null; }catch(e2){} }   // Season Planning + Cohort production re-read too
     opState.saving=false;
     toast((IS_DEMO?'Demo mode (nothing written): ':'')+`${ok} saved`+(fail?`, ${fail} refused - see the Check column`:'')+'.'+(tg==='FIELD'&&ok&&!IS_DEMO?' The wave plan follows Open Field Operation; check Season Planning and Cohort production for beds and cohorts still on the old dates.':''));
@@ -2894,16 +2901,39 @@ const CAL_TABCOL={prop:'#3A78C9',plant:'#7A5C2E',harv:'#2E7D32'};
 const calFull=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const calLong=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const calToday=()=>new Date().toISOString().slice(0,10);
-const calState={data:null,busy:false,error:null,counts:null,raw:null,hidden:[],missing:[],ofoSet:null};
+const calState={data:null,busy:false,error:null,counts:null,raw:null,hidden:[],missing:[],ofoSet:null,source:null,align:null,alignErr:null,missSet:null};
 async function loadCalendar(force){
   if(calState.busy||(calState.data&&!force)) return;
   calState.busy=true; calState.error=null; render();
   try{
     if(IS_DEMO){ calState.raw=null; calState.hidden=[]; calState.data=CAL_DATA.map(w=>Object.assign({loc:'FIELD'},w)); }
-    else{ const r=await apiCall('get-production-calendar'); calState.raw=r.plantings||[]; await calVerifyOFO(); calRebuild(); calState.counts=r.counts||null;
-      if(r.unmatched&&r.unmatched.length) toast('Calendar: no CROP_REFERENCE match for '+r.unmatched.join(', ')); }
+    else{ const r=await apiCall('get-production-calendar'); calState.raw=r.plantings||[]; calState.counts=r.counts||null; calState.source=r.source||null;
+      if(calState.source==='Open Field Operation'){   /* the feed itself reads only Open Field Operation: use it as is */
+        calState.ofoSet=new Set(calState.raw.map(w=>w.crop+'|'+w.plant)); calState.missing=[];
+        calState.hidden=calState.raw.filter(w=>w.loc!=='FIELD'); calState.data=calState.raw.filter(w=>w.loc==='FIELD');
+      }else{ await calVerifyOFO(); calRebuild(); }   /* older backend still sending Master Calendar slots: re-verify against Open Field Operation */
+      if(r.unmatched&&r.unmatched.length) toast('Calendar: no CROP_REFERENCE match for '+r.unmatched.join(', '));
+      calLoadAlignment(); }
   }catch(err){ calState.error=err.message||'Could not load the production calendar.'; }
   calState.busy=false; render();
+}
+/* Pipeline alignment: Open Field Operation -> BED_PLANTING_PLAN -> COHORT_PRODUCTION (and the wave plan). Read-only audit from
+ * 'get-open-field-validation'. It never blocks the calendar: if the action is unavailable the calendar still shows. */
+async function calLoadAlignment(){
+  calState.align=null; calState.alignErr=null; calState.missSet=null;
+  try{ const a=await apiCall('get-open-field-validation',{}); calState.align=a; calState.missSet=new Set(a.missingKeys||[]); }
+  catch(e){ calState.alignErr=(e&&e.message)||'action unavailable'; }
+  render();
+}
+function calAlignHTML(){
+  if(IS_DEMO) return '';
+  const a=calState.align;
+  if(!a) return calState.alignErr?`<div class="cal-align warn">Alignment with the bed plan and cohorts could not be checked (${esc(calState.alignErr)}).</div>`:'<div class="cal-align warn">Checking alignment with the bed plan and cohorts…</div>';
+  const c=a.counts||{};
+  const row=(l,x)=>x?`<span><b>${l}</b> ${x.ok} of ${x.checked} match${x.notInOfo?` · <em>${x.notInOfo} not in Open Field Operation</em>`:''}</span>`:'';
+  const bad=(a.issues||[]).filter(i=>i.severity==='error').slice(0,6);
+  const head=a.errorCount?`${a.errorCount} bed plan, cohort or wave row(s) are not in Open Field Operation`:'Bed plan, cohorts and wave plan all follow Open Field Operation';
+  return `<div class="cal-align ${a.errorCount?'bad':'ok'}"><div class="h">${head}${a.missingPlantings?` · ${a.missingPlantings} planting(s) below have no bed plan yet`:''}</div><div class="r">${row('Bed plan',c.BED_PLANTING_PLAN)}${row('Cohorts',c.COHORT_PRODUCTION)}${row('Wave plan',c.PRODUCTION_WAVE_PLAN)}</div>${bad.length?`<details><summary>Show first ${bad.length}</summary>${bad.map(i=>`<div class="i">${esc(i.message)}</div>`).join('')}</details>`:''}</div>`;
 }
 /* RULE: Open Field Operation is the ONLY source of entries on the production calendar. Master Calendar is a
  * year-round grid (24 slots for every crop) and is NOT used to add plantings: slots that are not in Open Field
@@ -2927,7 +2957,7 @@ function calRebuild(){
 function calEvents(tab){
   const f=ui.calLoc||'ALL', out=[];
   (calState.data||[]).forEach(w=>{ if(f!=='ALL'&&w.loc!==f) return;
-    const c=calWave(w), who=`${w.crop||w.id}`, base={loc:w.loc,crop:w.name};
+    const c=calWave(w), who=`${w.crop||w.id}`, base={loc:w.loc,crop:w.name,cid:w.crop,pd:w.plant};
     if(tab==='prop'&&c.tot>0) out.push({...base,d:c.sow,k:'prop',t:'Start propagation',sub:`${who} · ${c.phases.map(p=>p.name+' '+p.days+'d').join(' + ')} · transplant ${calFull(w.plant)}`});
     if(tab==='plant') out.push({...base,d:w.plant,k:'plant',t:c.dobLabel,sub:`${who} · first harvest ${calFull(c.h1)} (${w.hmin} days)`});
     if(tab==='harv'){ out.push({...base,d:c.h1,k:'open',t:'Harvest window opens',sub:`${who} · planting ${calFull(w.plant)} (${w.hmin} days to first harvest)`});
@@ -2943,7 +2973,7 @@ function calCSV(){ const rows=[['Date','Event','Crop','Location','Details']].con
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n')],{type:'text/csv'})); a.download='production-calendar-'+(ui.calTab||'prop')+'.csv'; a.click(); }
 function calSetView(v){ ui.calView=v; render(); }
 function calItem(e){ const c=CAL_LOC[e.loc], kc=CAL_KCOL[e.k];
-  return `<div class="cal-item" style="--c:${kc};--lc:${c[1]}"><div class="kind">${esc(e.t)}</div><div class="nm">${esc(e.crop)}</div><div class="sb"><span class="loc">${c[2]}</span>${esc(e.sub)}</div></div>`; }
+  return `<div class="cal-item" style="--c:${kc};--lc:${c[1]}"><div class="kind">${esc(e.t)}</div><div class="nm">${esc(e.crop)}</div><div class="sb"><span class="loc">${c[2]}</span>${calState.missSet&&calState.missSet.has(e.cid+'|'+e.pd)?'<span class="cal-tag">No bed plan yet</span>':''}${esc(e.sub)}</div></div>`; }
 function calScreen(){
   if(!calState.data&&!calState.busy&&!calState.error) loadCalendar();
   const shell=inner=>`<div class="cal"><div class="cal-top"><h2>Production calendars</h2><button class="btn btn-outline cal-noprint" style="width:auto;margin:0" onclick="goBoard()">Close</button></div>${inner}</div>`;
@@ -2980,6 +3010,7 @@ function calScreen(){
   <div class="cal-bar"><h3>${CAL_TABS.find(x=>x[0]===tab)[1]}</h3>${viewSeg}<span class="cal-noprint">${locSeg}</span><span class="grow"></span>
     <button class="btn btn-outline cal-noprint" style="width:auto;margin:0" onclick="calCSV()">Download CSV</button><button class="btn btn-outline cal-noprint" style="width:auto;margin:0" onclick="window.print()">Print</button></div>
   <div class="cal-legend" style="margin-bottom:10px">${leg}</div>
+  ${calAlignHTML()}
   ${insight?`<div class="cal-insight">${insight}</div>`:''}
   <div class="cal-nav"><button class="cal-noprint" onclick="calNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b>${mname}</b><span>${nOpen} ${lead}</span></div><button class="cal-noprint" onclick="calNav(1)" aria-label="Next month">›</button><button class="cal-noprint" onclick="calGoToday()">Today</button></div>
   ${view==='agenda'?agendaBody:monthBody}
