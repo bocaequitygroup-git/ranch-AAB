@@ -719,7 +719,7 @@ function boardScreen(){
   ${IS_DEMO?`<div class="demo-strip">Demo mode with generated sample data. Set WEB_APP_URL to connect to your live backend.</div>`:''}
   <div class="topbar">
     <div><div class="brand">Activity Assignment Board</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openGenerate()">Generate Season</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
   </div>
   <div class="wrap">
     <div class="mapcol">
@@ -1181,7 +1181,8 @@ function modalHTML(){
   else if(ui.modal==='crop-edit') inner=cropEditModal();
   else if(ui.modal==='team') inner=teamModal();
   else if(ui.modal==='labor') inner=laborModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  else if(ui.modal==='generate') inner=generateModal();
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='generate'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -1609,10 +1610,63 @@ function moveModal(){
 function terminateModal(){
   const d=ui.modalDraft;
   return `<h2 style="font-size:15px;">Terminate cohort</h2>
-  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · this frees the bed and cannot be undone from this board.</p>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · ends production and cannot be undone from this board. A crop that is growing starts post-harvest turnover (the bed is released only by Verify Bed Ready); a perennial stays in its bed.</p>
   <div class="field"><label>Reason</label><textarea id="md-treason" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;"></textarea></div>
   <button class="btn btn-danger" onclick="doTerminateCohort('${esc(d.cohortId)}', document.getElementById('md-treason').value)">Terminate cohort</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+
+/* ============================== GENERATE SEASON ==============================
+ * generate-season (Code_main.gs -> OfoSeasonGenerator.gs generateSeasonFromOFO). Manager/Founder only.
+ * Reads Open Field Operation (crop rows, planting dates, Block, Beds per wave), creates one bed-level cohort per bed and
+ * assigns beds through assignBed(). Always PREVIEW first (nothing is written); Generate unlocks only after a preview.
+ * Beds that are not verified ready are never used - the preview says how many, per block. Safe to run again. */
+function openGenerate(){ openModal('generate',{ year:ui.year, replace:true, busy:false, error:'', result:null, wrote:false }); }
+function genSet(k,v){ const d=ui.modalDraft; d[k]=v; d.result=null; d.wrote=false; d.error=''; render(); }
+async function runGenerate(dry){
+  const d=ui.modalDraft; if(d.busy) return;
+  d.busy=true; d.error=''; render();
+  try{
+    const r=await apiCall('generate-season',{ year:Number(d.year), dryRun:!!dry, replacePlanned:!!d.replace }, 330000);
+    if(ui.modalDraft!==d) return;
+    d.result=r; d.wrote=!dry;
+    if(!dry){ try{ await loadToday(); }catch(_e){} }
+  }catch(e){ if(ui.modalDraft===d) d.error=e.message; }
+  finally{ d.busy=false; if(ui.modalDraft===d) render(); }
+}
+function generateModal(){
+  const d=ui.modalDraft, r=d.result;
+  const placed=r?r.waves.filter(w=>w.status==='PLACED'):[], short=r?r.waves.filter(w=>w.status==='NOT_ENOUGH_BEDS'):[];
+  const shortNotes={}; short.forEach(s=>{ shortNotes[s.crop+' wave '+s.wave+' ('+s.date+'): '+s.message]=true; });
+  const notes=r?(r.notes||[]).filter(n=>!/^Skipped /.test(n)&&!shortNotes[n]):[];
+  const nr=r&&r.bedsNotReadyByBlock?Object.entries(r.bedsNotReadyByBlock):[];
+  const stat=(n,l)=>`<div style="flex:1;min-width:110px;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px 10px;"><div style="font-size:18px;font-weight:800;">${n}</div><div style="font-size:11px;color:var(--ink-soft);">${l}</div></div>`;
+  let body='';
+  if(r){
+    body=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">
+      ${stat(r.waves.length,'waves read')}${stat(placed.length,'waves placed')}${stat(short.length,'waves short of beds')}
+      ${stat(r.dryRun?r.cohortsToCreate:r.created,r.dryRun?'cohorts to create':'cohorts created')}${stat(r.dryRun?r.bedsToAssign:r.assigned,r.dryRun?'beds to assign':'beds assigned')}
+      ${r.replacedPlanned?stat(r.replacedPlanned,r.dryRun?'old planned to remove':'old planned removed'):''}</div>`;
+    if(r.dryRun) body+=`<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">Preview only. Nothing has been saved.</p>`;
+    else body+=`<p style="font-size:12.5px;color:var(--ok);font-weight:700;margin:0 0 8px;">Done. The board has been refreshed.</p>`;
+    if(r.partial) body+=`<p style="font-size:12.5px;color:var(--danger);font-weight:700;margin:0 0 8px;">Stopped before the time limit. Press Generate again to continue.</p>`;
+    if(nr.length) body+=`<p style="font-size:12.5px;margin:0 0 8px;"><b>Not verified ready (cannot be used):</b> ${nr.map(([k,n])=>esc(k)+' '+n).join(', ')}. Verify beds in the bed panel, then run again.</p>`;
+    if(short.length) body+=`<details open style="margin-bottom:8px;"><summary style="font-size:12.5px;font-weight:700;cursor:pointer;">${short.length} wave${short.length===1?'':'s'} short of beds</summary><div style="max-height:180px;overflow:auto;font-size:12px;color:var(--ink-soft);margin-top:4px;">${short.slice(0,60).map(s=>`<div style="padding:3px 0;border-bottom:1px solid var(--line);"><b>${esc(s.crop)}</b> wave ${esc(s.wave)} · ${esc(s.date)} · ${esc(s.block)}<br>${esc(s.message)}</div>`).join('')}${short.length>60?`<div style="padding:3px 0;">…and ${short.length-60} more.</div>`:''}</div></details>`;
+    if((r.skippedCrops||[]).length) body+=`<details style="margin-bottom:8px;"><summary style="font-size:12.5px;font-weight:700;cursor:pointer;">${r.skippedCrops.length} crop row${r.skippedCrops.length===1?'':'s'} skipped</summary><div style="max-height:150px;overflow:auto;font-size:12px;color:var(--ink-soft);margin-top:4px;">${r.skippedCrops.map(s=>`<div style="padding:2px 0;"><b>${esc(s.cropId)}</b> · ${esc(s.reason)}</div>`).join('')}</div></details>`;
+    if((r.failed||[]).length) body+=`<details open style="margin-bottom:8px;"><summary style="font-size:12.5px;font-weight:700;color:var(--danger);cursor:pointer;">${r.failed.length} bed assignment${r.failed.length===1?'':'s'} refused</summary><div style="max-height:120px;overflow:auto;font-size:12px;margin-top:4px;">${r.failed.slice(0,40).map(f=>`<div>${esc(f.cohortId)} → ${esc(f.bedId)} · ${esc(f.errorCode)}</div>`).join('')}</div></details>`;
+    if(notes.length) body+=`<div style="font-size:12px;color:var(--ink-soft);">${notes.map(n=>`<div style="padding:2px 0;">${esc(n)}</div>`).join('')}</div>`;
+  }
+  const canGo=!!r&&r.dryRun&&(r.cohortsToCreate>0||r.bedsToAssign>0)&&!d.busy;
+  return `<h2 style="font-size:15px;">Generate season</h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Builds the cohorts and beds from the <b>Open Field Operation</b> sheet (crop, planting dates, Block, Beds per wave). Preview first; nothing is saved until you press Generate. Beds that are not verified ready are never used.</p>
+  <div class="field"><label>Year</label><select class="tm-in" onchange="genSet('year',this.value)" ${d.busy?'disabled':''}>${YEAR_OPTIONS.map(y=>`<option value="${y}" ${Number(d.year)===y?'selected':''}>${y}</option>`).join('')}</select></div>
+  <label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:0 0 10px;"><input type="checkbox" ${d.replace?'checked':''} ${d.busy?'disabled':''} onchange="genSet('replace',this.checked)" style="margin-top:2px;"><span>Replace this year's old PLANNED cohorts that have no bed. Cohorts that already have a bed or have started are never touched.</span></label>
+  ${d.error?`<p style="font-size:12.5px;color:var(--danger);font-weight:700;">${esc(d.error)}</p>`:''}
+  ${d.busy?`<p style="font-size:12.5px;color:var(--ink-soft);">Working… this can take a few minutes for a full season. Keep this window open.</p>`:''}
+  ${body}
+  <button class="btn btn-outline" ${d.busy?'disabled':''} onclick="runGenerate(true)">${r&&r.dryRun?'Preview again':'Preview (saves nothing)'}</button>
+  <button class="btn btn-primary" ${canGo?'':'disabled'} onclick="runGenerate(false)">Generate and assign beds</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
 }
 
 /* ============================== TEAM + LABOR HOURS ==============================
@@ -3871,6 +3925,11 @@ async function mockBackend(action, p){
       const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
       bed.cohortStatus='TERMINATED'; bed.cohortId=''; bed.cropName=''; bed.currentStage='';
       return ok({done:true});
+    }
+    case 'generate-season': {
+      const waves=[{crop:'Sukuma Wiki',wave:1,date:'2027-03-20',block:'Block 1',status:'PLACED',message:'',created:4,beds:['B1-001','B1-002','B1-003','B1-004']},{crop:'Mustard Greens',wave:1,date:'2027-02-25',block:'Block 2',status:'NOT_ENOUGH_BEDS',message:'needs 6 bed(s), only 2 free in Block 2. 4 more bed(s) are free for those dates but not verified ready yet.',created:0}];
+      const dry=p.dryRun!==false;
+      return ok({ year:p.year, dryRun:dry, partial:false, replacedPlanned:p.replacePlanned?179:0, waves, cohortsToCreate:4, bedsToAssign:4, created:dry?0:4, assigned:dry?0:4, failed:[], skippedCrops:[{cropId:'SP',reason:'Greenhouse Only - not part of the planting plan.'}], notes:[], bedsNotReadyByBlock:{'Block 1':51,'Block 2':55} });
     }
     case 'get-team':
       return ok({ team:Object.entries(demoUsers).map(([id,u])=>({ workerId:id.toLowerCase(), name:u.name, role:u.role, status:'ACTIVE', hasPin:!!u.pin, canReset:me.role==='Founder'||['Worker','Technician','Scout'].includes(u.role)||id===me.id })), addableRoles:me.role==='Founder'?['Worker','Manager','Founder','Technician','Scout']:['Worker','Technician','Scout'] });
