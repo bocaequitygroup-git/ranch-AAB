@@ -1182,7 +1182,8 @@ function modalHTML(){
   else if(ui.modal==='team') inner=teamModal();
   else if(ui.modal==='labor') inner=laborModal();
   else if(ui.modal==='generate') inner=generateModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='generate'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  else if(ui.modal==='release-beds') inner=releaseModal();
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='generate'||ui.modal==='release-beds'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -1666,7 +1667,54 @@ function generateModal(){
   ${body}
   <button class="btn btn-outline" ${d.busy?'disabled':''} onclick="runGenerate(true)">${r&&r.dryRun?'Preview again':'Preview (saves nothing)'}</button>
   <button class="btn btn-primary" ${canGo?'':'disabled'} onclick="runGenerate(false)">Generate and assign beds</button>
+  <button class="btn btn-outline" ${d.busy?'disabled':''} onclick="openRelease()">Beds not ready? Release a block…</button>
   <button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
+}
+
+/* ============================== RELEASE BEDS (start of season) ==============================
+ * release-block-beds (Code_main.gs -> StartOfOperations.gs releaseBlockBeds). Manager/Founder only. One block at a time.
+ * For every empty bed in the block still in the start-of-operations reset it runs the engine's own steps in the manager's name:
+ * override the reset steps with the written reason (R16, logged), then Verify Bed Ready (R14). No bed is written by hand.
+ * The manager is confirming the beds are physically ready, so a tick-box and a reason are required. Preview first. */
+const RELEASE_BLOCKS=['Block 1','Block 2','Block 3','Block 4','Zone 5'];
+function openRelease(){ openModal('release-beds',{ block:'Block 1', reason:'Start of operations: bed never planted, no residue to clear, bed ready.', confirm:false, busy:false, error:'', result:null, previewed:false }); }
+function relSet(k,v){ const d=ui.modalDraft; d[k]=v; if(k==='block'){ d.result=null; d.previewed=false; } d.error=''; render(); }
+function relType(k,v){ ui.modalDraft[k]=v; }   // typing: no re-render, so the cursor stays put
+async function runRelease(dry){
+  const d=ui.modalDraft; if(d.busy) return;
+  d.busy=true; d.error=''; render();
+  try{
+    const r=await apiCall('release-block-beds',{ block:d.block, reason:d.reason, dryRun:!!dry }, 330000);
+    if(ui.modalDraft!==d) return;
+    d.result=r; if(dry) d.previewed=true;
+    if(!dry){ try{ await loadToday(); }catch(_e){} }
+  }catch(e){ if(ui.modalDraft===d) d.error=e.message; }
+  finally{ d.busy=false; if(ui.modalDraft===d) render(); }
+}
+function releaseModal(){
+  const d=ui.modalDraft, r=d.result;
+  const stat=(n,l)=>`<div style="flex:1;min-width:110px;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px 10px;"><div style="font-size:18px;font-weight:800;">${n}</div><div style="font-size:11px;color:var(--ink-soft);">${l}</div></div>`;
+  let body='';
+  if(r){
+    body=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">${stat(r.eligible,r.dryRun?'beds to release':'beds in this run')}${r.dryRun?'':stat(r.released,'released')}${stat(r.alreadyReady,'already available')}${stat(r.notEligible,'left alone (cohort or other status)')}${r.remaining?stat(r.remaining,'still to do'):''}</div>`;
+    if(r.dryRun) body+=`<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">Preview only. Nothing has been changed.</p>`;
+    else if(r.partial) body+=`<p style="font-size:12.5px;color:var(--danger);font-weight:700;margin:0 0 8px;">Stopped before the time limit. Press Release again to continue with the remaining beds.</p>`;
+    else body+=`<p style="font-size:12.5px;color:var(--ok);font-weight:700;margin:0 0 8px;">Done. The board has been refreshed.</p>`;
+    if((r.skipped||[]).length) body+=`<details open style="margin-bottom:8px;"><summary style="font-size:12.5px;font-weight:700;color:var(--danger);cursor:pointer;">${r.skipped.length} bed${r.skipped.length===1?'':'s'} skipped</summary><div style="max-height:150px;overflow:auto;font-size:12px;margin-top:4px;">${r.skipped.slice(0,60).map(s=>`<div>${esc(s.bedId)} · ${esc(s.reason)}</div>`).join('')}</div></details>`;
+  }
+  const reasonOk=String(d.reason||'').trim().length>=5;
+  const canGo=d.previewed&&d.confirm&&reasonOk&&!d.busy&&r&&r.eligible>0;
+  return `<h2 style="font-size:15px;">Release beds for planting</h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">For one block: every empty bed still in the start-of-operations reset is released to AVAILABLE, so Generate season can book it. Each bed gets the reset steps overridden with your reason (logged) and then Verify Bed Ready. Beds with a cohort, blocked beds and beds already available are left alone.</p>
+  <div class="field"><label>Block</label><select class="tm-in" onchange="relSet('block',this.value)" ${d.busy?'disabled':''}>${RELEASE_BLOCKS.map(b=>`<option ${d.block===b?'selected':''}>${b}</option>`).join('')}</select></div>
+  <div class="field"><label>Reason (stored on every bed)</label><textarea class="tm-in" rows="2" oninput="relType('reason',this.value)" onchange="relSet('reason',this.value)" ${d.busy?'disabled':''}>${esc(d.reason)}</textarea></div>
+  <label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:0 0 10px;"><input type="checkbox" ${d.confirm?'checked':''} ${d.busy?'disabled':''} onchange="relSet('confirm',this.checked)" style="margin-top:2px;"><span>I confirm the empty beds in <b>${esc(d.block)}</b> are physically ready to plant: no residue to clear, tillage and drip set up.</span></label>
+  ${d.error?`<p style="font-size:12.5px;color:var(--danger);font-weight:700;">${esc(d.error)}</p>`:''}
+  ${d.busy?`<p style="font-size:12.5px;color:var(--ink-soft);">Working… a full block can take several minutes. Keep this window open.</p>`:''}
+  ${body}
+  <button class="btn btn-outline" ${d.busy?'disabled':''} onclick="runRelease(true)">${d.previewed?'Preview again':'Preview (changes nothing)'}</button>
+  <button class="btn btn-primary" ${canGo?'':'disabled'} onclick="runRelease(false)">Release beds in ${esc(d.block)}</button>
+  <button class="btn btn-ghost" onclick="openGenerate()">Back to Generate season</button>`;
 }
 
 /* ============================== TEAM + LABOR HOURS ==============================
@@ -3930,6 +3978,10 @@ async function mockBackend(action, p){
       const waves=[{crop:'Sukuma Wiki',wave:1,date:'2027-03-20',block:'Block 1',status:'PLACED',message:'',created:4,beds:['B1-001','B1-002','B1-003','B1-004']},{crop:'Mustard Greens',wave:1,date:'2027-02-25',block:'Block 2',status:'NOT_ENOUGH_BEDS',message:'needs 6 bed(s), only 2 free in Block 2. 4 more bed(s) are free for those dates but not verified ready yet.',created:0}];
       const dry=p.dryRun!==false;
       return ok({ year:p.year, dryRun:dry, partial:false, replacedPlanned:p.replacePlanned?179:0, waves, cohortsToCreate:4, bedsToAssign:4, created:dry?0:4, assigned:dry?0:4, failed:[], skippedCrops:[{cropId:'SP',reason:'Greenhouse Only - not part of the planting plan.'}], notes:[], bedsNotReadyByBlock:{'Block 1':51,'Block 2':55} });
+    }
+    case 'release-block-beds': {
+      const dry=p.dryRun!==false;
+      return ok({ ok:true, block:p.block, dryRun:dry, eligible:55, released:dry?0:55, alreadyReady:0, notEligible:0, remaining:0, partial:false, skipped:[] });
     }
     case 'get-team':
       return ok({ team:Object.entries(demoUsers).map(([id,u])=>({ workerId:id.toLowerCase(), name:u.name, role:u.role, status:'ACTIVE', hasPin:!!u.pin, canReset:me.role==='Founder'||['Worker','Technician','Scout'].includes(u.role)||id===me.id })), addableRoles:me.role==='Founder'?['Worker','Manager','Founder','Technician','Scout']:['Worker','Technician','Scout'] });
