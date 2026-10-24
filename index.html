@@ -60,6 +60,22 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .tabs button{flex:1;background:none;border:none;padding:10px 4px;font-family:inherit;font-size:11.5px;font-weight:700;color:var(--ink-soft);cursor:pointer;border-bottom:2px solid transparent;}
 .tabs button.active{color:var(--forest);border-color:var(--forest);}
 .panelbody{flex:1;overflow-y:auto;padding:14px 16px;}
+/* ---- six-tab shell, bed status board, smart allocation ---- */
+.ptabs{display:flex;padding:0 10px;background:var(--paper);border-bottom:1px solid var(--line);overflow-x:auto;}
+.ptabs button{flex:0 0 auto;background:none;border:none;border-bottom:3px solid transparent;padding:12px 14px;font-family:inherit;font-size:13px;font-weight:700;color:var(--ink-soft);cursor:pointer;white-space:nowrap;}
+.ptabs button:hover{color:var(--ink);}
+.ptabs button.active{color:var(--forest);border-bottom-color:var(--forest);}
+.ptabs button:focus-visible,.bb-bed:focus-visible{outline:2px solid var(--forest);outline-offset:-2px;}
+.bb-wrap{border:1px solid var(--line);border-radius:12px;background:var(--paper);overflow:auto;}
+.bb-t{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;}
+.bb-t th{position:sticky;top:0;z-index:1;background:var(--sand);text-align:left;font-size:10px;font-weight:800;letter-spacing:.03em;color:var(--ink-soft);padding:9px 8px;border-bottom:1px solid var(--line);}
+.bb-t td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;}
+.bb-t tbody tr[onclick]{cursor:pointer;}
+.bb-t tr.sel td{background:color-mix(in srgb,var(--forest) 10%,var(--paper));}
+.bb-t .id{font-size:11px;color:var(--ink-soft);}
+.bb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px;margin-bottom:14px;}
+.bb-bed{border:1px solid var(--line);border-radius:8px;padding:6px 4px;min-height:48px;font-family:inherit;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;}
+.bb-bed span{font-size:9px;opacity:.85;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* ---- Operation planner ---- */
 .op{flex:1;min-width:0;overflow:auto;padding:16px;}
 .op-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;}
@@ -314,7 +330,7 @@ const state = { managerId:null, name:null, role:null, token:null, beds:[], sessi
   pp:{} /* Planting Plan cache, keyed "year|blockId" -> getPlanningContext() result, or {error} */ };
 const YEAR_OPTIONS=[2027,2028,2029,2030]; // selectable years (only 2027 has data so far)
 const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', focusCohort:null, focusPending:false, generating:false, resetScroll:false, filter:'ALL', year:YEAR_OPTIONS[0], loading:false,
-  pMode:'plan', pBlock:'B1', pYear:2027, pSelectedCrop:null, pModifying:false, pSelBeds:[], pAdvOpen:false, pEditingRotation:false, pRotDraft:{},
+  pMode:'infra', pBlock:'B1', pYear:2027, pSelectedCrop:null, pModifying:false, pSelBeds:[], pAdvOpen:false, pEditingRotation:false, pRotDraft:{},
   ppSelectedKey:null /* selected crop group key "cropId|wave" in real Planting Plan mode */, ppSelectedBed:null, ppBedModify:false, ppBedDraftCrop:'', ppBusy:false, ppHistoryOpen:false,
   calTab:'prop', calView:'month', calMonth:null, calDay:null, crSelectedId:null, crFilter:'', bedSearch:'' /* Crop Reference mode: selected crop id, list search text */ };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -719,7 +735,7 @@ function boardScreen(){
   ${IS_DEMO?`<div class="demo-strip">Demo mode with generated sample data. Set WEB_APP_URL to connect to your live backend.</div>`:''}
   <div class="topbar">
     <div><div class="brand">Activity Assignment Board</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openGenerate()">Generate Season</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
   </div>
   <div class="wrap">
     <div class="mapcol">
@@ -1181,9 +1197,7 @@ function modalHTML(){
   else if(ui.modal==='crop-edit') inner=cropEditModal();
   else if(ui.modal==='team') inner=teamModal();
   else if(ui.modal==='labor') inner=laborModal();
-  else if(ui.modal==='generate') inner=generateModal();
-  else if(ui.modal==='release-beds') inner=releaseModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='generate'||ui.modal==='release-beds'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -1255,7 +1269,7 @@ function turnoverBlock(b,sess){
   const scope=p.bedLevel?'BED:'+b.id:b.cohortId;
   PH_STEPS[scope]=p;
   const head=`<h2 style="font-size:13px;">Post-harvest turnover</h2>`;
-  const chip=`<div class="row"><span>Bed status</span><span class="chip chip-warn">POST-HARVEST ACTIVITIES</span></div>`;
+  const chip=`<div class="row"><span>Bed status</span><span class="chip chip-warn">POST-HARVEST ACTIVITIES</span></div>`+phCoverRow(p);
   const list=phChecklist(p), ovr=phOverrideNotes(p);
   const overrideBtn=`<button class="btn btn-outline" onclick="openModal('override',{cohortId:'${esc(scope)}',selected:[],reason:''})">Manager override…</button>`;
   if(p.readyToVerify) return `${head}<div class="card">${chip}${list}${ovr}<div class="note" style="margin-top:8px;">${p.stepCount?`All ${p.stepCount} required steps are complete or overridden.`:'No post-harvest steps apply to this crop.'} The bed stays in post-harvest until you verify it.</div>
@@ -1320,7 +1334,7 @@ async function doVerifyTurnover(scope,bedId){
  * the manager's Verify Bed Ready releases the bed to AVAILABLE. */
 function bedLevelTurnoverBlock(b,sess,p){
   const head=`<h2 style="font-size:13px;">Post-harvest turnover (bed-level)</h2>`;
-  const chip=`<div class="row"><span>Bed status</span><span class="chip chip-warn">POST-HARVEST ACTIVITIES</span></div>`;
+  const chip=`<div class="row"><span>Bed status</span><span class="chip chip-warn">POST-HARVEST ACTIVITIES</span></div>`+phCoverRow(p);
   const open=(p.openSteps||[]).map(n=>{
     const mine=(sess||[]).filter(s=>s.activity===n)[0];
     return `<div class="row"><span>${esc(n)}</span><span class="chip chip-warn">${mine?esc(mine.workerName)+' · '+esc(mine.status):'Open'}</span></div>`;
@@ -1611,110 +1625,10 @@ function moveModal(){
 function terminateModal(){
   const d=ui.modalDraft;
   return `<h2 style="font-size:15px;">Terminate cohort</h2>
-  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · ends production and cannot be undone from this board. A crop that is growing starts post-harvest turnover (the bed is released only by Verify Bed Ready); a perennial stays in its bed.</p>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · this frees the bed and cannot be undone from this board.</p>
   <div class="field"><label>Reason</label><textarea id="md-treason" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;"></textarea></div>
   <button class="btn btn-danger" onclick="doTerminateCohort('${esc(d.cohortId)}', document.getElementById('md-treason').value)">Terminate cohort</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
-}
-
-/* ============================== GENERATE SEASON ==============================
- * generate-season (Code_main.gs -> OfoSeasonGenerator.gs generateSeasonFromOFO). Manager/Founder only.
- * Reads Open Field Operation (crop rows, planting dates, Block, Beds per wave), creates one bed-level cohort per bed and
- * assigns beds through assignBed(). Always PREVIEW first (nothing is written); Generate unlocks only after a preview.
- * Beds that are not verified ready are never used - the preview says how many, per block. Safe to run again. */
-function openGenerate(){ openModal('generate',{ year:ui.year, replace:true, busy:false, error:'', result:null, wrote:false }); }
-function genSet(k,v){ const d=ui.modalDraft; d[k]=v; d.result=null; d.wrote=false; d.error=''; render(); }
-async function runGenerate(dry){
-  const d=ui.modalDraft; if(d.busy) return;
-  d.busy=true; d.error=''; render();
-  try{
-    const r=await apiCall('generate-season',{ year:Number(d.year), dryRun:!!dry, replacePlanned:!!d.replace }, 330000);
-    if(ui.modalDraft!==d) return;
-    d.result=r; d.wrote=!dry;
-    if(!dry){ try{ await loadToday(); }catch(_e){} }
-  }catch(e){ if(ui.modalDraft===d) d.error=e.message; }
-  finally{ d.busy=false; if(ui.modalDraft===d) render(); }
-}
-function generateModal(){
-  const d=ui.modalDraft, r=d.result;
-  const placed=r?r.waves.filter(w=>w.status==='PLACED'):[], short=r?r.waves.filter(w=>w.status==='NOT_ENOUGH_BEDS'):[];
-  const shortNotes={}; short.forEach(s=>{ shortNotes[s.crop+' wave '+s.wave+' ('+s.date+'): '+s.message]=true; });
-  const notes=r?(r.notes||[]).filter(n=>!/^Skipped /.test(n)&&!shortNotes[n]):[];
-  const nr=r&&r.bedsNotReadyByBlock?Object.entries(r.bedsNotReadyByBlock):[];
-  const stat=(n,l)=>`<div style="flex:1;min-width:110px;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px 10px;"><div style="font-size:18px;font-weight:800;">${n}</div><div style="font-size:11px;color:var(--ink-soft);">${l}</div></div>`;
-  let body='';
-  if(r){
-    body=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">
-      ${stat(r.waves.length,'waves read')}${stat(placed.length,'waves placed')}${stat(short.length,'waves short of beds')}
-      ${stat(r.dryRun?r.cohortsToCreate:r.created,r.dryRun?'cohorts to create':'cohorts created')}${stat(r.dryRun?r.bedsToAssign:r.assigned,r.dryRun?'beds to assign':'beds assigned')}
-      ${r.replacedPlanned?stat(r.replacedPlanned,r.dryRun?'old planned to remove':'old planned removed'):''}</div>`;
-    if(r.dryRun) body+=`<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">Preview only. Nothing has been saved.</p>`;
-    else body+=`<p style="font-size:12.5px;color:var(--ok);font-weight:700;margin:0 0 8px;">Done. The board has been refreshed.</p>`;
-    if(r.partial) body+=`<p style="font-size:12.5px;color:var(--danger);font-weight:700;margin:0 0 8px;">Stopped before the time limit. Press Generate again to continue.</p>`;
-    if(nr.length) body+=`<p style="font-size:12.5px;margin:0 0 8px;"><b>Not verified ready (cannot be used):</b> ${nr.map(([k,n])=>esc(k)+' '+n).join(', ')}. Verify beds in the bed panel, then run again.</p>`;
-    if(short.length) body+=`<details open style="margin-bottom:8px;"><summary style="font-size:12.5px;font-weight:700;cursor:pointer;">${short.length} wave${short.length===1?'':'s'} short of beds</summary><div style="max-height:180px;overflow:auto;font-size:12px;color:var(--ink-soft);margin-top:4px;">${short.slice(0,60).map(s=>`<div style="padding:3px 0;border-bottom:1px solid var(--line);"><b>${esc(s.crop)}</b> wave ${esc(s.wave)} · ${esc(s.date)} · ${esc(s.block)}<br>${esc(s.message)}</div>`).join('')}${short.length>60?`<div style="padding:3px 0;">…and ${short.length-60} more.</div>`:''}</div></details>`;
-    if((r.skippedCrops||[]).length) body+=`<details style="margin-bottom:8px;"><summary style="font-size:12.5px;font-weight:700;cursor:pointer;">${r.skippedCrops.length} crop row${r.skippedCrops.length===1?'':'s'} skipped</summary><div style="max-height:150px;overflow:auto;font-size:12px;color:var(--ink-soft);margin-top:4px;">${r.skippedCrops.map(s=>`<div style="padding:2px 0;"><b>${esc(s.cropId)}</b> · ${esc(s.reason)}</div>`).join('')}</div></details>`;
-    if((r.failed||[]).length) body+=`<details open style="margin-bottom:8px;"><summary style="font-size:12.5px;font-weight:700;color:var(--danger);cursor:pointer;">${r.failed.length} bed assignment${r.failed.length===1?'':'s'} refused</summary><div style="max-height:120px;overflow:auto;font-size:12px;margin-top:4px;">${r.failed.slice(0,40).map(f=>`<div>${esc(f.cohortId)} → ${esc(f.bedId)} · ${esc(f.errorCode)}</div>`).join('')}</div></details>`;
-    if(notes.length) body+=`<div style="font-size:12px;color:var(--ink-soft);">${notes.map(n=>`<div style="padding:2px 0;">${esc(n)}</div>`).join('')}</div>`;
-  }
-  const canGo=!!r&&r.dryRun&&(r.cohortsToCreate>0||r.bedsToAssign>0)&&!d.busy;
-  return `<h2 style="font-size:15px;">Generate season</h2>
-  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Builds the cohorts and beds from the <b>Open Field Operation</b> sheet (crop, planting dates, Block, Beds per wave). Preview first; nothing is saved until you press Generate. Beds that are not verified ready are never used.</p>
-  <div class="field"><label>Year</label><select class="tm-in" onchange="genSet('year',this.value)" ${d.busy?'disabled':''}>${YEAR_OPTIONS.map(y=>`<option value="${y}" ${Number(d.year)===y?'selected':''}>${y}</option>`).join('')}</select></div>
-  <label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:0 0 10px;"><input type="checkbox" ${d.replace?'checked':''} ${d.busy?'disabled':''} onchange="genSet('replace',this.checked)" style="margin-top:2px;"><span>Replace this year's old PLANNED cohorts that have no bed. Cohorts that already have a bed or have started are never touched.</span></label>
-  ${d.error?`<p style="font-size:12.5px;color:var(--danger);font-weight:700;">${esc(d.error)}</p>`:''}
-  ${d.busy?`<p style="font-size:12.5px;color:var(--ink-soft);">Working… this can take a few minutes for a full season. Keep this window open.</p>`:''}
-  ${body}
-  <button class="btn btn-outline" ${d.busy?'disabled':''} onclick="runGenerate(true)">${r&&r.dryRun?'Preview again':'Preview (saves nothing)'}</button>
-  <button class="btn btn-primary" ${canGo?'':'disabled'} onclick="runGenerate(false)">Generate and assign beds</button>
-  <button class="btn btn-outline" ${d.busy?'disabled':''} onclick="openRelease()">Beds not ready? Release a block…</button>
-  <button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
-}
-
-/* ============================== RELEASE BEDS (start of season) ==============================
- * release-block-beds (Code_main.gs -> StartOfOperations.gs releaseBlockBeds). Manager/Founder only. One block at a time.
- * For every empty bed in the block still in the start-of-operations reset it runs the engine's own steps in the manager's name:
- * override the reset steps with the written reason (R16, logged), then Verify Bed Ready (R14). No bed is written by hand.
- * The manager is confirming the beds are physically ready, so a tick-box and a reason are required. Preview first. */
-const RELEASE_BLOCKS=['Block 1','Block 2','Block 3','Block 4','Zone 5'];
-function openRelease(){ openModal('release-beds',{ block:'Block 1', reason:'Start of operations: bed never planted, no residue to clear, bed ready.', confirm:false, busy:false, error:'', result:null, previewed:false }); }
-function relSet(k,v){ const d=ui.modalDraft; d[k]=v; if(k==='block'){ d.result=null; d.previewed=false; } d.error=''; render(); }
-function relType(k,v){ ui.modalDraft[k]=v; }   // typing: no re-render, so the cursor stays put
-async function runRelease(dry){
-  const d=ui.modalDraft; if(d.busy) return;
-  d.busy=true; d.error=''; render();
-  try{
-    const r=await apiCall('release-block-beds',{ block:d.block, reason:d.reason, dryRun:!!dry }, 330000);
-    if(ui.modalDraft!==d) return;
-    d.result=r; if(dry) d.previewed=true;
-    if(!dry){ try{ await loadToday(); }catch(_e){} }
-  }catch(e){ if(ui.modalDraft===d) d.error=e.message; }
-  finally{ d.busy=false; if(ui.modalDraft===d) render(); }
-}
-function releaseModal(){
-  const d=ui.modalDraft, r=d.result;
-  const stat=(n,l)=>`<div style="flex:1;min-width:110px;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px 10px;"><div style="font-size:18px;font-weight:800;">${n}</div><div style="font-size:11px;color:var(--ink-soft);">${l}</div></div>`;
-  let body='';
-  if(r){
-    body=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">${stat(r.eligible,r.dryRun?'beds to release':'beds in this run')}${r.dryRun?'':stat(r.released,'released')}${stat(r.alreadyReady,'already available')}${stat(r.notEligible,'left alone (cohort or other status)')}${r.remaining?stat(r.remaining,'still to do'):''}</div>`;
-    if(r.dryRun) body+=`<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">Preview only. Nothing has been changed.</p>`;
-    else if(r.partial) body+=`<p style="font-size:12.5px;color:var(--danger);font-weight:700;margin:0 0 8px;">Stopped before the time limit. Press Release again to continue with the remaining beds.</p>`;
-    else body+=`<p style="font-size:12.5px;color:var(--ok);font-weight:700;margin:0 0 8px;">Done. The board has been refreshed.</p>`;
-    if((r.skipped||[]).length) body+=`<details open style="margin-bottom:8px;"><summary style="font-size:12.5px;font-weight:700;color:var(--danger);cursor:pointer;">${r.skipped.length} bed${r.skipped.length===1?'':'s'} skipped</summary><div style="max-height:150px;overflow:auto;font-size:12px;margin-top:4px;">${r.skipped.slice(0,60).map(s=>`<div>${esc(s.bedId)} · ${esc(s.reason)}</div>`).join('')}</div></details>`;
-  }
-  const reasonOk=String(d.reason||'').trim().length>=5;
-  const canGo=d.previewed&&d.confirm&&reasonOk&&!d.busy&&r&&r.eligible>0;
-  return `<h2 style="font-size:15px;">Release beds for planting</h2>
-  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">For one block: every empty bed still in the start-of-operations reset is released to AVAILABLE, so Generate season can book it. Each bed gets the reset steps overridden with your reason (logged) and then Verify Bed Ready. Beds with a cohort, blocked beds and beds already available are left alone.</p>
-  <div class="field"><label>Block</label><select class="tm-in" onchange="relSet('block',this.value)" ${d.busy?'disabled':''}>${RELEASE_BLOCKS.map(b=>`<option ${d.block===b?'selected':''}>${b}</option>`).join('')}</select></div>
-  <div class="field"><label>Reason (stored on every bed)</label><textarea class="tm-in" rows="2" oninput="relType('reason',this.value)" onchange="relSet('reason',this.value)" ${d.busy?'disabled':''}>${esc(d.reason)}</textarea></div>
-  <label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:0 0 10px;"><input type="checkbox" ${d.confirm?'checked':''} ${d.busy?'disabled':''} onchange="relSet('confirm',this.checked)" style="margin-top:2px;"><span>I confirm the empty beds in <b>${esc(d.block)}</b> are physically ready to plant: no residue to clear, tillage and drip set up.</span></label>
-  ${d.error?`<p style="font-size:12.5px;color:var(--danger);font-weight:700;">${esc(d.error)}</p>`:''}
-  ${d.busy?`<p style="font-size:12.5px;color:var(--ink-soft);">Working… a full block can take several minutes. Keep this window open.</p>`:''}
-  ${body}
-  <button class="btn btn-outline" ${d.busy?'disabled':''} onclick="runRelease(true)">${d.previewed?'Preview again':'Preview (changes nothing)'}</button>
-  <button class="btn btn-primary" ${canGo?'':'disabled'} onclick="runRelease(false)">Release beds in ${esc(d.block)}</button>
-  <button class="btn btn-ghost" onclick="openGenerate()">Back to Generate season</button>`;
 }
 
 /* ============================== TEAM + LABOR HOURS ==============================
@@ -1884,7 +1798,15 @@ function lbCsv(){
  * plug in get/set calls to a real backend (Apps Script actions get-planting-plan / confirm-planting-layout /
  * modify-planting-layout / reset-planting-plan / mark-crop-planted / mark-bed-planted / mark-harvest-complete /
  * apply-cover-crop / get-rotation-plan / edit-rotation / approve-rotation) once those exist server-side. */
-const PLAN_MODES=[['plan','Season Planning'],['sheet','Bed Plan Sheet'],['exec','Planting Execution'],['harvest','Harvest'],['cover','Cover Crop'],['rotation','Rotation'],['cropref','Crop Profile'],['addcrop','Add Crop'],['cohorts','Cohort Production'],['calendar','Production Calendar'],['irrigation','Irrigation Calendar'],['operation','Operation Planner']];
+const PLAN_TABS=[
+  {k:'infra',label:'Infrastructure & Crop Groups',views:[['infra','Block layout'],['rotation','Rotation editor'],['cropref','Crop profile'],['addcrop','Add crop']]},
+  {k:'beds',label:'Bed Status Board',views:[['bedboard','Bed status']]},
+  {k:'ofo',label:'Open Field Operation',views:[['operation','Schedule editor'],['calendar','Production calendar']]},
+  {k:'plan',label:'Bed Planting Plan',views:[['smart','Smart allocation'],['plan','Bed layout'],['sheet','Bed plan sheet']]},
+  {k:'cohorts',label:'Cohorts',views:[['cohorts','Cohort production'],['exec','Planting execution'],['harvest','Harvest'],['irrigation','Irrigation calendar']]},
+  {k:'post',label:'Post-Harvest & Cover Crop',views:[['postharvest','Turnover & cover crop']]}
+];
+const PLAN_MODES=PLAN_TABS.reduce((a,t)=>a.concat(t.views),[]);   /* flat [mode,label] list; the tab strip is built from PLAN_TABS */
 /* CROP_MASTER: crop-identity master, reconciled per the ranch's authority model:
  *  - CROP_REFERENCE is canonical for identity/production fields (id, name, category, cycle class,
  *    propagation path, planting method, DOB type).
@@ -1955,7 +1877,7 @@ function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete
 function setPMode(m){ if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
-function refreshPlanning(){ if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
+function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard') bbLoad(true); if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
 function selectCrop(id){ ui.pSelectedCrop=id; ui.pModifying=false; render(); }
 function selectCropByBed(n){ const c=getPlan(ui.pBlock,ui.pYear).crops.find(x=>x.bedNums.includes(n)); if(c){ ui.pSelectedCrop=c.id; render(); } }
 
@@ -3204,6 +3126,263 @@ function irrScreen(){
   <div class="cal-note">Schedule starts on each cohort's verified planting date and repeats at its IRRIGATION_PROFILE frequency until harvest (dry-down rules applied). Assigning starts Irrigation tasks for the chosen beds and workers.</div>`);
 }
 
+/* ============================== MANAGER SHELL: SIX TABS ==============================
+ * The manager screens are grouped into six tabs; each tab holds the views that already existed plus the new ones.
+ * ui.pMode is still the single "which view" switch (every older function keys off it), so a tab is only a grouping.
+ *   Infrastructure & Crop Groups  block capacity, rotation family, crop groups per block; rotation editor; crop profile; add crop
+ *   Bed Status Board              every bed's Bed_Status by block, Verify Bed Ready, start-of-operations block release
+ *   Open Field Operation          OFO schedule editor, production calendar
+ *   Bed Planting Plan             Smart allocation dashboard (generate-season), bed layout (BED_PLANTING_PLAN), bed plan sheet
+ *   Cohorts                       cohort production, planting execution, harvest, irrigation calendar
+ *   Post-Harvest & Cover Crop     beds in turnover with the cover crop mix chosen by exit date
+ * NO new Bed_Status value is introduced. "Ready" is the AVAILABLE state itself: BED_STATUS_RULES says AVAILABLE means
+ * physically usable and is entered only by the manager's Verify Bed Ready (R11/R13/R14/R15). */
+const MOCK_MODES={ rotation:1, exec:1, harvest:1, cover:1 };   /* client-side preview screens: nothing is written to the workbook */
+function ptabOf(mode){ return PLAN_TABS.find(t=>t.views.some(v=>v[0]===mode))||PLAN_TABS[0]; }
+function setPTab(k){ const t=PLAN_TABS.find(x=>x.k===k); if(t) setPMode(t.views[0][0]); }
+function planTabStrip(){
+  const cur=ptabOf(ui.pMode);
+  return `<div class="ptabs" role="tablist">${PLAN_TABS.map(t=>`<button role="tab" aria-selected="${t.k===cur.k}" class="${t.k===cur.k?'active':''}" onclick="setPTab('${t.k}')">${esc(t.label)}</button>`).join('')}</div>`;
+}
+function planSubViews(){
+  const t=ptabOf(ui.pMode); if(t.views.length<2) return '';
+  return `<div class="seg" style="flex-wrap:wrap;">${t.views.map(([k,l])=>`<button class="${ui.pMode===k?'active':''}" onclick="setPMode('${k}')">${esc(l)}</button>`).join('')}</div>`;
+}
+function planToolbarControls(){
+  const m=ui.pMode;
+  const yr=`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`;
+  const blk=`<select onchange="setPBlock(this.value)" aria-label="Block">${PLAN_BLOCKS.map(b=>`<option value="${b}" ${b===ui.pBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select>`;
+  const refresh=`<button class="btn btn-ghost" style="width:auto;margin:0;" onclick="refreshPlanning()">↻ Refresh</button>`;
+  if(m==='addcrop'||m==='calendar'||m==='irrigation'||m==='operation'||m==='sheet') return '';
+  if(m==='cohorts') return yr;
+  if(m==='cropref') return `<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`;
+  if(m==='infra'||m==='smart') return yr+refresh;
+  if(m==='bedboard'||m==='postharvest') return refresh;
+  return blk+yr+refresh+(m==='plan'?`<button class="btn btn-outline" style="width:auto;margin:0;" onclick="openBedEdit('')">+ Add bed</button>`:'');
+}
+function mockNotice(){
+  return MOCK_MODES[ui.pMode]?`<div class="notice">Preview only: changes on this screen stay in the browser and are not written to the workbook. Use the Daily board for real planting, harvest and bed release.</div>`:'';
+}
+/* Loads get-planning-context for all five blocks into state.pp (same cache the Bed layout view uses). */
+const inf={busy:false,err:'',tried:{}};
+async function infraLoad(force){
+  if(inf.busy) return; inf.busy=true; inf.err=''; inf.tried[ui.pYear]=true; render();
+  for(const b of PLAN_BLOCKS){
+    const k=ppKey(ui.pYear,b);
+    if(force||!state.pp[k]||state.pp[k].error){
+      try{ state.pp[k]=await apiCall('get-planning-context',{year:ui.pYear,blockId:b}); }
+      catch(e){ state.pp[k]={error:errMsg(e)}; }
+    }
+  }
+  inf.busy=false; render();
+}
+function infraEnsure(){ if(!inf.busy&&!inf.tried[ui.pYear]&&PLAN_BLOCKS.some(b=>!state.pp[ppKey(ui.pYear,b)])) setTimeout(()=>infraLoad(),0); }
+function layoutSummary(b){
+  const c=state.pp[ppKey(ui.pYear,b)]; if(!c) return null; if(c.error) return {error:c.error};
+  const rows=(c.plan&&c.plan.beds)||[], crop=r=>r.cropId&&String(r.cropId).toUpperCase()!=='OPEN';
+  const confirmed=rows.filter(r=>crop(r)&&r.status==='CONFIRMED'), pending=rows.filter(r=>crop(r)&&r.status!=='CONFIRMED');
+  const groups={}; confirmed.concat(pending).forEach(r=>{ const f=r.cropFamily||'No family set'; const g=groups[f]=groups[f]||{}; g[r.cropId]=(g[r.cropId]||0)+1; });
+  const cap=(c.physicalBeds||[]).length;
+  return { cap, confirmed:confirmed.length, pending:pending.length, open:Math.max(0,cap-confirmed.length-pending.length), groups, rotation:c.rotation||{}, template:c.template||{} };
+}
+
+/* ---- Tab: Infrastructure & Crop Groups ---- */
+function infraScreen(){
+  infraEnsure();
+  const cards=PLAN_BLOCKS.map(b=>{
+    const s=layoutSummary(b);
+    if(!s) return `<div class="card"><div class="row"><span><b>${esc(BLOCK_LABELS[b])}</b></span><span class="chip chip-neutral">${inf.busy?'Loading…':'Not loaded'}</span></div></div>`;
+    if(s.error) return `<div class="card qwarn"><div class="row"><span><b>${esc(BLOCK_LABELS[b])}</b></span></div><div class="note" style="color:var(--danger);">${esc(s.error)}</div></div>`;
+    const r=s.rotation, fam=r.found?(r.cropFamily||'No crop family'):'No rotation set for '+ui.pYear;
+    const groups=Object.keys(s.groups).sort().map(f=>`<div class="row"><span>${esc(f)}</span><span style="text-align:right;">${Object.keys(s.groups[f]).sort().map(id=>esc(id)+' × '+s.groups[f][id]).join(', ')}</span></div>`).join('');
+    return `<div class="card">
+      <div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span class="chip ${r.found&&String(r.status||'').toLowerCase()==='approved'?'chip-ok':'chip-neutral'}">${esc(r.found?(r.status||'No status'):'No rotation')}</span></div>
+      <div class="row"><span>Rotation family</span><span style="text-align:right;">${esc(fam)}</span></div>
+      <div class="row"><span>Template</span><span>${esc(r.templateId||'—')}${r.rotationYear!=null&&r.rotationYear!==''?' · rotation year '+esc(r.rotationYear):''}</span></div>
+      <div class="row"><span>Beds</span><span>${s.cap} total · <b>${s.confirmed}</b> confirmed${s.pending?' · '+s.pending+' modified/pending':''} · ${s.open} open</span></div>
+      ${groups?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Crop groups in this block</div>${groups}`:`<div class="note">No crops are laid out in ${esc(BLOCK_LABELS[b])} for ${ui.pYear} yet.</div>`}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+        <button class="dc-mini" onclick="ui.pBlock='${b}';setPMode('plan')">Open bed layout</button>
+        <button class="dc-mini" onclick="ui.pBlock='${b}';setPMode('rotation')">Rotation editor</button></div></div>`;
+  }).join('');
+  return admWrap(`<h2 style="margin:0 0 4px;">Infrastructure layout & crop groups · ${ui.pYear}</h2>
+    <div class="note" style="margin-top:0;">Read from the workbook: BED_MASTER (capacity), BLOCK_ROTATION_PLAN (family and template) and BED_PLANTING_PLAN (what is laid out where). Crop groups are the Crop_Family of each laid-out bed.</div>
+    ${admNotice('bad',esc(inf.err))}${cards}
+    <div class="note">Rotation changes cannot be saved from here yet: no backend action writes BLOCK_ROTATION_PLAN, so the Rotation editor is a draft only.</div>`);
+}
+
+/* ---- Tab: Bed Status Board ---- */
+const BB_STATUS=[
+  ['UNVERIFIED','Not verified','#E9E4D2','#1B1B18'],
+  ['POST-HARVEST ACTIVITIES','Post-harvest','#F1DFA8','#1B1B18'],
+  ['AVAILABLE','Available · verified ready','#8FBF8A','#14261D'],
+  ['RESERVED','Reserved','#BFD7EA','#14261D'],
+  ['PLANTED','Planted','#6FA86F','#fff'],
+  ['GROWING','Growing','#2E7D32','#fff'],
+  ['HARVEST READY','Harvest ready','#C9A227','#1B1B18'],
+  ['HARVESTING','Harvesting','#B07A1B','#fff'],
+  ['BLOCKED','Blocked','#B3261E','#fff']
+];
+const bb={data:{},busy:false,err:'',tried:false,sel:'B1',reason:'',confirm:false,dry:null,res:null,relBusy:false};
+function bbStatusOf(b){ return String(b.bedStatus||'').trim().toUpperCase()||'UNVERIFIED'; }
+function bbStyle(st){ const x=BB_STATUS.find(s=>s[0]===st)||['','','#EEE','#1B1B18']; return {fill:x[2],tc:x[3],label:x[1]||st}; }
+async function bbLoad(force){
+  if(bb.busy) return; bb.busy=true; bb.err=''; bb.tried=true; render();
+  for(const b of PLAN_BLOCKS){
+    if(!force&&bb.data[b]&&!bb.data[b].error) continue;
+    try{ const r=await apiCall('get-physical-beds',{blockId:b}); bb.data[b]={beds:Array.isArray(r)?r:((r&&r.beds)||[])}; }
+    catch(e){ bb.data[b]={error:errMsg(e)}; }
+  }
+  bb.busy=false; render();
+}
+function bbEnsure(){ if(!bb.busy&&!bb.tried) setTimeout(()=>bbLoad(),0); }
+function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; render(); }
+function bbForget(){ Object.keys(state.pp).forEach(k=>delete state.pp[k]); }
+async function bbBedClick(bedId){
+  const rows=(bb.data[bb.sel]&&bb.data[bb.sel].beds)||[], b=rows.find(x=>x.bedId===bedId); if(!b) return;
+  const st=bbStatusOf(b);
+  if(b.currentCohortId){ toast(bedId+' holds cohort '+b.currentCohortId+' ('+bbStyle(st).label+'). Work on it from the Daily board.'); return; }
+  if(st==='POST-HARVEST ACTIVITIES'){ toast(bedId+' is in post-harvest. Finish its steps, then verify it from the Post-Harvest & Cover Crop tab or the Daily board.'); return; }
+  if(st==='UNVERIFIED'||st==='BLOCKED'){
+    if(!confirm('Verify '+bedId+' is physically ready for production? It becomes Available and can be planted.')) return;
+    try{ await apiCall('verify-bed-ready',{bedId}); toast(bedId+' verified and released to Available.'); bbForget(); await bbLoad(true); }
+    catch(e){ toast(errMsg(e)); }
+    return;
+  }
+  toast(bedId+' is '+bbStyle(st).label+'.');
+}
+async function bbCount(){
+  if(bb.relBusy) return; bb.relBusy=true; bb.res=null; render();
+  try{ bb.dry=await apiCall('release-block-beds',{block:BLOCK_LABELS[bb.sel],dryRun:true},120000); }catch(e){ bb.dry=null; bb.res={error:errMsg(e)}; }
+  bb.relBusy=false; render();
+}
+async function bbRelease(){
+  const n=bb.dry?bb.dry.eligible:0;
+  if(!confirm('Release '+n+' empty bed(s) in '+BLOCK_LABELS[bb.sel]+'?\n\nYou attest they are physically ready (residue cleared, tillage and drip set up). Each bed is logged with your name and this reason.')) return;
+  bb.relBusy=true; bb.res=null; render();
+  try{ bb.res=await apiCall('release-block-beds',{block:BLOCK_LABELS[bb.sel],reason:bb.reason.trim(),dryRun:false},330000); bb.dry=null; bb.confirm=false; bbForget(); toast((bb.res.released||0)+' bed(s) released in '+BLOCK_LABELS[bb.sel]+'.'); await bbLoad(true); }
+  catch(e){ bb.res={error:errMsg(e)}; }
+  bb.relBusy=false; render();
+}
+function bbScreen(){
+  bbEnsure();
+  const head=`<th>Block</th>${BB_STATUS.map(s=>`<th title="${esc(s[1])}">${esc(s[1])}</th>`).join('')}<th>Total</th>`;
+  const rows=PLAN_BLOCKS.map(b=>{
+    const d=bb.data[b];
+    if(!d) return `<tr><td><b>${esc(BLOCK_LABELS[b])}</b></td><td colspan="${BB_STATUS.length+1}">${bb.busy?'Loading…':'Not loaded'}</td></tr>`;
+    if(d.error) return `<tr><td><b>${esc(BLOCK_LABELS[b])}</b></td><td colspan="${BB_STATUS.length+1}" style="color:var(--danger);">${esc(d.error)}</td></tr>`;
+    const cnt={}; d.beds.forEach(x=>{ const s=bbStatusOf(x); cnt[s]=(cnt[s]||0)+1; });
+    return `<tr class="${b===bb.sel?'sel':''}" onclick="bbSelect('${b}')"><td><b>${esc(BLOCK_LABELS[b])}</b></td>${BB_STATUS.map(s=>`<td>${cnt[s[0]]||'<span style="opacity:.35;">0</span>'}</td>`).join('')}<td><b>${d.beds.length}</b></td></tr>`;
+  }).join('');
+  const cur=bb.data[bb.sel], beds=(cur&&cur.beds)||[];
+  const grid=beds.map(x=>{ const st=bbStatusOf(x), v=bbStyle(st), no=String(x.bedId).split('-').pop();
+    return `<button class="bb-bed" style="background:${v.fill};color:${v.tc};" title="${esc(x.bedId+' · '+v.label+(x.currentCohortId?' · '+x.currentCohortId:''))}" onclick="bbBedClick('${esc(x.bedId)}')"><b>${esc(no)}</b><span>${esc(x.currentCohortId||'')}</span></button>`; }).join('');
+  const legend=BB_STATUS.map(s=>`<span><i class="sw" style="background:${s[2]};border:1px solid var(--line);"></i>${esc(s[1])}</span>`).join('');
+  const eligible=beds.filter(x=>!x.currentCohortId&&['UNVERIFIED','POST-HARVEST ACTIVITIES'].includes(bbStatusOf(x))).length;
+  const d=bb.dry, r=bb.res;
+  const relPanel=`<div class="card"><div class="row"><span><b style="color:var(--ink);">Start of operations · ${esc(BLOCK_LABELS[bb.sel])}</b></span><span class="chip chip-neutral">${eligible} empty bed${eligible===1?'':'s'} not yet released</span></div>
+    <div class="note" style="margin-top:6px;">Releases the empty beds of this block that are not verified or still in post-harvest, so the season generator can book them. Each bed goes through the engine's own override (R16) and Verify Bed Ready steps in your name. Beds holding a cohort, blocked beds and beds already Available are left alone.</div>
+    <div class="field"><label>Reason (stored on every bed, at least 5 characters)</label><input id="bb-reason" value="${esc(bb.reason)}" oninput="bb.reason=this.value;bbSyncRelease()" placeholder="e.g. Winter fallow complete; beds tilled and drip laid"></div>
+    <label class="note" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" ${bb.confirm?'checked':''} onchange="bb.confirm=this.checked;bbSyncRelease()"> I confirm these beds are physically ready for planting</label>
+    ${d?`<div class="row"><span>Would release</span><b>${d.eligible}</b></div><div class="row"><span>Already available</span><span>${d.alreadyReady}</span></div><div class="row"><span>Not eligible (cohort, blocked, in use)</span><span>${d.notEligible}</span></div>`:''}
+    ${r&&r.error?`<div class="error">${esc(r.error)}</div>`:''}
+    ${r&&!r.error?`<div class="row"><span>Released</span><b>${r.released}</b></div>${r.partial?`<div class="note" style="color:var(--warn);font-weight:600;">Stopped at the time limit with ${r.remaining} bed(s) left. Run it again to continue.</div>`:''}${(r.skipped||[]).length?`<div class="note" style="color:var(--danger);">${r.skipped.length} skipped: ${esc(r.skipped.slice(0,8).map(x=>x.bedId+' ('+x.reason+')').join(', '))}${r.skipped.length>8?'…':''}</div>`:''}`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <button class="btn btn-outline" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy?'disabled':''} onclick="bbCount()">${bb.relBusy?'Working…':'Count beds'}</button>
+      <button id="bb-release" class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy||!d||!d.eligible||bb.reason.trim().length<5||!bb.confirm?'disabled':''} onclick="bbRelease()">Release ${d?d.eligible:''} bed${d&&d.eligible===1?'':'s'}</button></div></div>`;
+  return `<div class="mapcol"><div class="mapscroll"><div style="max-width:1040px;margin:0 auto;">
+    <h2 style="margin:0 0 4px;">Bed status board</h2>
+    <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Click a block row, then a bed: Not verified and Blocked beds can be verified ready here.</div>
+    ${bb.err?`<div class="error">${esc(bb.err)}</div>`:''}
+    <div class="bb-wrap"><table class="bb-t"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="legend" style="padding:10px 0 4px;">${legend}</div>
+    <h2 style="font-size:13px;margin:12px 0 6px;">${esc(BLOCK_LABELS[bb.sel])}</h2>
+    <div class="bb-grid">${grid||`<div class="empty">${bb.busy?'Loading…':'No beds loaded for this block.'}</div>`}</div>
+    ${relPanel}</div></div></div>`;
+}
+function bbSyncRelease(){ const b=document.getElementById('bb-release'); if(b) b.disabled=!!(bb.relBusy||!bb.dry||!bb.dry.eligible||bb.reason.trim().length<5||!bb.confirm); }
+
+/* ---- Tab: Bed Planting Plan > Smart allocation (generate-season, OfoSeasonGenerator.gs) ---- */
+const sa={busy:false,err:'',res:null,replace:false};
+async function saPreview(){
+  if(sa.busy) return; sa.busy=true; sa.err=''; render();
+  try{ sa.res=await apiCall('generate-season',{year:ui.pYear,dryRun:true,replacePlanned:sa.replace},120000); sa.mode='preview'; }catch(e){ sa.err=errMsg(e); sa.res=null; }
+  sa.busy=false; render();
+}
+async function saRun(){
+  const r=sa.res; if(!r||sa.mode!=='preview') return;
+  if(!confirm('Generate the '+ui.pYear+' season?\n\nThis creates '+r.cohortsToCreate+' cohort(s) and assigns '+r.bedsToAssign+' bed(s). Waves already done are left alone.'+(sa.replace?'\n\nThis year\'s PLANNED cohorts with no bed are removed first.':''))) return;
+  sa.busy=true; sa.err=''; render();
+  try{ sa.res=await apiCall('generate-season',{year:ui.pYear,dryRun:false,replacePlanned:sa.replace},330000); sa.mode='run'; bbForget(); bb.tried=false; toast('Season generated: '+(sa.res.created||0)+' cohort(s) created, '+(sa.res.assigned||0)+' bed(s) assigned.'); }
+  catch(e){ sa.err=errMsg(e); }
+  sa.busy=false; render();
+}
+function saChip(s){ return s==='PLACED'?'chip-ok':s==='NOT_ENOUGH_BEDS'?'chip-danger':'chip-neutral'; }
+function saStatusLabel(s){ return {PLACED:'Placed',NOT_ENOUGH_BEDS:'Short of beds',ALREADY_DONE:'Already done'}[s]||s; }
+function smartScreen(){
+  infraEnsure();
+  const blocks=PLAN_BLOCKS.filter(b=>b!=='Z5').map(b=>{ const s=layoutSummary(b);
+    return `<div class="row"><span><b>${esc(BLOCK_LABELS[b])}</b></span><span>${!s?(inf.busy?'Loading…':'—'):s.error?'<span style="color:var(--danger);">'+esc(s.error)+'</span>':`<b>${s.confirmed}</b> confirmed layout beds · ${s.open} open of ${s.cap}`}</span></div>`; }).join('');
+  const r=sa.res, waves=(r&&r.waves)||[], placed=waves.filter(w=>w.status==='PLACED').length, short=waves.filter(w=>w.status==='NOT_ENOUGH_BEDS').length, done=waves.length-placed-short;
+  const nr=r&&r.bedsNotReadyByBlock?Object.keys(r.bedsNotReadyByBlock).map(k=>k+' '+r.bedsNotReadyByBlock[k]).join(', '):'';
+  const table=waves.length?`<div class="bb-wrap" style="max-height:420px;"><table class="bb-t"><thead><tr><th>Crop</th><th>Wave</th><th>Planting date</th><th>Block</th><th>Beds</th><th>From layout</th><th>Status</th><th>Note</th></tr></thead><tbody>${waves.map(w=>
+    `<tr><td><b>${esc(w.crop)}</b> <span class="id">${esc(w.name||'')}</span></td><td>${w.wave}</td><td>${esc(w.date)}</td><td>${esc(w.block)}</td><td>${esc((w.beds||[]).join(', ')||'—')}</td><td>${(w.layoutBeds||[]).length?(w.fromLayout||0)+' of '+(w.beds||[]).length:'—'}</td><td><span class="chip ${saChip(w.status)}">${esc(saStatusLabel(w.status))}</span></td><td style="white-space:normal;min-width:240px;">${esc(w.message||'')}</td></tr>`).join('')}</tbody></table></div>`:'';
+  return admWrap(`<h2 style="margin:0 0 4px;">Smart allocation · ${ui.pYear}</h2>
+    <div class="note" style="margin-top:0;">Open Field Operation says what is planted, when, in which block and how many beds per wave. The confirmed block layout in BED_PLANTING_PLAN says which beds: those are used first when they are free and verified ready, and any shortfall is filled automatically inside the block. Preview first; nothing is written until you Run.</div>
+    ${admNotice('bad',esc(sa.err||inf.err))}
+    ${crSectionHead('Block layout (BED_PLANTING_PLAN, confirmed)')}<div class="card">${blocks}</div>
+    <label class="note" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" ${sa.replace?'checked':''} onchange="sa.replace=this.checked;sa.res=null;render()"> Also remove this year's PLANNED cohorts that hold no bed before generating</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">
+      <button class="btn btn-outline" style="width:auto;margin:0;padding:11px 20px;" ${sa.busy?'disabled':''} onclick="saPreview()">${sa.busy?'Working…':'Preview'}</button>
+      <button class="btn btn-primary" style="width:auto;margin:0;padding:11px 20px;" ${sa.busy||!r||sa.mode!=='preview'||!(r.cohortsToCreate||r.bedsToAssign)?'disabled':''} onclick="saRun()">Run season generation</button></div>
+    ${r?`${crSectionHead(sa.mode==='run'?'Result':'Preview (dry run)')}<div class="card">
+      <div class="row"><span>Waves read from Open Field Operation</span><b>${waves.length}</b></div>
+      <div class="row"><span>Placed · short of beds · already done</span><span>${placed} · ${short} · ${done}</span></div>
+      <div class="row"><span>${sa.mode==='run'?'Cohorts created · beds assigned':'Cohorts to create · beds to assign'}</span><b>${sa.mode==='run'?(r.created||0)+' · '+(r.assigned||0):(r.cohortsToCreate||0)+' · '+(r.bedsToAssign||0)}</b></div>
+      <div class="row"><span>Block layout rows read</span><span class="chip ${r.layoutRows?'chip-ok':'chip-warn'}">${r.layoutRows||0}</span></div>
+      ${r.layoutRows?'':`<div class="note" style="color:var(--warn);font-weight:600;">No confirmed layout for ${ui.pYear}: beds are being picked automatically. Confirm the layout in Bed layout to have them follow it.</div>`}
+      ${nr?`<div class="row"><span>Beds not verified ready</span><span>${esc(nr)}</span></div><div class="note">Those beds cannot be assigned. Verify them on the Bed Status Board and preview again.</div>`:''}
+      ${r.partial?`<div class="note" style="color:var(--warn);font-weight:600;">Stopped at the time limit. Run again to continue.</div>`:''}</div>
+      ${table}
+      ${(r.failed||[]).length?`${crSectionHead('Bed assignments refused')}<div class="card qwarn">${r.failed.map(f=>`<div class="row"><span>${esc(f.cohortId)} → ${esc(f.bedId)}</span><span>${esc(f.errorCode)}${f.message?' · '+esc(f.message):''}</span></div>`).join('')}</div>`:''}
+      ${(r.notes||[]).length?`${crSectionHead('Notes')}<div class="card">${r.notes.map(n=>`<div class="note" style="margin:4px 0;">${esc(n)}</div>`).join('')}</div>`:''}`:''}`);
+}
+
+/* ---- Tab: Post-Harvest & Cover Crop ----
+ * The cover crop mix is chosen by the BACKEND from the day production ended (BedStatusEngine.gs, coverCropMixForExit_) and
+ * arrives on every turnover bed as postHarvest.coverMix. coverMixPreview() below is only a planning calculator for a date
+ * the manager types; it repeats the same two windows (Jan 1–Aug 15, Aug 16–Dec 31) and must be kept in step with COVER_CROP_WINDOWS_ in BedStatusEngine.gs. */
+const COVER_WINDOWS=[
+  {key:'BKW',label:'Buckwheat (BKW)',from:[1,1],to:[8,15],why:'Fast smothering and phosphorus cycling.'},
+  {key:'RYE_CLV_VET',label:'Winter Rye + Crimson Clover + Vetch',from:[8,16],to:[12,31],why:'Overwintering cover, nitrogen fixation and erosion control.'}
+];
+function coverMixPreview(iso){
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||''); if(!m) return null;
+  const md=(+m[2])*100+(+m[3]), w=COVER_WINDOWS.find(x=>md>=x.from[0]*100+x.from[1]&&md<=x.to[0]*100+x.to[1]);
+  return w||{key:'',label:'No standard mix for this exit date',why:'The manager decides; skipping the cover crop steps needs a manager override with a written reason.'};
+}
+const ph={date:''};
+function phSetDate(v){ ph.date=v; const o=document.getElementById('ph-out'); if(o) o.innerHTML=phPreviewHTML(); }
+function phPreviewHTML(){ const w=coverMixPreview(ph.date); return w?`<div class="row"><span>Cover crop mix</span><b style="text-align:right;">${esc(w.label)}</b></div><div class="note" style="margin:2px 0;">${esc(w.why)}</div>`:'<div class="note">Pick the date production is expected to end.</div>'; }
+function postHarvestScreen(){
+  const beds=(state.beds||[]).filter(b=>b.postHarvest);
+  const rows=beds.map(b=>{ const p=b.postHarvest, m=p.coverMix||{}, steps=p.stepCount||(p.steps||[]).length, nxt=p.readyToVerify?'Ready to verify':(p.nextStep?'Step '+(p.nextStepNumber||'?')+' of '+steps+': '+p.nextStep:'—');
+    return `<tr><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button></td><td>${esc(b.cohortId||'bed-level')}</td><td>${esc(m.exitDate||'—')}</td><td style="white-space:normal;min-width:200px;">${esc(m.key?m.label:'No standard mix: manager decides')}</td><td style="white-space:normal;min-width:200px;">${esc(nxt)}</td><td><span class="chip ${p.readyToVerify?'chip-ok':'chip-warn'}">${p.readyToVerify?'Verify bed ready':'In turnover'}</span></td></tr>`; }).join('');
+  return admWrap(`<h2 style="margin:0 0 4px;">Post-harvest & cover crop sequence</h2>
+    <div class="note" style="margin-top:0;">When a cohort is terminated (ACT_053), the bed goes through field cleanup (ACT_037–039) and cover crop establishment (ACT_041–044). Only the manager's Verify Bed Ready returns it to Available.</div>
+    ${crSectionHead('Cover crop mix by exit date')}<div class="card">
+      ${COVER_WINDOWS.map(w=>`<div class="row"><span><b>${esc(w.label)}</b><br><span class="qsub">${w.from[0]===1?'Exit up to Aug 15':'Exit from Aug 16 (including after Oct 20)'}</span></span><span style="text-align:right;max-width:55%;">${esc(w.why)}</span></div>`).join('')}
+      <div class="note">Aug 15 counts as mid-summer. Early exits get Buckwheat; anything after Oct 20 is an overwintering situation and gets the overwinter mix.</div>
+      <div class="field" style="margin-top:6px;"><label>Check a date</label><input type="date" value="${esc(ph.date)}" oninput="phSetDate(this.value)"></div><div id="ph-out">${phPreviewHTML()}</div></div>
+    ${crSectionHead('Beds in turnover')}${beds.length?`<div class="bb-wrap"><table class="bb-t"><thead><tr><th>Bed</th><th>Cohort</th><th>Production ended</th><th>Cover crop mix</th><th>Next</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      :`<div class="card"><div class="empty">No beds are in post-harvest turnover right now.</div><button class="btn btn-ghost" style="width:auto;" onclick="loadToday()">↻ Reload beds</button></div>`}`);
+}
+function phCoverRow(p){
+  const m=p&&p.coverMix; if(!m||!m.label) return '';
+  return m.key?`<div class="row"><span>Cover crop mix</span><span style="text-align:right;max-width:62%;">${esc(m.label)}</span></div><div class="note" style="margin:2px 0 6px;">${esc(m.purpose||'')} Production ended ${esc(m.exitDate||'')}.</div>`
+    :`<div class="note" style="margin:2px 0 6px;">${esc(m.label)}</div>`;
+}
+
 /* ---- render: screen shell ---- */
 function planningScreen(){
   if(ui.pMode==='plan') ensurePlanLoaded();
@@ -3211,15 +3390,14 @@ function planningScreen(){
     <div><div class="brand">Season Planning</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')} · Season ${ui.pYear}</div></div>
     <div style="display:flex;align-items:center;gap:8px;"><button onclick="goBoard()">← Daily board</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
   </div>
-  <div class="toolbar">
-    <div class="seg" style="flex-wrap:wrap;">${PLAN_MODES.map(([k,l])=>`<button class="${ui.pMode===k?'active':''}" onclick="setPMode('${k}')">${l}</button>`).join('')}</div>
-    ${ui.pMode==='addcrop'||ui.pMode==='calendar'||ui.pMode==='irrigation'||ui.pMode==='operation'||ui.pMode==='sheet'?'':ui.pMode==='cohorts'?`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`:ui.pMode==='cropref'?`<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`:`
-    <select onchange="setPBlock(this.value)" aria-label="Block">${PLAN_BLOCKS.map(b=>`<option value="${b}" ${b===ui.pBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select>
-    <select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>
-    <button class="btn btn-ghost" style="width:auto;margin:0;" onclick="refreshPlanning()">↻ Refresh</button>${ui.pMode==='plan'?`
-    <button class="btn btn-outline" style="width:auto;margin:0;" onclick="openBedEdit('')">+ Add bed</button>`:''}`}
-  </div>
+  ${planTabStrip()}
+  <div class="toolbar">${planSubViews()}${planToolbarControls()}</div>
+  ${mockNotice()}
   <div class="wrap">${
+    ui.pMode==='infra' ? infraScreen() :
+    ui.pMode==='bedboard' ? bbScreen() :
+    ui.pMode==='smart' ? smartScreen() :
+    ui.pMode==='postharvest' ? postHarvestScreen() :
     ui.pMode==='sheet' ? sheetScreen() :
     ui.pMode==='plan' ? planLayout(ppLeftHTML(), ppBedGridSVG(), ppLegend(), ppRightHTML()) :
     ui.pMode==='exec' ? planLayout(cropListHTML('exec'), planBedGridSVG('exec'), planLegend('exec'), executionProfile()) :
@@ -3973,15 +4151,6 @@ async function mockBackend(action, p){
       const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
       bed.cohortStatus='TERMINATED'; bed.cohortId=''; bed.cropName=''; bed.currentStage='';
       return ok({done:true});
-    }
-    case 'generate-season': {
-      const waves=[{crop:'Sukuma Wiki',wave:1,date:'2027-03-20',block:'Block 1',status:'PLACED',message:'',created:4,beds:['B1-001','B1-002','B1-003','B1-004']},{crop:'Mustard Greens',wave:1,date:'2027-02-25',block:'Block 2',status:'NOT_ENOUGH_BEDS',message:'needs 6 bed(s), only 2 free in Block 2. 4 more bed(s) are free for those dates but not verified ready yet.',created:0}];
-      const dry=p.dryRun!==false;
-      return ok({ year:p.year, dryRun:dry, partial:false, replacedPlanned:p.replacePlanned?179:0, waves, cohortsToCreate:4, bedsToAssign:4, created:dry?0:4, assigned:dry?0:4, failed:[], skippedCrops:[{cropId:'SP',reason:'Greenhouse Only - not part of the planting plan.'}], notes:[], bedsNotReadyByBlock:{'Block 1':51,'Block 2':55} });
-    }
-    case 'release-block-beds': {
-      const dry=p.dryRun!==false;
-      return ok({ ok:true, block:p.block, dryRun:dry, eligible:55, released:dry?0:55, alreadyReady:0, notEligible:0, remaining:0, partial:false, skipped:[] });
     }
     case 'get-team':
       return ok({ team:Object.entries(demoUsers).map(([id,u])=>({ workerId:id.toLowerCase(), name:u.name, role:u.role, status:'ACTIVE', hasPin:!!u.pin, canReset:me.role==='Founder'||['Worker','Technician','Scout'].includes(u.role)||id===me.id })), addableRoles:me.role==='Founder'?['Worker','Manager','Founder','Technician','Scout']:['Worker','Technician','Scout'] });
