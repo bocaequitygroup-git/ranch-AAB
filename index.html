@@ -3400,11 +3400,14 @@ function smartScreen(){
  * Manager picks crop(s), a planting date and waves. The backend (UrgentProduction.gs) checks the Oregon window, works out the block
  * from the block layout / rotation, finds beds that are free AND verified ready, and creates cohorts tagged "Shortfall crop year".
  * Nothing is written until "Create shortfall production". */
-const urg={opts:null,optsErr:'',loading:false,rows:[],reason:'',busy:false,res:null,err:'',alarm:null,confirmOut:false,done:false};
+/* Propagation hand-off: after a shortfall is created the manager may open the propagation app's Shortfall Crop tab and enter it there.
+ * Nothing is sent or stored; the two systems stay unlinked. Change this one address when the propagation app moves. */
+const URG_PROP_URL='https://bocaequitygroup-git.github.io/prop-manager-app/';
+const urg={opts:null,optsErr:'',loading:false,rows:[],reason:'',busy:false,res:null,err:'',alarm:null,confirmOut:false,done:false,propHide:false};
 function urgBlankRow(){ return {cropId:'',date:'',waves:1,beds:'',gap:'',block:''}; }
 function urgMsg(e){ return (e&&e.message)?e.message:String(e||'Something went wrong.'); }
 async function openUrgent(){
-  urg.rows=[urgBlankRow()]; urg.reason=''; urg.res=null; urg.err=''; urg.alarm=null; urg.confirmOut=false; urg.done=false;
+  urg.rows=[urgBlankRow()]; urg.reason=''; urg.res=null; urg.err=''; urg.alarm=null; urg.confirmOut=false; urg.done=false; urg.propHide=false;
   openModal('urgent');
   if(!urg.opts && !urg.loading){
     urg.loading=true; render();
@@ -3458,6 +3461,41 @@ async function urgCreate(){
     }
   }catch(e){ urg.err=urgMsg(e); }
   urg.busy=false; render();
+}
+/* Crops created in this run that need propagation (anything not direct-seeded), with only the waves that really got beds. */
+function urgPropItems(){
+  const r=urg.res; if(!r||!r.items||r.dryRun) return [];
+  const crops=(urg.opts&&urg.opts.crops)||[], out=[];
+  r.items.forEach(it=>{
+    if(it.errors&&it.errors.length) return;
+    const c=crops.find(x=>x.cropId===it.cropId);
+    if(c && /DIRECT/i.test(String(c.plantingMethod||''))) return;
+    const dates=(it.waves||[]).filter(w=>w.status==='PLACED').map(w=>w.date);
+    if(dates.length) out.push({cropId:it.cropId,name:it.name,dates:dates,block:it.block});
+  });
+  return out;
+}
+function urgPropText(){
+  return urgPropItems().map(i=>i.name+' ('+i.cropId+'), field, '+i.dates.length+' wave'+(i.dates.length===1?'':'s')+': '+i.dates.join(', ')).join('\n')
+    +(urg.reason?'\nReason: '+urg.reason:'');
+}
+function urgOpenProp(){ try{ window.open(URG_PROP_URL,'_blank','noopener'); }catch(e){ toast('Could not open the propagation app.'); } }
+function urgCopyProp(){
+  const t=urgPropText();
+  try{ navigator.clipboard.writeText(t).then(()=>toast('Summary copied.'),()=>toast('Could not copy. Select the text instead.')); }
+  catch(e){ toast('Could not copy. Select the text instead.'); }
+}
+function urgPropHTML(){
+  const items=urgPropItems(); if(!items.length||urg.propHide) return '';
+  return `<div class="card" style="margin-top:10px;border-color:#B4231A;">
+    <div style="font-weight:700;margin-bottom:4px;">Set up propagation for this shortfall?</div>
+    <div class="note" style="margin:0 0 6px;">These crops are transplanted, so the nursery needs to sow them. Open the propagation app, go to Shortfall Crop, and enter:</div>
+    ${items.map(i=>`<div class="row"><span><b>${esc(i.name)}</b> (${esc(i.cropId)}) · field</span><span>${i.dates.length} wave${i.dates.length===1?'':'s'}: ${esc(i.dates.join(', '))}</span></div>`).join('')}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <button class="btn btn-primary" style="width:auto;margin:0;" onclick="urgOpenProp()">Open propagation shortfall</button>
+      <button class="btn btn-outline" style="width:auto;margin:0;" onclick="urgCopyProp()">Copy summary</button>
+      <button class="btn btn-ghost" style="width:auto;margin:0;" onclick="urg.propHide=true;render()">Not now</button>
+    </div></div>`;
 }
 function urgAlarmHTML(){
   const a=urg.alarm; if(!a) return '';
@@ -3520,7 +3558,7 @@ function urgentModal(){
   ${urg.err?`<div class="notice" style="margin-top:8px;">${esc(urg.err)}</div>`:''}
   <div style="margin-top:10px;">${urgResultHTML()}</div>
   ${r&&r.dryRun&&r.summary&&r.summary.outOfWindow&&r.summary.placed?`<label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:8px 0;color:#9C1C13;"><input type="checkbox" ${urg.confirmOut?'checked':''} onchange="urg.confirmOut=this.checked;render()"> I understand ${r.summary.outOfWindow} wave(s) are outside the Oregon allowable window and I want to plant them anyway.</label>`:''}
-  ${urg.done?`<div class="note" style="color:#1E6B2E;">Created. Each bed is reserved. When the crop is in the ground, use Verify planting on that bed.</div>`
+  ${urg.done?`<div class="note" style="color:#1E6B2E;">Created. Each bed is reserved. When the crop is in the ground, use Verify planting on that bed.</div>${urgPropHTML()}`
     :(r&&r.dryRun?`<button class="btn btn-primary" ${canCreate&&!urg.busy?'':'disabled'} onclick="urgCreate()">${urg.busy?'Creating…':`Create shortfall production (${r.summary?r.summary.placed:0} wave${r.summary&&r.summary.placed===1?'':'s'})`}</button>`:'')}`;
 }
 
