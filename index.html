@@ -670,6 +670,8 @@ async function rejectAssignment(cohortId){
 }
 async function doVerifyPlanting(cohortId, actualDob){
   if(!actualDob){ toast('Enter the actual planting date.'); return; }
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(actualDob)){ toast('That is not a valid planting date.'); return; }
+  if(actualDob>todayISO()){ toast('The planting date cannot be in the future.'); return; }   // server enforces this too (verifyPlanting_hardened.gs)
   try{ await apiCall('verify-planting', { cohortId, actualDob }); toast('Planting verified. Cohort is now ACTIVE.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
@@ -1604,10 +1606,10 @@ function rejectModal(){
 }
 function verifyPlantingModal(){
   const d=ui.modalDraft;
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayISO();   /* local date: toISOString() is UTC and offered tomorrow's date in the evening */
   return `<h2 style="font-size:15px;">Verify planting</h2>
   <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock.</p>
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(today)}"></div>
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(today)}" max="${esc(today)}"></div>
   <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">Verify planting</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
@@ -1918,15 +1920,49 @@ function applyCoverCrop(block){
   toast('Cover crop ('+mix+') applied to '+block+'. Block closed for season.'); render();
 }
 /* ---- Rotation actions ---- */
+/* Loaded from BLOCK_ROTATION_PLAN by get-rotation-plan (RotationAPI.gs). Falls back to the built-in default pattern for any year
+ * that has no saved rows. rotationOverrides[year][block] holds the editor's short family name ('Solanaceae', 'Roots', ...). */
+const rotLoad={done:false,busy:false,tried:false,saving:false,err:'',families:[]};
+async function loadRotationPlan(){
+  if(rotLoad.busy) return; rotLoad.busy=true; rotLoad.tried=true; rotLoad.err='';
+  try{
+    const d=await apiCall('get-rotation-plan',{});
+    rotLoad.families=d.families||[];
+    Object.keys(rotationOverrides).forEach(k=>delete rotationOverrides[k]);
+    Object.keys(rotationStatusByYear).forEach(k=>delete rotationStatusByYear[k]);
+    (d.rows||[]).forEach(r=>{ if(r.blockId==='Z5'||!r.familyKey) return; (rotationOverrides[r.year]=rotationOverrides[r.year]||{})[r.blockId]=r.familyKey; });
+    Object.keys(d.statusByYear||{}).forEach(y=>{ rotationStatusByYear[y]=d.statusByYear[y]; });
+    rotLoad.done=true;
+  }catch(e){ rotLoad.err=e.message||'Could not load the rotation plan.'; }
+  finally{ rotLoad.busy=false; render(); }
+}
+function ensureRotationLoaded(){ if(!rotLoad.tried && !rotLoad.busy) loadRotationPlan(); }
+/* ---- Rotation actions (persisted by RotationAPI.gs) ---- */
 function openEditRotation(){ ui.pRotDraft={}; PLAN_BLOCKS.filter(b=>b!=='Z5').forEach(b=>{ ui.pRotDraft[b]=rotationFamily(b,ui.pYear); }); ui.pEditingRotation=true; render(); }
 function setRotDraft(block,fam){ ui.pRotDraft[block]=fam; }
-function saveRotationDraft(){ rotationOverrides[ui.pYear]=Object.assign({},ui.pRotDraft); rotationStatusByYear[ui.pYear]='Draft'; ui.pEditingRotation=false; toast('Rotation for '+ui.pYear+' saved as draft.'); render(); }
+async function saveRotationDraft(){
+  if(rotLoad.saving) return;
+  const vals=Object.values(ui.pRotDraft);
+  if(new Set(vals).size!==vals.length){ toast('Each block needs a different crop family.'); return; }
+  rotLoad.saving=true; render();
+  try{
+    await apiCall('save-rotation',{ year:ui.pYear, assignments:Object.assign({},ui.pRotDraft) });
+    rotationOverrides[ui.pYear]=Object.assign({},ui.pRotDraft); rotationStatusByYear[ui.pYear]='Draft'; ui.pEditingRotation=false;
+    toast('Rotation for '+ui.pYear+' saved to BLOCK_ROTATION_PLAN as a draft.');
+  }catch(e){ toast(e.message||'Could not save the rotation.'); }
+  finally{ rotLoad.saving=false; render(); }
+}
 function cancelEditRotation(){ ui.pEditingRotation=false; render(); }
-function approveRotation(){
-  if(!confirm('Approve the '+ui.pYear+' rotation plan? This locks BLOCK_ROTATION_PLAN and generates BED_PLANTING_PLAN for every block.')) return;
-  rotationStatusByYear[ui.pYear]='Approved';
-  PLAN_BLOCKS.filter(b=>b!=='Z5').forEach(b=>{ delete planningPlans[planKey(b,ui.pYear)]; getPlan(b,ui.pYear); });
-  toast(ui.pYear+' rotation approved. Planting plans generated for all blocks.'); render();
+async function approveRotation(){
+  if(rotLoad.saving) return;
+  if(!confirm('Approve the '+ui.pYear+' rotation plan? This locks BLOCK_ROTATION_PLAN for '+ui.pYear+'. Planting plans are then generated per block from the Bed layout view.')) return;
+  rotLoad.saving=true; render();
+  try{
+    await apiCall('approve-rotation',{ year:ui.pYear });
+    rotationStatusByYear[ui.pYear]='Approved';
+    toast(ui.pYear+' rotation approved and locked.');
+  }catch(e){ toast(e.message||'Could not approve the rotation.'); }
+  finally{ rotLoad.saving=false; render(); }
 }
 
 /* ============================== REAL Planting Plan mode (BED_PLANTING_PLAN via PlantingPlanAPI.gs) ==============================
@@ -3137,7 +3173,7 @@ function irrScreen(){
  *   Post-Harvest & Cover Crop     beds in turnover with the cover crop mix chosen by exit date
  * NO new Bed_Status value is introduced. "Ready" is the AVAILABLE state itself: BED_STATUS_RULES says AVAILABLE means
  * physically usable and is entered only by the manager's Verify Bed Ready (R11/R13/R14/R15). */
-const MOCK_MODES={ rotation:1, exec:1, harvest:1, cover:1 };   /* client-side preview screens: nothing is written to the workbook */
+const MOCK_MODES={ exec:1, harvest:1, cover:1 };   /* client-side preview screens: nothing is written to the workbook */
 function ptabOf(mode){ return PLAN_TABS.find(t=>t.views.some(v=>v[0]===mode))||PLAN_TABS[0]; }
 function setPTab(k){ const t=PLAN_TABS.find(x=>x.k===k); if(t) setPMode(t.views[0][0]); }
 function planTabStrip(){
@@ -3208,7 +3244,7 @@ function infraScreen(){
   return admWrap(`<h2 style="margin:0 0 4px;">Infrastructure layout & crop groups · ${ui.pYear}</h2>
     <div class="note" style="margin-top:0;">Read from the workbook: BED_MASTER (capacity), BLOCK_ROTATION_PLAN (family and template) and BED_PLANTING_PLAN (what is laid out where). Crop groups are the Crop_Family of each laid-out bed.</div>
     ${admNotice('bad',esc(inf.err))}${cards}
-    <div class="note">Rotation changes cannot be saved from here yet: no backend action writes BLOCK_ROTATION_PLAN, so the Rotation editor is a draft only.</div>`);
+    <div class="note">Rotation changes made in the Rotation editor are saved to BLOCK_ROTATION_PLAN.</div>`);
 }
 
 /* ---- Tab: Bed Status Board ---- */
@@ -3349,43 +3385,64 @@ function smartScreen(){
 }
 
 /* ---- Tab: Post-Harvest & Cover Crop ----
- * The cover crop mix is chosen by the BACKEND from the day production ended (BedStatusEngine.gs, coverCropMixForExit_) and
- * arrives on every turnover bed as postHarvest.coverMix. coverMixPreview() below is only a planning calculator for a date
- * the manager types; it repeats the same two windows (Jan 1–Aug 15, Aug 16–Dec 31) and must be kept in step with COVER_CROP_WINDOWS_ in BedStatusEngine.gs. */
-const COVER_WINDOWS=[
-  {key:'BKW',label:'Buckwheat (BKW)',from:[1,1],to:[8,15],why:'Fast smothering and phosphorus cycling.'},
-  {key:'RYE_CLV_VET',label:'Winter Rye + Crimson Clover + Vetch',from:[8,16],to:[12,31],why:'Overwintering cover, nitrogen fixation and erosion control.'}
-];
-function coverMixPreview(iso){
-  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||''); if(!m) return null;
-  const md=(+m[2])*100+(+m[3]), w=COVER_WINDOWS.find(x=>md>=x.from[0]*100+x.from[1]&&md<=x.to[0]*100+x.to[1]);
-  return w||{key:'',label:'No standard mix for this exit date',why:'The manager decides; skipping the cover crop steps needs a manager override with a written reason.'};
+ * Cover-crop windows are NOT defined here. The single source of truth is the RANCH_ALLOWABLE_PLANTING_CAL tab; the backend
+ * (BedStatusEngine.gs, coverCropMixForExit_ / 'get-cover-windows') reads it and returns both the window list and the mix
+ * for any date. The mix on each turnover bed arrives as postHarvest.coverMix from the same code. */
+let COVER_WINDOWS=[];                       /* [{crop,name,windowNo,startLabel,endLabel}] from get-cover-windows */
+const coverLoad={done:false,busy:false,tried:false,err:''};
+async function loadCoverWindows(){
+  if(coverLoad.busy) return; coverLoad.busy=true; coverLoad.tried=true; coverLoad.err='';
+  try{
+    const d=await apiCall('get-cover-windows',{});
+    COVER_WINDOWS=d.windows||[]; coverLoad.done=true;
+    /* keep the Crop profile screen in step: overwrite the embedded cover-crop planting windows with the tab's */
+    const by={}; COVER_WINDOWS.forEach(w=>{ (by[w.crop]=by[w.crop]||[]).push(w); });
+    CROP_MASTER.forEach(c=>{ const w=by[c.id]; if(!w||!c.window) return;
+      c.window.s1=w[0].startLabel; c.window.e1=w[0].endLabel; c.window.s2=w[1]?w[1].startLabel:null; c.window.e2=w[1]?w[1].endLabel:null; });
+  }catch(e){ coverLoad.err=e.message||'Could not load cover crop windows.'; }
+  finally{ coverLoad.busy=false; render(); }
 }
-const ph={date:''};
-function phSetDate(v){ ph.date=v; const o=document.getElementById('ph-out'); if(o) o.innerHTML=phPreviewHTML(); }
-function phPreviewHTML(){ const w=coverMixPreview(ph.date); return w?`<div class="row"><span>Cover crop mix</span><b style="text-align:right;">${esc(w.label)}</b></div><div class="note" style="margin:2px 0;">${esc(w.why)}</div>`:'<div class="note">Pick the date production is expected to end.</div>'; }
+function ensureCoverLoaded(){ if(!coverLoad.tried && !coverLoad.busy) loadCoverWindows(); }   /* tried: a failed load is retried only from the Retry button, never in a render loop */
+const ph={date:'',mix:null,busy:false};
+async function phSetDate(v){
+  ph.date=v; ph.mix=null;
+  const o=document.getElementById('ph-out'); if(!/^\d{4}-\d{2}-\d{2}$/.test(v||'')){ if(o) o.innerHTML=phPreviewHTML(); return; }
+  ph.busy=true; if(o) o.innerHTML=phPreviewHTML();
+  try{ const d=await apiCall('get-cover-windows',{date:v}); if(ph.date===v) ph.mix=d.mix||null; }
+  catch(e){ ph.mix={label:e.message||'Could not check that date.'}; }
+  ph.busy=false; const o2=document.getElementById('ph-out'); if(o2) o2.innerHTML=phPreviewHTML();
+}
+function phPreviewHTML(){
+  if(!ph.date) return '<div class="note">Pick the date production is expected to end.</div>';
+  if(ph.busy||!ph.mix) return '<div class="note">Checking…</div>';
+  const m=ph.mix;
+  return `<div class="row"><span>Cover crop mix</span><b style="text-align:right;max-width:62%;">${esc(m.openNow?m.label:'No window open')}</b></div><div class="note" style="margin:2px 0;">${esc(m.openNow?(m.purpose||''):m.label)}</div>`;
+}
 function postHarvestScreen(){
   const beds=(state.beds||[]).filter(b=>b.postHarvest);
   const rows=beds.map(b=>{ const p=b.postHarvest, m=p.coverMix||{}, steps=p.stepCount||(p.steps||[]).length, nxt=p.readyToVerify?'Ready to verify':(p.nextStep?'Step '+(p.nextStepNumber||'?')+' of '+steps+': '+p.nextStep:'—');
-    return `<tr><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button></td><td>${esc(b.cohortId||'bed-level')}</td><td>${esc(m.exitDate||'—')}</td><td style="white-space:normal;min-width:200px;">${esc(m.key?m.label:'No standard mix: manager decides')}</td><td style="white-space:normal;min-width:200px;">${esc(nxt)}</td><td><span class="chip ${p.readyToVerify?'chip-ok':'chip-warn'}">${p.readyToVerify?'Verify bed ready':'In turnover'}</span></td></tr>`; }).join('');
+    return `<tr><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button></td><td>${esc(b.cohortId||'bed-level')}</td><td>${esc(m.exitDate||'—')}</td><td style="white-space:normal;min-width:200px;">${esc(m.label||'No standard mix: manager decides')}</td><td style="white-space:normal;min-width:200px;">${esc(nxt)}</td><td><span class="chip ${p.readyToVerify?'chip-ok':'chip-warn'}">${p.readyToVerify?'Verify bed ready':'In turnover'}</span></td></tr>`; }).join('');
   return admWrap(`<h2 style="margin:0 0 4px;">Post-harvest & cover crop sequence</h2>
     <div class="note" style="margin-top:0;">When a cohort is terminated (ACT_053), the bed goes through field cleanup (ACT_037–039) and cover crop establishment (ACT_041–044). Only the manager's Verify Bed Ready returns it to Available.</div>
-    ${crSectionHead('Cover crop mix by exit date')}<div class="card">
-      ${COVER_WINDOWS.map(w=>`<div class="row"><span><b>${esc(w.label)}</b><br><span class="qsub">${w.from[0]===1?'Exit up to Aug 15':'Exit from Aug 16 (including after Oct 20)'}</span></span><span style="text-align:right;max-width:55%;">${esc(w.why)}</span></div>`).join('')}
-      <div class="note">Aug 15 counts as mid-summer. Early exits get Buckwheat; anything after Oct 20 is an overwintering situation and gets the overwinter mix.</div>
+    ${crSectionHead('Cover crop planting windows')}<div class="card">
+      ${coverLoad.err?`<div class="notice">${esc(coverLoad.err)} <button class="dc-mini" onclick="coverLoad.tried=false;loadCoverWindows()">Retry</button></div>`:''}
+      ${COVER_WINDOWS.length?COVER_WINDOWS.map(w=>`<div class="row"><span><b>${esc(w.name)} (${esc(w.crop)})</b></span><span style="text-align:right;">${esc(w.startLabel)} – ${esc(w.endLabel)}</span></div>`).join(''):`<div class="note">${coverLoad.busy?'Loading windows…':'No cover crop windows loaded.'}</div>`}
+      <div class="note">Read from the RANCH_ALLOWABLE_PLANTING_CAL tab (the single source). The recommended mix is every cover crop whose window is open on the day production ended. If none is open, the next window to open is shown and the manager decides. Edit the tab to change a window.</div>
       <div class="field" style="margin-top:6px;"><label>Check a date</label><input type="date" value="${esc(ph.date)}" oninput="phSetDate(this.value)"></div><div id="ph-out">${phPreviewHTML()}</div></div>
     ${crSectionHead('Beds in turnover')}${beds.length?`<div class="bb-wrap"><table class="bb-t"><thead><tr><th>Bed</th><th>Cohort</th><th>Production ended</th><th>Cover crop mix</th><th>Next</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
       :`<div class="card"><div class="empty">No beds are in post-harvest turnover right now.</div><button class="btn btn-ghost" style="width:auto;" onclick="loadToday()">↻ Reload beds</button></div>`}`);
 }
 function phCoverRow(p){
   const m=p&&p.coverMix; if(!m||!m.label) return '';
-  return m.key?`<div class="row"><span>Cover crop mix</span><span style="text-align:right;max-width:62%;">${esc(m.label)}</span></div><div class="note" style="margin:2px 0 6px;">${esc(m.purpose||'')} Production ended ${esc(m.exitDate||'')}.</div>`
+  return m.openNow?`<div class="row"><span>Cover crop mix</span><span style="text-align:right;max-width:62%;">${esc(m.label)}</span></div><div class="note" style="margin:2px 0 6px;">${esc(m.purpose||'')} Production ended ${esc(m.exitDate||'')}.</div>`
     :`<div class="note" style="margin:2px 0 6px;">${esc(m.label)}</div>`;
 }
 
 /* ---- render: screen shell ---- */
 function planningScreen(){
   if(ui.pMode==='plan') ensurePlanLoaded();
+  if(ui.pMode==='postharvest') ensureCoverLoaded();
+  if(ui.pMode==='rotation'||ui.pMode==='infra') ensureRotationLoaded();
   return `<div class="topbar">
     <div><div class="brand">Season Planning</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')} · Season ${ui.pYear}</div></div>
     <div style="display:flex;align-items:center;gap:8px;"><button onclick="goBoard()">← Daily board</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
@@ -3969,15 +4026,17 @@ function rotationEditorHTML(){
     return `<div class="panelhead"><h2>Edit rotation · ${ui.pYear}</h2></div>
     <div class="panelbody">
       ${blocks.map(b=>`<div class="field"><label>${esc(b)}</label><select onchange="setRotDraft('${b}',this.value)">${ROTATION_FAMILIES.map(f=>`<option ${ui.pRotDraft[b]===f?'selected':''}>${esc(f)}</option>`).join('')}</select></div>`).join('')}
-      <button class="btn btn-primary" onclick="saveRotationDraft()">Save as draft</button>
-      <button class="btn btn-ghost" onclick="cancelEditRotation()">Cancel</button>
+      <button class="btn btn-primary" ${rotLoad.saving?'disabled':''} onclick="saveRotationDraft()">${rotLoad.saving?'Saving…':'Save as draft'}</button>
+      <button class="btn btn-ghost" ${rotLoad.saving?'disabled':''} onclick="cancelEditRotation()">Cancel</button>
     </div>`;
   }
-  return `<div class="panelhead"><div><h2>Rotation · ${ui.pYear}</h2><div class="meta">${esc(st)}</div></div></div>
+  const lock=st==='Approved'||rotLoad.saving||rotLoad.busy;
+  return `<div class="panelhead"><div><h2>Rotation · ${ui.pYear}</h2><div class="meta">${esc(rotLoad.busy?'Loading…':st)}</div></div></div>
   <div class="panelbody">
-    <div class="note">Approving locks BLOCK_ROTATION_PLAN for ${ui.pYear} and generates BED_PLANTING_PLAN for every block from the family template.</div>
-    <button class="btn btn-outline" ${st==='Approved'?'disabled':''} onclick="openEditRotation()">Edit rotation</button>
-    <button class="btn btn-primary" ${st==='Approved'?'disabled':''} onclick="approveRotation()">${st==='Approved'?'Approved ✓':'Approve rotation'}</button>
+    ${rotLoad.err?`<div class="notice">${esc(rotLoad.err)} <button class="dc-mini" onclick="rotLoad.tried=false;loadRotationPlan()">Retry</button></div>`:''}
+    <div class="note">Saved to BLOCK_ROTATION_PLAN. Approving locks the ${ui.pYear} rotation; generate BED_PLANTING_PLAN for each block from the Bed layout view afterwards.</div>
+    <button class="btn btn-outline" ${lock?'disabled':''} onclick="openEditRotation()">Edit rotation</button>
+    <button class="btn btn-primary" ${lock?'disabled':''} onclick="approveRotation()">${st==='Approved'?'Approved ✓':(rotLoad.saving?'Working…':'Approve rotation')}</button>
   </div>`;
 }
 
@@ -4171,6 +4230,17 @@ async function mockBackend(action, p){
       return ok({ missingElapsed:0, sessions:[
         { sessionId:'S-1', workerId:'jo', worker:'Jo Lindqvist', activity:'Weeding', bedId:'B1-02', start:'2026-10-13 08:00', end:'2026-10-13 10:30', minutes:150 },
         { sessionId:'S-2', workerId:'jo', worker:'Jo Lindqvist', activity:'Planting', bedId:'B1-03', start:'2026-10-14 08:00', end:'2026-10-14 09:15', minutes:75 } ] });
+    case 'get-cover-windows': {
+      const wins=[{crop:'CLV',name:'Clover',windowNo:1,startLabel:'Mar 1',endLabel:'Apr 15'},{crop:'BKW',name:'Buckwheat',windowNo:1,startLabel:'May 15',endLabel:'Jul 15'},
+                  {crop:'CLV',name:'Clover',windowNo:2,startLabel:'Sep 1',endLabel:'Oct 15'},{crop:'RYE',name:'Rye',windowNo:1,startLabel:'Sep 1',endLabel:'Oct 20'},{crop:'VET',name:'Vetch',windowNo:1,startLabel:'Sep 1',endLabel:'Oct 15'}];
+      const out={source:'RANCH_ALLOWABLE_PLANTING_CAL',windows:wins};
+      if(p.date){ const md=+p.date.slice(5,7)*100+ +p.date.slice(8,10), open=md>=901&&md<=1015?'Clover + Rye + Vetch':md>=515&&md<=715?'Buckwheat':'';
+        out.mix=open?{openNow:true,label:open,purpose:'',exitDate:p.date}:{openNow:false,label:'No cover crop window is open on '+p.date+' (demo data).',exitDate:p.date}; }
+      return ok(out);
+    }
+    case 'get-rotation-plan': return ok({rows:[],statusByYear:{},families:[],editableBlocks:['B1','B2','B3','B4']});
+    case 'save-rotation': return ok({year:p.year,status:'Draft',assignments:p.assignments});
+    case 'approve-rotation': return ok({year:p.year,status:'Approved'});
     default: return bad('That action is not available.','UNKNOWN_ACTION');
   }
 }
