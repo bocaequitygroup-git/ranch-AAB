@@ -298,6 +298,16 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .sh-tbl tr.sh-chg td{background:rgba(199,119,0,.08);}
 .sh-bed{font-weight:800;white-space:nowrap;} .sh-now{color:var(--ink-soft);font-size:11.5px;}
 @media (max-width:700px){ .sh-now-col{display:none;} .sh-tbl th,.sh-tbl td{padding:4px 3px;} .sh-tbl select,.sh-tbl input{min-width:0;padding:5px 4px;font-size:12px;} .sh-tbl .chip{font-size:9.5px;padding:2px 6px;} .sh-bed{font-size:11.5px;} }
+
+.urg-row{display:grid;grid-template-columns:2.2fr 1.4fr .7fr .8fr 1.1fr auto;gap:6px;align-items:end;margin-bottom:8px;}
+.urg-row label{font-size:11px;color:var(--ink-soft);display:block;margin-bottom:2px;} .urg-row input,.urg-row select{width:100%;}
+.urg-badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#B4231A;color:#fff;letter-spacing:.2px;}
+.urg-pass{background:#E4F1E5;color:#1E6B2E;} .urg-fail{background:#FBE1DE;color:#9C1C13;}
+.urg-wave{border-top:1px solid var(--line);padding:7px 0;font-size:12.5px;} .urg-wave:first-child{border-top:0;}
+.urg-alarm-wrap{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;}
+.urg-alarm{background:#fff;border-radius:12px;max-width:420px;width:100%;padding:18px;border-top:6px solid #1E6B2E;box-shadow:0 10px 40px rgba(0,0,0,.35);}
+.urg-alarm.bad{border-top-color:#B4231A;} .urg-alarm h3{margin:0 0 6px;font-size:16px;} .urg-alarm p{margin:6px 0;font-size:13px;}
+@media(max-width:640px){.urg-row{grid-template-columns:1fr 1fr;}}
 </style>
 </head>
 <body><div id="app"></div>
@@ -518,7 +528,7 @@ function bedView(b){
   if(!state.board.loaded) return v;
   const p=parseLocationId(b.id), c = p ? pickCohort(state.board.byKey[locKey(p)]) : null;
   if(c){
-    Object.assign(v, { cohortId:c.cohortId, cropId:c.cropId, cropName:c.cropName, cohortStatus:c.cohortStatus, currentStage:cohortStage(c),
+    Object.assign(v, { cohortId:c.cohortId, cropId:c.cropId, cropName:c.cropName, shortfall:!!c.shortfall, cohortStatus:c.cohortStatus, currentStage:cohortStage(c),
       plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'' });
   }else{
     Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'' });
@@ -851,7 +861,7 @@ function overviewTab(b,sess){
   const cs=b.cohortStatus||'';
   return `${b.cohortId?`<div class="card">
     <div class="row"><span>Status</span><span><span class="chip chip-ok">Occupied</span></span></div>
-    <div class="row"><span>Crop</span><span>${esc(b.cropName)}</span></div>
+    <div class="row"><span>Crop</span><span>${esc(b.cropName)}${b.shortfall?' <span class="urg-badge">Shortfall crop year</span>':''}</span></div>
     <div class="row"><span>Cohort</span><span>${esc(b.cohortId)}</span></div>
     <div class="row"><span>Current stage</span><span><span class="chip chip-neutral">${esc((b.currentStage||'—').replace(/_/g,' '))}</span></span></div>
     <div class="row"><span>Cohort status</span><span><span class="chip chip-neutral">${esc(COHORT_STATUS_LABEL[cs]||cs||'—')}</span></span></div>
@@ -1199,7 +1209,8 @@ function modalHTML(){
   else if(ui.modal==='crop-edit') inner=cropEditModal();
   else if(ui.modal==='team') inner=teamModal();
   else if(ui.modal==='labor') inner=laborModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  else if(ui.modal==='urgent') inner=urgentModal();
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -3384,6 +3395,135 @@ function smartScreen(){
       ${(r.notes||[]).length?`${crSectionHead('Notes')}<div class="card">${r.notes.map(n=>`<div class="note" style="margin:4px 0;">${esc(n)}</div>`).join('')}</div>`:''}`:''}`);
 }
 
+
+/* ================= Urgent production (shortfall crop year) =================
+ * Manager picks crop(s), a planting date and waves. The backend (UrgentProduction.gs) checks the Oregon window, works out the block
+ * from the block layout / rotation, finds beds that are free AND verified ready, and creates cohorts tagged "Shortfall crop year".
+ * Nothing is written until "Create shortfall production". */
+const urg={opts:null,optsErr:'',loading:false,rows:[],reason:'',busy:false,res:null,err:'',alarm:null,confirmOut:false,done:false};
+function urgBlankRow(){ return {cropId:'',date:'',waves:1,beds:'',gap:'',block:''}; }
+function urgMsg(e){ return (e&&e.message)?e.message:String(e||'Something went wrong.'); }
+async function openUrgent(){
+  urg.rows=[urgBlankRow()]; urg.reason=''; urg.res=null; urg.err=''; urg.alarm=null; urg.confirmOut=false; urg.done=false;
+  openModal('urgent');
+  if(!urg.opts && !urg.loading){
+    urg.loading=true; render();
+    try{ urg.opts=await apiCall('get-urgent-options',{}); urg.optsErr=''; }catch(e){ urg.optsErr=urgMsg(e); }
+    urg.loading=false; render();
+  }
+}
+/* Instant Oregon-window test for the alarm popup (the server re-checks every wave date). Windows repeat yearly (month/day). */
+function urgWindowCheck(cropId, iso){
+  const c=(urg.opts?urg.opts.crops:[]).find(x=>x.cropId===cropId);
+  if(!c||!/^\d{4}-\d{2}-\d{2}$/.test(iso||'')) return null;
+  const md=iso.slice(5); let inside=false;
+  (c.windows||[]).forEach(w=>{ if(w.from<=w.to ? (md>=w.from&&md<=w.to) : (md>=w.from||md<=w.to)) inside=true; });
+  const pass=inside&&c.fieldAllowed;
+  return {pass, name:c.name, date:iso, ranges:(c.windows||[]).map(w=>w.label), fieldAllowed:c.fieldAllowed};
+}
+function urgSet(i,key,val){
+  const r=urg.rows[i]; if(!r) return; r[key]=val; urg.res=null; urg.err=''; urg.confirmOut=false;
+  if((key==='cropId'||key==='date') && r.cropId && r.date){
+    if(r.date<todayISO()){ toast('The planting date is in the past.'); }
+    else{ const c=urgWindowCheck(r.cropId,r.date); if(c) urg.alarm=c; }
+  }
+  render();
+}
+function urgAddRow(){ if(urg.rows.length<((urg.opts&&urg.opts.maxCrops)||10)){ urg.rows.push(urgBlankRow()); render(); } }
+function urgDelRow(i){ urg.rows.splice(i,1); if(!urg.rows.length) urg.rows.push(urgBlankRow()); urg.res=null; render(); }
+function urgAlarmClose(clearDate){ if(clearDate&&urg.alarm){ const r=urg.rows.find(x=>x.date===urg.alarm.date); if(r) r.date=''; urg.res=null; } urg.alarm=null; render(); }
+function urgPayload(dry){
+  return { items:urg.rows.filter(r=>r.cropId||r.date).map(r=>({cropId:r.cropId,plantingDate:r.date,waves:r.waves||1,bedsPerWave:r.beds||'',gapDays:r.gap||'',block:r.block||''})),
+           reason:urg.reason, dryRun:dry, confirmOutOfWindow:urg.confirmOut };
+}
+async function urgCheck(){
+  if(urg.busy) return; urg.busy=true; urg.err=''; urg.res=null; urg.confirmOut=false; render();
+  try{ urg.res=await apiCall('urgent-production',urgPayload(true),120000); }catch(e){ urg.err=urgMsg(e); }
+  urg.busy=false; render();
+}
+async function urgCreate(){
+  const r=urg.res; if(urg.busy||!r||!r.dryRun) return;
+  const n=r.summary.placed;
+  if(!confirm('Create shortfall production?\n\n'+n+' wave(s) will be created and their beds reserved.'+(r.summary.outOfWindow?'\n\n'+r.summary.outOfWindow+' wave(s) are OUTSIDE the Oregon allowable window and will be planted anyway.':'')+'\n\nWaves without enough ready beds are not created.')) return;
+  urg.busy=true; urg.err=''; render();
+  try{
+    const res=await apiCall('urgent-production',urgPayload(false),330000);
+    urg.res=res;
+    if(res.ok===false){ urg.err=(res.notes&&res.notes[0])||'Not created.'; }
+    else{
+      urg.done=true; toast('Shortfall production created: '+res.summary.created+' cohort(s), '+res.summary.assigned+' bed(s) reserved.');
+      try{ bbForget(); bb.tried=false; }catch(e){}
+      try{ if(typeof loadToday==='function') await loadToday(); }catch(e){}
+      try{ if(typeof loadCohortBoard==='function') await loadCohortBoard(); }catch(e){}
+    }
+  }catch(e){ urg.err=urgMsg(e); }
+  urg.busy=false; render();
+}
+function urgAlarmHTML(){
+  const a=urg.alarm; if(!a) return '';
+  const rng=a.ranges.length?a.ranges.map(x=>`<b>${esc(x)}</b>`).join('<br>'):'<i>no window on file</i>';
+  return `<div class="urg-alarm-wrap"><div class="urg-alarm ${a.pass?'':'bad'}">
+    <h3>${a.pass?'Inside the Oregon window':'Outside the Oregon window'} <span class="urg-badge ${a.pass?'urg-pass':'urg-fail'}" style="${a.pass?'':'background:#B4231A;color:#fff;'}">${a.pass?'PASS':'FAIL'}</span></h3>
+    <p><b>${esc(a.name)}</b> planted on <b>${esc(a.date)}</b></p>
+    <p>${a.fieldAllowed?'Allowable planting window(s), every year:':'The ranch calendar does not allow this crop in the field.'}<br>${a.fieldAllowed?rng:''}</p>
+    ${a.pass?'':'<p style="color:#9C1C13;">Planting outside the window risks poor germination, frost or heat damage. You can still continue, but you will be asked to confirm before anything is created.</p>'}
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      ${a.pass?`<button class="btn btn-primary" onclick="urgAlarmClose(false)">OK</button>`
+              :`<button class="btn btn-primary" onclick="urgAlarmClose(true)">Change date</button><button class="btn btn-outline" onclick="urgAlarmClose(false)">Keep this date</button>`}
+    </div></div></div>`;
+}
+function urgRowHTML(r,i){
+  const crops=urg.opts?urg.opts.crops:[]; let last='';
+  const opts=`<option value="">Choose crop…</option>`+crops.map(c=>{ const g=c.category!==last?(last=c.category,`${last?'</optgroup>':''}<optgroup label="${esc(c.category)}">`):''; return `${g}<option value="${esc(c.cropId)}" ${r.cropId===c.cropId?'selected':''}>${esc(c.name)} (${esc(c.cropId)})</option>`; }).join('')+(crops.length?'</optgroup>':'');
+  const err=urg.res&&urg.res.items&&urg.res.items[i]?urg.res.items[i].errors:[];
+  return `<div class="urg-row">
+    <div><label>Crop</label><select onchange="urgSet(${i},'cropId',this.value)">${opts}</select></div>
+    <div><label>Planting date</label><input type="date" value="${esc(r.date)}" min="${esc(todayISO())}" onchange="urgSet(${i},'date',this.value)"></div>
+    <div><label>Waves</label><input type="number" min="1" max="${(urg.opts&&urg.opts.maxWaves)||12}" value="${esc(r.waves)}" onchange="urgSet(${i},'waves',this.value)"></div>
+    <div><label>Beds/wave</label><input type="number" min="1" max="55" placeholder="auto" value="${esc(r.beds)}" onchange="urgSet(${i},'beds',this.value)"></div>
+    <div><label>Block</label><select onchange="urgSet(${i},'block',this.value)"><option value="">Auto (crop group)</option>${['B1','B2','B3','B4'].map(b=>`<option value="${b}" ${r.block===b?'selected':''}>Block ${b.slice(1)}</option>`).join('')}</select></div>
+    <div><button class="btn btn-ghost" style="width:auto;margin:0;" title="Remove" onclick="urgDelRow(${i})">✕</button></div>
+  </div>${err.length?`<div class="notice" style="margin:-4px 0 8px;">${err.map(esc).join('<br>')}</div>`:''}`;
+}
+function urgResultHTML(){
+  const r=urg.res; if(!r||!r.items) return '';
+  const body=r.items.filter(it=>!it.errors.length).map(it=>`<div class="card" style="margin-bottom:8px;">
+    <div class="row"><span><b>${esc(it.name)}</b> <span class="urg-badge">Shortfall crop year</span></span><span>${esc(it.block)} · ${it.bedsPerWave} bed${it.bedsPerWave===1?'':'s'}/wave · every ${it.gapDays} d</span></div>
+    <div class="note" style="margin:2px 0 6px;">Block chosen from: ${esc(it.blockSource)}</div>
+    ${it.waves.map(w=>`<div class="urg-wave">
+      <div><b>Wave ${w.wave}</b> · ${esc(w.date)} <span class="urg-badge ${w.window.pass?'urg-pass':'urg-fail'}">Oregon window ${w.window.pass?'PASS':'FAIL'}</span>
+        ${w.status==='PLACED'?'<span class="chip chip-ok">Beds ready</span>':(w.status==='NOT_ENOUGH_BEDS'?'<span class="chip chip-danger">Not enough ready beds</span>':(w.status?`<span class="chip chip-neutral">${esc(w.status.replace(/_/g,' '))}</span>`:''))}</div>
+      <div class="note" style="margin:2px 0;">${esc(w.window.message)}</div>
+      ${w.beds&&w.beds.length?`<div>Beds: <b>${esc(w.beds.join(', '))}</b></div>`:''}
+      ${w.message?`<div class="note" style="margin:2px 0;">${esc(w.message)}</div>`:''}
+    </div>`).join('')}</div>`).join('');
+  const s=r.summary||{};
+  const bar=`<div class="card"><div class="row"><span>Waves checked</span><b>${s.waves||0}</b></div><div class="row"><span>Beds ready and available</span><b>${s.placed||0} wave(s)</b></div>
+    <div class="row"><span>Short of ready beds</span><b>${s.short||0} wave(s)</b></div><div class="row"><span>Outside Oregon window</span><b style="${s.outOfWindow?'color:#9C1C13;':''}">${s.outOfWindow||0} wave(s)</b></div></div>`;
+  const notes=(r.notes||[]).length?`<div class="note">${r.notes.map(esc).join('<br>')}</div>`:'';
+  return bar+body+notes;
+}
+function urgentModal(){
+  const r=urg.res, canCreate=r&&r.dryRun&&r.ok&&r.summary&&r.summary.placed>0&&!urg.done&&(!r.summary.outOfWindow||urg.confirmOut);
+  if(urg.loading) return `<h2 style="font-size:15px;">Urgent production</h2><div class="note">Loading crops and Oregon windows…</div>`;
+  if(urg.optsErr) return `<h2 style="font-size:15px;">Urgent production</h2><div class="notice">${esc(urg.optsErr)}</div><button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
+  return `${urgAlarmHTML()}
+  <h2 style="font-size:15px;">Urgent production <span class="urg-badge">Shortfall crop year</span></h2>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">For unexpected demand. Choose the crop, planting date and number of waves. The system checks the Oregon window, picks the block from the crop group on the block layout, and reserves beds that are free and verified ready. Nothing is created until you press Create.</p>
+  ${urg.rows.map(urgRowHTML).join('')}
+  <button class="btn btn-outline" style="width:auto;" onclick="urgAddRow()">+ Add another crop</button>
+  <div class="field" style="margin-top:10px;"><label>Why is this needed? (optional, saved on every cohort)</label><input type="text" maxlength="300" value="${esc(urg.reason)}" placeholder="e.g. Restaurant order for 300 kg of kale" onchange="urg.reason=this.value"></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button class="btn btn-primary" ${urg.busy?'disabled':''} onclick="urgCheck()">${urg.busy&&!urg.res?'Checking…':'Check window and beds'}</button>
+    <button class="btn btn-ghost" onclick="closeModal()">${urg.done?'Close':'Cancel'}</button>
+  </div>
+  ${urg.err?`<div class="notice" style="margin-top:8px;">${esc(urg.err)}</div>`:''}
+  <div style="margin-top:10px;">${urgResultHTML()}</div>
+  ${r&&r.dryRun&&r.summary&&r.summary.outOfWindow&&r.summary.placed?`<label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:8px 0;color:#9C1C13;"><input type="checkbox" ${urg.confirmOut?'checked':''} onchange="urg.confirmOut=this.checked;render()"> I understand ${r.summary.outOfWindow} wave(s) are outside the Oregon allowable window and I want to plant them anyway.</label>`:''}
+  ${urg.done?`<div class="note" style="color:#1E6B2E;">Created. Each bed is reserved. When the crop is in the ground, use Verify planting on that bed.</div>`
+    :(r&&r.dryRun?`<button class="btn btn-primary" ${canCreate&&!urg.busy?'':'disabled'} onclick="urgCreate()">${urg.busy?'Creating…':`Create shortfall production (${r.summary?r.summary.placed:0} wave${r.summary&&r.summary.placed===1?'':'s'})`}</button>`:'')}`;
+}
+
 /* ---- Tab: Post-Harvest & Cover Crop ----
  * Cover-crop windows are NOT defined here. The single source of truth is the RANCH_ALLOWABLE_PLANTING_CAL tab; the backend
  * (BedStatusEngine.gs, coverCropMixForExit_ / 'get-cover-windows') reads it and returns both the window list and the mix
@@ -3445,7 +3585,7 @@ function planningScreen(){
   if(ui.pMode==='rotation'||ui.pMode==='infra') ensureRotationLoaded();
   return `<div class="topbar">
     <div><div class="brand">Season Planning</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')} · Season ${ui.pYear}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><button onclick="goBoard()">← Daily board</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
+    <div style="display:flex;align-items:center;gap:8px;"><button onclick="goBoard()">← Daily board</button><button onclick="openUrgent()" style="background:#B4231A;color:#fff;border-color:#B4231A;">+ Urgent production</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
   </div>
   ${planTabStrip()}
   <div class="toolbar">${planSubViews()}${planToolbarControls()}</div>
@@ -4238,6 +4378,9 @@ async function mockBackend(action, p){
         out.mix=open?{openNow:true,label:open,purpose:'',exitDate:p.date}:{openNow:false,label:'No cover crop window is open on '+p.date+' (demo data).',exitDate:p.date}; }
       return ok(out);
     }
+    case 'get-urgent-options': return ok({label:'Shortfall crop year',maxWaves:12,maxCrops:10,defaultGapDays:14,crops:[
+        {cropId:'KAL',name:'Kale (demo)',category:'Leafy Greens',plantingMethod:'TRANSPLANT',fieldAllowed:true,windows:[{from:'03-20',to:'04-25',label:'Mar 20 - Apr 25'},{from:'08-01',to:'09-10',label:'Aug 1 - Sep 10'}]}]});
+    case 'urgent-production': return ok({ok:true,dryRun:p.dryRun!==false,items:[],notes:['Demo mode: nothing is created.'],summary:{waves:0,placed:0,short:0,outOfWindow:0,created:0,assigned:0}});
     case 'get-rotation-plan': return ok({rows:[],statusByYear:{},families:[],editableBlocks:['B1','B2','B3','B4']});
     case 'save-rotation': return ok({year:p.year,status:'Draft',assignments:p.assignments});
     case 'approve-rotation': return ok({year:p.year,status:'Approved'});
