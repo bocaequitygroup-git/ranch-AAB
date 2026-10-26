@@ -1746,90 +1746,98 @@ function lbPreset(p){
   lbRefresh();
 }
 function lbDate(which,v){ const d=ui.modalDraft; d[which]=v; d.preset='custom'; lbRefresh(); }
-/* Time-log views (By worker / By activity / All sessions) read the sessions; Budget vs Actual and By activity also read the labor budget (LaborBudget.gs). */
-function lbRefresh(){ const d=ui.modalDraft; if(d.view!=='budget') lbLoad(); if(d.view==='budget'||d.view==='activity') lbBudgetLoad(); }
+/* Time-log views (By worker / All sessions) read the sessions; Budget vs Actual and By worker also read the labor budget (LaborBudget.gs). */
+function lbRefresh(){ const d=ui.modalDraft; if(d.view!=='budget') lbLoad(); if(d.view==='budget'||d.view==='worker') lbBudgetLoad(); }
 function lbView(v){ const d=ui.modalDraft, k=d.from+'|'+d.to; d.view=v;
   if(v!=='budget'&&d.sKey!==k) lbLoad();
-  if((v==='budget'||v==='activity')&&d.bKey!==k) lbBudgetLoad();
+  if((v==='budget'||v==='worker')&&d.bKey!==k) lbBudgetLoad();
   render(); }
 /* Budget vs Actual: labor hours ALLOWED by the labor matrix against the human hours actually recorded, same date range. Advisory only. */
 async function lbBudgetLoad(){
   const d=ui.modalDraft, n=++lbBudgetLoad._n; d.bLoading=true; d.bError=''; render();
   try{
     const p={from:d.from||'',to:d.to||''}; if(!d.from&&!d.to) p.all=true;
-    const r=IS_DEMO?{rows:[],over:0,within:0,blocksMissingAcres:[]}:await apiCall('get-labor-budget',p,60000);
+    const r=IS_DEMO?{lines:[],system:{overHours:0,atCount:0,underHours:0,unavailableCount:0},activities:[],users:[]}:await apiCall('get-labor-budget',p,60000);
     if(ui.modalDraft!==d||n!==lbBudgetLoad._n) return;
+    if(!r||!r.system||!Array.isArray(r.lines)||!Array.isArray(r.users)) throw new Error('The server sent an older labor-budget format. Deploy the current LaborBudget.gs and reload.');
     d.budget=r; d.bKey=d.from+'|'+d.to;
   }catch(e){ if(ui.modalDraft!==d||n!==lbBudgetLoad._n) return; d.bError=e.message; d.budget=null; }
   d.bLoading=false; if(ui.modal==='labor'&&ui.modalDraft===d) render();
 }
 lbBudgetLoad._n=0;
-/* ---- Budget vs Actual helpers ---- */
+/* ---- Budget vs Actual helpers ----
+ * Response of get-labor-budget (LaborBudget.gs): { lines:[one per completed session: worker, workerId, activityId, activity, budgetRule, start, completed,
+ *   actualHours, budgetHours|null, status OVER|AT|UNDER|UNAVAILABLE, overHours, underHours, reason],
+ *   system:{overHours,atCount,underHours,unavailableCount}, users:[{name,sessions,actualHours,budgetHours,overHours,atCount,underHours,compared}] }.
+ * The server does all the arithmetic; this view only displays it. */
 const lbH=h=>(Math.round(h*100)/100).toFixed(2)+' h';
-const lbV=h=>(Math.round(h*100)/100===0?'':(h>0?'+':'\u2212'))+lbH(Math.abs(h));
-const lbP=p=>(p>0?'+':p<0?'\u2212':'')+Math.abs(Math.round(p*10)/10).toFixed(1)+'%';
-const lbMinTxt=h=>{ const m=Math.round(Math.abs(h)*60); return m<60?m+' minute'+(m===1?'':'s'):Math.floor(m/60)+' h '+(m%60)+' min'; };
-/* Per activity: budget and actual of the rows that CAN be compared, plus recorded hours with no budget. */
-function lbAgg(b){
-  const by={};
-  ((b&&b.rows)||[]).forEach(r=>{
-    const a=by[r.activity]||(by[r.activity]={activity:r.activity,bud:0,act:0,unc:0,cmp:0,kids:[]});
-    const has=r.status==='OVER'||r.status==='WITHIN';
-    if(has){ a.bud+=r.budgetHours; a.act+=r.actualHours; a.cmp++; } else a.unc+=(r.actualHours||0);
-    a.kids.push(r);
-  });
-  Object.values(by).forEach(a=>{ a.var=a.act-a.bud; a.pct=a.bud>0?a.var/a.bud*100:0; a.over=a.var>0; });
-  return by;
-}
-function lbBudgetCells(a){   /* Budget | Variance | Var % | Status for one activity */
-  if(!a||!a.cmp) return `<td class="num lbd-na">Budget Unavailable</td><td></td><td></td><td></td>`;
-  const c=a.over?'lbd-over':'lbd-ok';
-  return `<td class="num">${lbH(a.bud)}</td><td class="num ${c}">${lbV(a.var)}</td><td class="num ${c}">${lbP(a.pct)}</td><td>${a.over?'<span class="chip" style="background:var(--danger);color:#fff;">Over budget</span>':'<span class="chip chip-ok">Within budget</span>'}</td>`;
-}
+const lbN=h=>{ const r=Math.round(h*100)/100; return (Math.abs(r*10-Math.round(r*10))<1e-9?r.toFixed(1):r.toFixed(2))+' h'; };   /* 2.5 h, 3.0 h, 0.25 h */
+const lbActs=n=>n+' '+(n===1?'activity':'activities');
+const lbNorm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
 function lbBudgetBody(d){
   if(d.bError) return `<div class="error">${esc(d.bError)}</div>`;
   if(d.bLoading&&!d.budget) return `<div class="note" style="margin-top:0;">Loading budgets\u2026</div>`;
-  const b=d.budget||{rows:[]}, miss=b.blocksMissingAcres||[], by=lbAgg(b), acts=Object.values(by);
-  if(!acts.length) return `<div class="note" style="margin-top:0;">No completed work in this period.</div>`;
-  const cmp=acts.filter(a=>a.cmp), bud=cmp.reduce((t,a)=>t+a.bud,0), act=cmp.reduce((t,a)=>t+a.act,0), v=act-bud, p=bud>0?v/bud*100:0, unc=acts.reduce((t,a)=>t+a.unc,0);
-  const over=v>0, cc=over?'lbd-over':'lbd-ok';
+  const b=d.budget||{}, S=b.system||{}, acts=b.activities||[], users=b.users||[], lines=b.lines||[];
+  if(!lines.length) return `<div class="note" style="margin-top:0;">No completed work in this period.</div>`;
   const head=`<div class="lbd-head"><h3>Labor Budget</h3><span class="chip">Advisory</span><span class="lbd-sub">Ngapori Ranch \u00b7 Manager view</span></div>`;
-  const cards=cmp.length?`<div class="lbd-cards">
-    <div class="lbd-card"><div class="k">Budgeted labor</div><div class="v">${lbH(bud)}</div><div class="s">Allowed by the labor rates</div></div>
-    <div class="lbd-card"><div class="k">Actual labor</div><div class="v">${lbH(act)}</div><div class="s">All workers, counted once</div></div>
-    <div class="lbd-card"><div class="k">Variance</div><div class="v ${cc}">${lbV(v)}</div><div class="s">${v===0?'On budget':lbMinTxt(v)+(over?' over':' under')}</div></div>
-    <div class="lbd-card"><div class="k">Variance %</div><div class="v ${cc}">${lbP(p)}</div><div class="s">${over?'Over budget':'Within budget'}</div></div></div>`
-    :`<div class="lbd-card" style="margin-bottom:14px;"><div class="k">Budgeted labor</div><div class="v lbd-na" style="font-size:18px;">Budget Unavailable</div><div class="s">No activity in this period has the data needed for a budget.</div></div>`;
-  const sorted=acts.slice().sort((x,y)=>(y.cmp?1:0)-(x.cmp?1:0)||(y.var-x.var)||x.activity.localeCompare(y.activity));
-  const rows=sorted.map(a=>{
-    const act2=a.act+a.unc;
-    const parent=`<tr class="lb-row-w"><td>${esc(a.activity)}</td>${a.cmp?`<td class="num">${lbH(a.bud)}</td><td class="num">${lbH(a.act)}${a.unc?`<div class="lbd-na" style="font-size:11px;font-weight:400;">+${lbH(a.unc)} with no budget</div>`:''}</td><td class="num ${a.over?'lbd-over':'lbd-ok'}">${lbV(a.var)}</td><td class="num ${a.over?'lbd-over':'lbd-ok'}">${lbP(a.pct)}</td><td>${a.over?'<span class="chip" style="background:var(--danger);color:#fff;">Over budget</span>':'<span class="chip chip-ok">Within budget</span>'}</td>`
-      :`<td class="num lbd-na">Budget Unavailable</td><td class="num">${lbH(act2)}</td><td></td><td></td><td></td>`}</tr>`;
-    const kids=a.kids.map(r=>{ const has=r.status==='OVER'||r.status==='WITHIN', c=r.status==='OVER'?'lbd-over':'lbd-ok';
-      return `<tr class="lb-row-k"><td>${esc(r.block)}</td>${has?`<td class="num">${lbH(r.budgetHours)}</td><td class="num">${lbH(r.actualHours)}</td><td class="num ${c}">${lbV(r.varianceHours)}</td><td class="num ${c}">${lbP(r.variancePct)}</td><td></td>`
-        :`<td class="num lbd-na">Budget Unavailable</td><td class="num">${r.actualHours==null?'':lbH(r.actualHours)}</td><td></td><td></td><td></td>`}</tr>`; }).join('');
-    return parent+kids; }).join('');
-  const table=`<h4 style="margin:4px 0 6px;">Activity budget breakdown</h4><div class="tm-wrap"><table class="tm-t"><thead><tr><th>Activity / block</th><th class="num">Budget</th><th class="num">Actual</th><th class="num">Variance</th><th class="num">Variance %</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  const note=`<p class="lb-note">Budget is the labor time allowed for the work by the configured rates (per acre, per run, or per 100 lb harvested). Actual is the verified human time from completed sessions, all workers added together, each session counted once. A minus variance means the work took less time than budgeted. Only activities with a valid budget are in the totals above${unc?` (${lbH(unc)} recorded without a budget is not included)`:''}. Advisory only: budgets never block workers or change task status.${miss.length?` No acreage on file for ${miss.map(esc).join(', ')}: add it to the LABOR_BUDGET_ACREAGE sheet.`:''}</p>`;
-  return head+cards+table+note;
+
+  /* System-wide: each activity's total actual labor vs its budget, once. */
+  const nOver=acts.filter(a=>a.status==='OVER').length, nUnder=acts.filter(a=>a.status==='UNDER').length;
+  const cards=`<h4 style="margin:4px 0 6px;">System-wide labor summary</h4><div class="lbd-cards">
+    <div class="lbd-card"><div class="k">Over budget</div><div class="v ${S.overHours>0?'lbd-over':''}">${lbN(S.overHours||0)}</div><div class="s">${lbActs(nOver)} over</div></div>
+    <div class="lbd-card"><div class="k">At budget</div><div class="v">${lbActs(S.atCount||0)}</div><div class="s">Actual equals budget</div></div>
+    <div class="lbd-card"><div class="k">Under budget</div><div class="v ${S.underHours>0?'lbd-ok':''}">${lbN(S.underHours||0)}</div><div class="s">${lbActs(nUnder)} with hours remaining</div></div>
+    ${S.unavailableCount?`<div class="lbd-card"><div class="k">Budget Unavailable</div><div class="v lbd-na">${lbActs(S.unavailableCount)}</div><div class="s">No valid budget</div></div>`:''}</div>`;
+
+  /* By user: the user's own hours vs the budget of the user's own sessions, compared once per activity. */
+  const dash='<td class="num lbd-na">\u2014</td>';
+  const urows=users.map(u=>`<tr><td><b>${esc(u.name)}</b></td><td class="num">${u.sessions}</td><td class="num">${lbN(u.actualHours)}</td>`
+    +(u.compared>0?`<td class="num">${lbN(u.budgetHours)}</td><td class="num ${u.overHours>0?'lbd-over':''}">${lbN(u.overHours)} over</td><td class="num">${lbActs(u.atCount)}</td><td class="num ${u.underHours>0?'lbd-ok':''}">${lbN(u.underHours)} under</td>`:dash+dash+dash+dash)+`</tr>`).join('');
+  const userTable=`<h4 style="margin:16px 0 6px;">By user</h4><div class="tm-wrap"><table class="tm-t"><thead><tr><th>User</th><th class="num">Sessions</th><th class="num">Actual hours</th><th class="num">Budget</th><th class="num">Over budget</th><th class="num">At budget</th><th class="num">Under budget</th></tr></thead><tbody>${urows}</tbody></table></div>`;
+
+  /* One row per completed session. */
+  const lrows=lines.map(l=>{
+    const ok=l.status!=='UNAVAILABLE';
+    const desc=`${esc(l.activity)}<div class="lbd-na" style="font-size:11px;font-weight:400;">${esc(l.budgetRule||'No budget rate')}${ok?` \u2192 budget ${lbN(l.budgetHours)}`:''}</div>`;
+    const cells=ok
+      ?`<td class="num ${l.status==='OVER'?'lbd-over':''}">${l.status==='OVER'?'+'+lbN(l.overHours):''}</td><td class="num ${l.status==='UNDER'?'lbd-ok':''}">${l.status==='UNDER'?lbN(l.underHours):''}</td><td class="num ${l.status==='AT'?'lbd-ok':''}">${l.status==='AT'?'Match':''}</td>`
+      :`<td colspan="3" class="lbd-na">Budget Unavailable${l.reason?` \u2014 ${esc(l.reason)}`:''}</td>`;
+    return `<tr><td>${esc(l.worker)}</td><td class="tm-id">${esc(l.activityId||'\u2014')}</td><td>${desc}</td><td>${esc(l.start)}</td><td>${esc(l.completed)}</td><td class="num">${lbN(l.actualHours)}</td>${cells}</tr>`; }).join('');
+  const lineTable=`<h4 style="margin:16px 0 6px;">Budget vs actual by session</h4><div class="tm-wrap"><table class="tm-t"><thead><tr><th>Worker</th><th>Activity ID</th><th>Budget activity description</th><th>Start date</th><th>Completed date</th><th class="num">Actual hours</th><th class="num">Over budget</th><th class="num">Under budget</th><th class="num">Match budget</th></tr></thead><tbody>${lrows}</tbody></table></div>`;
+
+  const note=`<p class="lb-note">Each row is one completed session; actual hours are the verified time of that session, counted once. The budget is the labor-matrix rate times the work in that session: per acre uses the area of the bed worked (BED_MASTER bed length \u00d7 center-to-center spacing), per 100 lb uses the pounds harvested in that session, and per session is a fixed allowance. System-wide figures compare each activity\u2019s total actual hours with its total budget once. A user is compared only against the budget of the user\u2019s own sessions. Sessions with no valid budget are listed but never counted as over or under. Advisory only: budgets never block workers or change task status.</p>`;
+  return head+cards+userTable+lineTable+note;
 }
+
+/* ---- Budget column helpers for the By worker tab ---- */
+function lbBudIndex(b){   /* { w: {WORKERID:{bud,cmp,unc}}, k: {WORKERID|activity:{...}} } built from the per-session lines */
+  const w={}, k={};
+  ((b&&b.lines)||[]).forEach(l=>{
+    const wid=String(l.workerId||'').toUpperCase(), ak=wid+'|'+lbNorm(l.activity);
+    [[w,wid],[k,ak]].forEach(([m,key])=>{ const o=m[key]||(m[key]={bud:0,cmp:0,unc:0}); if(l.status==='UNAVAILABLE') o.unc++; else { o.bud+=l.budgetHours; o.cmp++; } });
+  });
+  return {w,k};
+}
+function lbBudCell(o){
+  if(!o||!o.cmp) return `<td class="num lbd-na">Budget Unavailable</td>`;
+  return `<td class="num">${lbN(o.bud)}${o.unc?`<div class="lbd-na" style="font-size:11px;font-weight:400;">${o.unc} session${o.unc===1?'':'s'} with no budget</div>`:''}</td>`;
+}
+const lbBudNum=o=>o&&o.cmp?Math.round(o.bud*100)/100:'';
 
 /* Group sessions by two levels; every level carries sessions + minutes. */
 function lbGroup(sessions, aKey, aLabel, bKey, bLabel){
   const g={};
   sessions.forEach(s=>{
     const ak=String(aKey(s)), bk=String(bKey(s));
-    const a=g[ak]||(g[ak]={label:aLabel(s),n:0,min:0,kids:{}}); a.n++; a.min+=s.minutes;
-    const b=a.kids[bk]||(a.kids[bk]={label:bLabel(s),n:0,min:0}); b.n++; b.min+=s.minutes;
+    const a=g[ak]||(g[ak]={key:ak,label:aLabel(s),n:0,min:0,kids:{}}); a.n++; a.min+=s.minutes;
+    const b=a.kids[bk]||(a.kids[bk]={key:bk,label:bLabel(s),n:0,min:0}); b.n++; b.min+=s.minutes;
   });
   const by=(x,y)=>y.min-x.min||String(x.label).localeCompare(String(y.label));
   return Object.values(g).sort(by).map(a=>Object.assign(a,{kidList:Object.values(a.kids).sort(by)}));
 }
 function lbGroups(d){
   const S=d.sessions||[];
-  return d.view==='activity'
-    ? lbGroup(S, s=>s.activity||'(no activity)', s=>s.activity||'(no activity)', s=>s.workerId||'(no worker)', s=>s.worker||s.workerId||'(no worker)')
-    : lbGroup(S, s=>s.workerId||'(no worker)', s=>s.worker||s.workerId||'(no worker)', s=>s.activity||'(no activity)', s=>s.activity||'(no activity)');
+  return lbGroup(S, s=>s.workerId||'(no worker)', s=>s.worker||s.workerId||'(no worker)', s=>s.activity||'(no activity)', s=>s.activity||'(no activity)');
 }
 function laborModal(){
   const d=ui.modalDraft, S=d.sessions||[], total=S.reduce((a,s)=>a+s.minutes,0);
@@ -1838,7 +1846,7 @@ function laborModal(){
     <div class="field"><label>To</label><input class="tm-in" type="date" value="${esc(d.to)}" onchange="lbDate('to',this.value)"></div>
     <div class="field"><label>Show</label><select class="tm-in" onchange="lbPreset(this.value)">
       ${[['7','Last 7 days'],['30','Last 30 days'],['all','All time']].map(([k,l])=>`<option value="${k}" ${d.preset===k?'selected':''}>${l}</option>`).join('')}${d.preset==='custom'?'<option value="custom" selected>Custom range</option>':''}</select></div>
-    <div class="seg">${[['budget','Budget vs Actual'],['worker','By worker'],['activity','By activity'],['sessions','All sessions']].map(([k,l])=>`<button class="${d.view===k?'active':''}" onclick="lbView('${k}')">${l}</button>`).join('')}</div>
+    <div class="seg">${[['budget','Budget vs Actual'],['worker','By worker'],['sessions','All sessions']].map(([k,l])=>`<button class="${d.view===k?'active':''}" onclick="lbView('${k}')">${l}</button>`).join('')}</div>
     <button class="tm-mini" ${S.length&&d.view!=='budget'?'':'disabled'} onclick="lbCsv()">Download CSV</button></div>`;
   let body='';
   if(d.view==='budget') body=lbBudgetBody(d);
@@ -1849,14 +1857,16 @@ function laborModal(){
     body=`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>Worker</th><th>Activity</th><th>Bed</th><th>Started</th><th>Ended</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th></tr></thead><tbody>
       ${S.map(s=>`<tr><td>${esc(s.worker||s.workerId)}</td><td>${esc(s.activity)}</td><td>${esc(s.bedId)}</td><td>${esc(s.start)}</td><td>${esc(s.end)}</td><td class="num">${lbHM(s.minutes)}</td><td class="num">${lbDec(s.minutes)}</td></tr>`).join('')}
       <tr class="lb-total"><td colspan="5">Total \u00b7 ${S.length} session${S.length===1?'':'s'}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td></tr></tbody></table></div>`;
-  } else {
-    const G=lbGroups(d), isAct=d.view==='activity', ag=isAct&&d.budget?lbAgg(d.budget):null, e4=isAct?'<td></td><td></td><td></td><td></td>':'';
-    body=`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>${isAct?'Activity / worker':'Worker / activity'}</th><th class="num">Sessions</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th>${isAct?'<th class="num">Budget</th><th class="num">Variance</th><th class="num">Variance %</th><th>Status</th>':''}</tr></thead><tbody>
-      ${G.map(a=>`<tr class="lb-row-w"><td>${esc(a.label)}</td><td class="num">${a.n}</td><td class="num">${lbHM(a.min)}</td><td class="num">${lbDec(a.min)}</td>${isAct?(ag?lbBudgetCells(ag[a.label]):(d.bError?'':'<td class="num lbd-na">Loading\u2026</td><td></td><td></td><td></td>')):''}</tr>`
-        +a.kidList.map(k=>`<tr class="lb-row-k"><td>${esc(k.label)}</td><td class="num">${k.n}</td><td class="num">${lbHM(k.min)}</td><td class="num">${lbDec(k.min)}</td>${e4}</tr>`).join('')).join('')}
-      <tr class="lb-total"><td>Total</td><td class="num">${S.length}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td>${e4}</tr></tbody></table></div>`;
+  } else {   /* By worker, with the Budget column */
+    const G=lbGroups(d), bi=d.budget?lbBudIndex(d.budget):null;
+    const bc=(g,key)=>bi?lbBudCell(bi[g][key]):(d.bError?'<td></td>':'<td class="num lbd-na">Loading\u2026</td>');
+    const tb=bi?Object.values(bi.w).reduce((t,o)=>({bud:t.bud+o.bud,cmp:t.cmp+o.cmp,unc:t.unc+o.unc}),{bud:0,cmp:0,unc:0}):null;
+    body=`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>Worker / activity</th><th class="num">Sessions</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th><th class="num">Budget</th></tr></thead><tbody>
+      ${G.map(a=>`<tr class="lb-row-w"><td>${esc(a.label)}</td><td class="num">${a.n}</td><td class="num">${lbHM(a.min)}</td><td class="num">${lbDec(a.min)}</td>${bc('w',String(a.key).toUpperCase())}</tr>`
+        +a.kidList.map(k=>`<tr class="lb-row-k"><td>${esc(k.label)}</td><td class="num">${k.n}</td><td class="num">${lbHM(k.min)}</td><td class="num">${lbDec(k.min)}</td>${bc('k',String(a.key).toUpperCase()+'|'+lbNorm(k.key))}</tr>`).join('')).join('')}
+      <tr class="lb-total"><td>Total</td><td class="num">${S.length}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td>${tb?lbBudCell(tb):'<td></td>'}</tr></tbody></table></div>`;
   }
-  const notes=`<p class="lb-note">Completed sessions only, dated by the time they ended. Time while a session was paused is not counted; a session still running appears once it is completed. Reassignment handoffs are not counted as work.${d.missing?` ${d.missing} session${d.missing===1?' has':'s have'} no recorded duration and show as 0:00.`:''}</p>`;
+  const notes=`<p class="lb-note">Completed sessions only, dated by the time they ended. Time while a session was paused is not counted; a session still running appears once it is completed. Reassignment handoffs are not counted as work.${d.view==='worker'?' Budget adds up only the sessions that have a valid budget (see Budget vs Actual for how each is set).':''}${d.missing?` ${d.missing} session${d.missing===1?' has':'s have'} no recorded duration and show as 0:00.`:''}</p>`;
   return `<div class="tm-head"><h2>Total labor hours</h2><div style="display:flex;gap:8px;"><button class="tm-mini" onclick="closeModal();openTeam()">Team</button><button class="tm-close" onclick="closeModal()">Close</button></div></div>${filters}${body}${d.view==='budget'?'':notes}`;
 }
 const lbCsvCell=v=>{ let s=String(v==null?'':v); if(/^[=+\-@\t\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
@@ -1868,10 +1878,10 @@ function lbCsv(){
       .concat(S.map(s=>[s.workerId,s.worker,s.activity,s.bedId,s.start,s.end,lbHM(s.minutes),lbDec(s.minutes)]))
       .concat([['Total','','','','','',lbHM(total),lbDec(total)]]);
   } else {
-    const act=d.view==='activity';
-    rows=[[act?'Activity':'Worker', act?'Worker':'Activity','Sessions','Hours (h:mm)','Hours (decimal)']];
-    lbGroups(d).forEach(a=>a.kidList.forEach(k=>rows.push([a.label,k.label,k.n,lbHM(k.min),lbDec(k.min)])));
-    rows.push(['Total','',S.length,lbHM(total),lbDec(total)]);
+    const bi=d.budget?lbBudIndex(d.budget):null;
+    rows=[['Worker','Activity','Sessions','Hours (h:mm)','Hours (decimal)','Budget (hours)']];
+    lbGroups(d).forEach(a=>a.kidList.forEach(k=>rows.push([a.label,k.label,k.n,lbHM(k.min),lbDec(k.min),bi?lbBudNum(bi.k[String(a.key).toUpperCase()+'|'+lbNorm(k.key)]):''])));
+    rows.push(['Total','',S.length,lbHM(total),lbDec(total),bi?lbBudNum(Object.values(bi.w).reduce((t,o)=>({bud:t.bud+o.bud,cmp:t.cmp+o.cmp}),{bud:0,cmp:0})):'']);
   }
   const name='labor-hours-'+d.view+'_'+(d.from||'start')+'_to_'+(d.to||'today')+'.csv';
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(lbCsvCell).join(',')).join('\n')],{type:'text/csv'})); a.download=name;
