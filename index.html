@@ -1210,7 +1210,8 @@ function modalHTML(){
   else if(ui.modal==='team') inner=teamModal();
   else if(ui.modal==='labor') inner=laborModal();
   else if(ui.modal==='urgent') inner=urgentModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  else if(ui.modal==='phassign') inner=phaModal();
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -3400,14 +3401,11 @@ function smartScreen(){
  * Manager picks crop(s), a planting date and waves. The backend (UrgentProduction.gs) checks the Oregon window, works out the block
  * from the block layout / rotation, finds beds that are free AND verified ready, and creates cohorts tagged "Shortfall crop year".
  * Nothing is written until "Create shortfall production". */
-/* Propagation hand-off: after a shortfall is created the manager may open the propagation app's Shortfall Crop tab and enter it there.
- * Nothing is sent or stored; the two systems stay unlinked. Change this one address when the propagation app moves. */
-const URG_PROP_URL='https://bocaequitygroup-git.github.io/prop-manager-app/';
-const urg={opts:null,optsErr:'',loading:false,rows:[],reason:'',busy:false,res:null,err:'',alarm:null,confirmOut:false,done:false,propHide:false};
+const urg={opts:null,optsErr:'',loading:false,rows:[],reason:'',busy:false,res:null,err:'',alarm:null,confirmOut:false,done:false};
 function urgBlankRow(){ return {cropId:'',date:'',waves:1,beds:'',gap:'',block:''}; }
 function urgMsg(e){ return (e&&e.message)?e.message:String(e||'Something went wrong.'); }
 async function openUrgent(){
-  urg.rows=[urgBlankRow()]; urg.reason=''; urg.res=null; urg.err=''; urg.alarm=null; urg.confirmOut=false; urg.done=false; urg.propHide=false;
+  urg.rows=[urgBlankRow()]; urg.reason=''; urg.res=null; urg.err=''; urg.alarm=null; urg.confirmOut=false; urg.done=false;
   openModal('urgent');
   if(!urg.opts && !urg.loading){
     urg.loading=true; render();
@@ -3461,41 +3459,6 @@ async function urgCreate(){
     }
   }catch(e){ urg.err=urgMsg(e); }
   urg.busy=false; render();
-}
-/* Crops created in this run that need propagation (anything not direct-seeded), with only the waves that really got beds. */
-function urgPropItems(){
-  const r=urg.res; if(!r||!r.items||r.dryRun) return [];
-  const crops=(urg.opts&&urg.opts.crops)||[], out=[];
-  r.items.forEach(it=>{
-    if(it.errors&&it.errors.length) return;
-    const c=crops.find(x=>x.cropId===it.cropId);
-    if(c && /DIRECT/i.test(String(c.plantingMethod||''))) return;
-    const dates=(it.waves||[]).filter(w=>w.status==='PLACED').map(w=>w.date);
-    if(dates.length) out.push({cropId:it.cropId,name:it.name,dates:dates,block:it.block});
-  });
-  return out;
-}
-function urgPropText(){
-  return urgPropItems().map(i=>i.name+' ('+i.cropId+'), field, '+i.dates.length+' wave'+(i.dates.length===1?'':'s')+': '+i.dates.join(', ')).join('\n')
-    +(urg.reason?'\nReason: '+urg.reason:'');
-}
-function urgOpenProp(){ try{ window.open(URG_PROP_URL,'_blank','noopener'); }catch(e){ toast('Could not open the propagation app.'); } }
-function urgCopyProp(){
-  const t=urgPropText();
-  try{ navigator.clipboard.writeText(t).then(()=>toast('Summary copied.'),()=>toast('Could not copy. Select the text instead.')); }
-  catch(e){ toast('Could not copy. Select the text instead.'); }
-}
-function urgPropHTML(){
-  const items=urgPropItems(); if(!items.length||urg.propHide) return '';
-  return `<div class="card" style="margin-top:10px;border-color:#B4231A;">
-    <div style="font-weight:700;margin-bottom:4px;">Set up propagation for this shortfall?</div>
-    <div class="note" style="margin:0 0 6px;">These crops are transplanted, so the nursery needs to sow them. Open the propagation app, go to Shortfall Crop, and enter:</div>
-    ${items.map(i=>`<div class="row"><span><b>${esc(i.name)}</b> (${esc(i.cropId)}) · field</span><span>${i.dates.length} wave${i.dates.length===1?'':'s'}: ${esc(i.dates.join(', '))}</span></div>`).join('')}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-      <button class="btn btn-primary" style="width:auto;margin:0;" onclick="urgOpenProp()">Open propagation shortfall</button>
-      <button class="btn btn-outline" style="width:auto;margin:0;" onclick="urgCopyProp()">Copy summary</button>
-      <button class="btn btn-ghost" style="width:auto;margin:0;" onclick="urg.propHide=true;render()">Not now</button>
-    </div></div>`;
 }
 function urgAlarmHTML(){
   const a=urg.alarm; if(!a) return '';
@@ -3558,7 +3521,7 @@ function urgentModal(){
   ${urg.err?`<div class="notice" style="margin-top:8px;">${esc(urg.err)}</div>`:''}
   <div style="margin-top:10px;">${urgResultHTML()}</div>
   ${r&&r.dryRun&&r.summary&&r.summary.outOfWindow&&r.summary.placed?`<label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:8px 0;color:#9C1C13;"><input type="checkbox" ${urg.confirmOut?'checked':''} onchange="urg.confirmOut=this.checked;render()"> I understand ${r.summary.outOfWindow} wave(s) are outside the Oregon allowable window and I want to plant them anyway.</label>`:''}
-  ${urg.done?`<div class="note" style="color:#1E6B2E;">Created. Each bed is reserved. When the crop is in the ground, use Verify planting on that bed.</div>${urgPropHTML()}`
+  ${urg.done?`<div class="note" style="color:#1E6B2E;">Created. Each bed is reserved. When the crop is in the ground, use Verify planting on that bed.</div>`
     :(r&&r.dryRun?`<button class="btn btn-primary" ${canCreate&&!urg.busy?'':'disabled'} onclick="urgCreate()">${urg.busy?'Creating…':`Create shortfall production (${r.summary?r.summary.placed:0} wave${r.summary&&r.summary.placed===1?'':'s'})`}</button>`:'')}`;
 }
 
@@ -3596,10 +3559,56 @@ function phPreviewHTML(){
   const m=ph.mix;
   return `<div class="row"><span>Cover crop mix</span><b style="text-align:right;max-width:62%;">${esc(m.openNow?m.label:'No window open')}</b></div><div class="note" style="margin:2px 0;">${esc(m.openNow?(m.purpose||''):m.label)}</div>`;
 }
+/* ---- Post-Harvest & Cover Crop: assign crews (PostHarvestAssign.gs) ----
+ * One activity can have many workers and one worker can hold many activities: an assignment is one ASSIGNED
+ * FIELD_LIVE_SESSION row per worker per activity per bed. validateActivity_ (ActivityEngine.gs) is the judge: a bed with no
+ * cohort accepts ANY incomplete worker step in any order; completed steps, automatic buffers and seasonal windows that have
+ * not opened are refused. The first row of the grid is each bed's next required step; other remaining steps can be added.
+ *   Assign  - adds workers (workers already open on that step are skipped).
+ *   Replace - manager override: the crew you tick becomes the crew; other not-yet-started workers are removed.
+ *   Clear   - removes not-yet-started assignments. Started sessions are never removed here (use Reassign on the bed). */
+const pha={sel:{},block:'ALL',busy:false};
+function phaBeds(){ return (state.beds||[]).filter(b=>b.postHarvest); }
+function phaVisible(){ return phaBeds().filter(b=>pha.block==='ALL'||String(b.blockId||'')===pha.block); }
+function phaOpenSess(id){ return (state.sessions||[]).filter(s=>s.bedId===id && String(s.status||'').toUpperCase()!=='COMPLETED'); }
+function phaAssigned(id){ return phaOpenSess(id).filter(s=>String(s.status||'').toUpperCase()==='ASSIGNED'); }
+/* Mirrors validateActivity_: a step can be assigned unless it is complete, an automatic buffer, or a seasonal window not yet open. */
+function phaStepOK(b,name){ const s=((b.postHarvest||{}).steps||[]).find(x=>x.name===name); return !!s && s.status!=='COMPLETE' && s.gate!=='BUFFER' && !(s.gate==='WINDOW'&&s.status!=='OPEN'); }
+function phaSteps(b){ return ((b.postHarvest||{}).steps||[]).filter(s=>phaStepOK(b,s.name)).map(s=>s.name); }
+function phaCanAssign(b){ const p=b.postHarvest; return !!(p && !p.readyToVerify && phaSteps(b).length); }
+function phaSelectable(b){ return phaCanAssign(b) || phaAssigned(b.id).length>0; }
+function phaWhy(b){ const p=b.postHarvest; return p.readyToVerify?'All steps done. Verify the bed instead.':'Only automatic waits or closed seasonal windows remain. They unlock on their own.'; }
+function phaCrewCell(b){
+  const ss=phaOpenSess(b.id); if(!ss.length) return '<span class="qsub">Unassigned</span>';
+  const g={}; ss.forEach(s=>{ (g[s.activity]=g[s.activity]||[]).push(s); });
+  return Object.keys(g).map(a=>`<div style="margin-bottom:3px;"><span class="qsub">${esc(a)}:</span> ${g[a].map(s=>{
+    const asg=String(s.status||'').toUpperCase()==='ASSIGNED';
+    return `<span class="chip ${asg?'chip-warn':'chip-ok'}" title="${asg?'Assigned, not started. × clears it.':'Started. Use Reassign on the bed panel.'}">${esc(s.workerName||maWName(s.workerId))}${asg?`<button class="dc-mini" data-id="${esc(s.id)}" onclick="phaUnassignOne(this.dataset.id)" style="padding:0 0 0 4px;">×</button>`:''}</span>`; }).join(' ')}</div>`).join('');
+}
+function phaBarHTML(){
+  const n=Object.keys(pha.sel).length, off=(pha.busy||!n)?'disabled':'';
+  const blocks=[...new Set(phaBeds().map(b=>String(b.blockId||'')).filter(Boolean))].sort();
+  return `<div class="card" style="position:sticky;top:0;z-index:3;"><div class="row"><span><b>${n}</b> bed${n===1?'':'s'} selected</span>
+    <span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
+      <button class="dc-mini" onclick="phaSelect('ready')">Select all ready</button><button class="dc-mini" onclick="phaSelect('assigned')">Select all with a crew</button><button class="dc-mini" onclick="phaSelect('none')">Select none</button></span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+      <select onchange="phaBlock(this.value)" style="padding:6px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;"><option value="ALL">All blocks</option>${blocks.map(k=>`<option value="${esc(k)}" ${pha.block===k?'selected':''}>${esc(k)}</option>`).join('')}</select>
+      <button class="btn btn-primary" style="width:auto;margin:0;" ${off} onclick="phaOpenAssign()">Assign / replace crew…</button>
+      <button class="btn btn-outline" style="width:auto;margin:0;" ${off} onclick="phaClearSelected()">Clear crew</button></div>
+    <div class="note" style="margin:6px 0 0;">Assign starts with each bed's next required step and can add any other remaining step. Clear removes assignments nobody has started.</div></div>`;
+}
+function phaRefreshBar(){ const e=document.getElementById('pha-bar'); if(e) e.innerHTML=phaBarHTML(); }
+function phaTog(id,on){ if(on) pha.sel[id]=1; else delete pha.sel[id]; phaRefreshBar(); }
+function phaBlock(v){ pha.block=v; Object.keys(pha.sel).forEach(id=>{ const b=(state.beds||[]).find(x=>x.id===id); if(!b||(v!=='ALL'&&String(b.blockId||'')!==v)) delete pha.sel[id]; }); render(); }
+function phaSelect(kind){
+  pha.sel={}; phaVisible().forEach(b=>{ if(kind==='ready'?phaCanAssign(b):kind==='assigned'?phaAssigned(b.id).length>0:false) pha.sel[b.id]=1; });
+  document.querySelectorAll('.pha-cb').forEach(c=>{ c.checked=!!pha.sel[c.dataset.id]; }); phaRefreshBar();
+}
 function postHarvestScreen(){
-  const beds=(state.beds||[]).filter(b=>b.postHarvest);
-  const rows=beds.map(b=>{ const p=b.postHarvest, m=p.coverMix||{}, steps=p.stepCount||(p.steps||[]).length, nxt=p.readyToVerify?'Ready to verify':(p.nextStep?'Step '+(p.nextStepNumber||'?')+' of '+steps+': '+p.nextStep:'—');
-    return `<tr><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button></td><td>${esc(b.cohortId||'bed-level')}</td><td>${esc(m.exitDate||'—')}</td><td style="white-space:normal;min-width:200px;">${esc(m.label||'No standard mix: manager decides')}</td><td style="white-space:normal;min-width:200px;">${esc(nxt)}</td><td><span class="chip ${p.readyToVerify?'chip-ok':'chip-warn'}">${p.readyToVerify?'Verify bed ready':'In turnover'}</span></td></tr>`; }).join('');
+  const all=phaBeds(), beds=phaVisible();
+  Object.keys(pha.sel).forEach(id=>{ if(!all.some(b=>b.id===id)) delete pha.sel[id]; });   /* a bed that left turnover cannot stay selected */
+  const rows=beds.map(b=>{ const p=b.postHarvest, m=p.coverMix||{}, steps=p.stepCount||(p.steps||[]).length, nxt=p.readyToVerify?'Ready to verify':(p.nextStep?'Step '+(p.nextStepNumber||'?')+' of '+steps+': '+p.nextStep:'—'), can=phaSelectable(b), why=phaWhy(b);
+    return `<tr><td><input type="checkbox" class="pha-cb" data-id="${esc(b.id)}" ${pha.sel[b.id]?'checked':''} ${can?'':'disabled'} title="${esc(can?'':why)}" onchange="phaTog(this.dataset.id,this.checked)"></td><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button></td><td>${esc(b.cohortId||'bed-level')}</td><td>${esc(m.exitDate||'—')}</td><td style="white-space:normal;min-width:190px;">${esc(m.label||'No standard mix: manager decides')}</td><td style="white-space:normal;min-width:180px;">${esc(nxt)}</td><td style="white-space:normal;min-width:190px;">${phaCrewCell(b)}</td><td style="white-space:nowrap;"><button class="dc-mini" ${phaCanAssign(b)?'':'disabled'} title="${esc(phaCanAssign(b)?'':why)}" onclick="phaOpenAssign(['${esc(b.id)}'])">${phaAssigned(b.id).length?'Edit crew':'Assign'}</button></td><td><span class="chip ${p.readyToVerify?'chip-ok':'chip-warn'}">${p.readyToVerify?'Verify bed ready':'In turnover'}</span></td></tr>`; }).join('');
   return admWrap(`<h2 style="margin:0 0 4px;">Post-harvest & cover crop sequence</h2>
     <div class="note" style="margin-top:0;">When a cohort is terminated (ACT_053), the bed goes through field cleanup (ACT_037–039) and cover crop establishment (ACT_041–044). Only the manager's Verify Bed Ready returns it to Available.</div>
     ${crSectionHead('Cover crop planting windows')}<div class="card">
@@ -3607,9 +3616,101 @@ function postHarvestScreen(){
       ${COVER_WINDOWS.length?COVER_WINDOWS.map(w=>`<div class="row"><span><b>${esc(w.name)} (${esc(w.crop)})</b></span><span style="text-align:right;">${esc(w.startLabel)} – ${esc(w.endLabel)}</span></div>`).join(''):`<div class="note">${coverLoad.busy?'Loading windows…':'No cover crop windows loaded.'}</div>`}
       <div class="note">Read from the RANCH_ALLOWABLE_PLANTING_CAL tab (the single source). The recommended mix is every cover crop whose window is open on the day production ended. If none is open, the next window to open is shown and the manager decides. Edit the tab to change a window.</div>
       <div class="field" style="margin-top:6px;"><label>Check a date</label><input type="date" value="${esc(ph.date)}" oninput="phSetDate(this.value)"></div><div id="ph-out">${phPreviewHTML()}</div></div>
-    ${crSectionHead('Beds in turnover')}${beds.length?`<div class="bb-wrap"><table class="bb-t"><thead><tr><th>Bed</th><th>Cohort</th><th>Production ended</th><th>Cover crop mix</th><th>Next</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ${crSectionHead('Beds in turnover')}${all.length?`<div id="pha-bar">${phaBarHTML()}</div><div class="bb-wrap"><table class="bb-t"><thead><tr><th></th><th>Bed</th><th>Cohort</th><th>Production ended</th><th>Cover crop mix</th><th>Next</th><th>Crew</th><th></th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
       :`<div class="card"><div class="empty">No beds are in post-harvest turnover right now.</div><button class="btn btn-ghost" style="width:auto;" onclick="loadToday()">↻ Reload beds</button></div>`}`);
 }
+
+/* ---- Assign / replace modal: activities (rows) x workers (columns) ---- */
+function phaStartable(b){ return startableActivities(b.id,!!b.cohortId).list.map(a=>a.name); }
+function phaOpenAssign(ids){
+  ids=ids||Object.keys(pha.sel);
+  const beds=ids.map(id=>(state.beds||[]).find(b=>b.id===id)).filter(Boolean), ok=beds.filter(phaCanAssign);
+  if(!ok.length){ toast('None of the selected beds has a step that can be assigned right now.'); return; }
+  const m={__NEXT__:[]}, ex=[], one=ok.length===1?ok[0]:null;
+  if(one) phaAssigned(one.id).forEach(s=>{ const k=s.activity===one.postHarvest.nextStep?'__NEXT__':s.activity; if(k!=='__NEXT__'&&!ex.includes(k)) ex.push(k); const l=m[k]=m[k]||[]; if(!l.includes(s.workerId)) l.push(s.workerId); });
+  openModal('phassign',{ bedIds:ok.map(b=>b.id), skipped:beds.length-ok.length, mode:(one&&phaAssigned(one.id).length)?'replace':'add', date:todayISO(), matrix:m, extras:ex, result:null, busy:false, progress:'' });
+}
+function phaD(){ return ui.modalDraft; }
+function phaBedsOf(d){ return d.bedIds.map(id=>(state.beds||[]).find(b=>b.id===id)).filter(b=>b&&b.postHarvest); }
+function phaMode(v){ phaD().mode=v; render(); }
+function phaCell(k,w,on){ const m=phaD().matrix, l=m[k]=m[k]||[], i=l.indexOf(w); if(on&&i<0) l.push(w); if(!on&&i>=0) l.splice(i,1); render(); }
+function phaRow(k,on){ phaD().matrix[k]=on?(state.workers||[]).map(w=>w.workerId):[]; render(); }
+function phaCol(w){ const d=phaD(), keys=Object.keys(d.matrix), every=keys.every(k=>(d.matrix[k]||[]).includes(w));
+  keys.forEach(k=>{ const l=d.matrix[k]=d.matrix[k]||[], i=l.indexOf(w); if(every&&i>=0) l.splice(i,1); if(!every&&i<0) l.push(w); }); render(); }
+function phaAddExtra(n){ if(!n) return; const d=phaD(); if(!d.extras.includes(n)){ d.extras.push(n); d.matrix[n]=(d.matrix.__NEXT__||[]).slice(); } render(); }
+function phaDelExtra(n){ const d=phaD(); d.extras=d.extras.filter(x=>x!==n); delete d.matrix[n]; render(); }
+function phaDate(v){ phaD().date=v||todayISO(); }
+function phaModal(){
+  const d=phaD(), beds=phaBedsOf(d), workers=state.workers||[];
+  const steps={}; beds.forEach(b=>{ if(phaStepOK(b,b.postHarvest.nextStep)) steps[b.postHarvest.nextStep]=(steps[b.postHarvest.nextStep]||0)+1; });
+  const names=Object.keys(steps), nextLabel=names.length===1?names[0]:names.length?'Each bed\'s next step ('+names.length+' different steps)':'Each bed\'s next step (none open)';
+  const rowDefs=[{key:'__NEXT__',label:nextLabel,sub:beds.length+' bed'+(beds.length===1?'':'s')}].concat(d.extras.map(n=>({key:n,label:n,extra:true})));
+  const optS={}, optO={}; beds.forEach(b=>{ phaSteps(b).forEach(n=>{ if(!names.includes(n)&&!d.extras.includes(n)) optS[n]=1; }); phaStartable(b).forEach(n=>{ if(!names.includes(n)&&!d.extras.includes(n)&&!optS[n]) optO[n]=1; }); });
+  const optHTML=(o,t)=>Object.keys(o).length?`<optgroup label="${t}">${Object.keys(o).sort().map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`:'';
+  const head=workers.map(w=>`<th style="padding:4px;font-size:11px;"><button class="dc-mini" title="Tick or clear this worker on every row" data-w="${esc(w.workerId)}" onclick="phaCol(this.dataset.w)">${esc(w.name)}</button></th>`).join('');
+  const body=rowDefs.map(r=>{ const crew=d.matrix[r.key]||[];
+    return `<tr><td style="padding:4px 6px;min-width:150px;"><b>${esc(r.label)}</b>${r.sub?`<div class="qsub">${esc(r.sub)}</div>`:''}${r.extra?` <button class="dc-mini" data-k="${esc(r.key)}" onclick="phaDelExtra(this.dataset.k)">remove</button>`:''}
+      <div><button class="dc-mini" data-k="${esc(r.key)}" onclick="phaRow(this.dataset.k,true)">all</button><button class="dc-mini" data-k="${esc(r.key)}" onclick="phaRow(this.dataset.k,false)">none</button></div></td>
+      ${workers.map(w=>`<td style="text-align:center;"><input type="checkbox" ${crew.includes(w.workerId)?'checked':''} data-k="${esc(r.key)}" data-w="${esc(w.workerId)}" onchange="phaCell(this.dataset.k,this.dataset.w,this.checked)"></td>`).join('')}</tr>`; }).join('');
+  const res=d.result, resHTML=!res?'':`<div class="ma-res">${res.created.length?`<div>✓ ${res.created.length} assignment${res.created.length===1?'':'s'} made.</div>`:''}${res.removed.length?`<div>${res.removed.length} not-yet-started assignment${res.removed.length===1?'':'s'} removed.</div>`:''}${res.skipped.length?`<div>${res.skipped.length} skipped (already assigned).</div>`:''}${res.locked.length?`<div>${res.locked.length} already started, left as is. Use Reassign on the bed.</div>`:''}${res.failed.slice(0,8).map(f=>`<div class="bad">✗ ${esc(f.bedId||'')} ${esc(f.activity||'')}${f.workerId?' → '+esc(maWName(f.workerId)):''}: ${esc(f.errorCode||'FAILED')}</div>`).join('')}${res.failed.length>8?`<div class="bad">…and ${res.failed.length-8} more failed.</div>`:''}${res.error?`<div class="bad">Stopped: ${esc(res.error)}</div>`:''}</div>`;
+  const total=rowDefs.reduce((n,r)=>n+(d.matrix[r.key]||[]).length,0);
+  const canGo=!d.busy&&(total>0||d.mode==='replace');
+  return `<h2 style="font-size:15px;">${d.bedIds.length===1?'Crew for '+esc(d.bedIds[0]):'Assign crew to '+d.bedIds.length+' beds'}</h2>
+  ${d.skipped?`<div class="note" style="margin-top:0;color:var(--warn);">${d.skipped} selected bed${d.skipped===1?' has':'s have'} nothing assignable right now and ${d.skipped===1?'is':'are'} left out.</div>`:''}
+  <div class="note" style="margin-top:0;">Tick the workers for each activity. One activity can have several workers, and one worker can be ticked on several activities. The first row is each bed's next required step. Add any other remaining step below; a bed skips steps it cannot take yet (automatic waits, seasonal windows not open).</div>
+  <div class="field"><label>How to apply</label>
+    <label style="display:block;"><input type="radio" name="pha-mode" ${d.mode==='add'?'checked':''} onchange="phaMode('add')"> Add these workers (keep anyone already assigned)</label>
+    <label style="display:block;"><input type="radio" name="pha-mode" ${d.mode==='replace'?'checked':''} onchange="phaMode('replace')"> Replace the crew (override): remove other workers who have not started${d.mode==='replace'?'. A row with nobody ticked clears that activity.':''}</label></div>
+  <div style="overflow-x:auto;"><table class="bb-t"><thead><tr><th style="text-align:left;">Activity</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
+  <div class="field" style="margin-top:8px;"><label>Add another activity to these beds</label><select onchange="phaAddExtra(this.value)" style="width:100%;padding:8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;"><option value="">+ Choose an activity…</option>${optHTML(optS,'Remaining turnover steps')}${optHTML(optO,'Other activities')}</select></div>
+  <div class="ma-date" style="margin:6px 0;"><b>Date</b><input type="date" value="${esc(d.date)}" min="${todayISO()}" onchange="phaDate(this.value)"></div>
+  ${resHTML}${d.busy&&d.progress?`<div class="note">${esc(d.progress)}</div>`:''}
+  <button class="btn btn-primary" ${canGo?'':'disabled'} onclick="phaSubmit()">${d.busy?'Working…':(d.mode==='replace'?'Replace crew':'Assign')+(total?' ('+total+' worker-activity pair'+(total===1?'':'s')+' per bed)':'')}</button>
+  <button class="btn btn-ghost" onclick="closeModal()">${res?'Close':'Cancel'}</button>`;
+}
+async function phaSubmit(){
+  const d=phaD(); if(d.busy) return;
+  const replace=d.mode==='replace', beds=phaBedsOf(d), keys=Object.keys(d.matrix);
+  const items=beds.map(b=>{ const startable=phaStartable(b), asg=[];
+    keys.forEach(k=>{ const isNext=k==='__NEXT__', act=isNext?b.postHarvest.nextStep:k, crew=(d.matrix[k]||[]).slice();
+      if(!phaStepOK(b,act)&&(isNext||!startable.includes(act))) return;   /* a row this bed cannot take is skipped; the server is still the judge */
+      if(!crew.length&&!replace) return;
+      asg.push({activity:act,workerIds:crew}); });
+    return {bedId:b.id,assignments:asg}; }).filter(i=>i.assignments.length);
+  if(!items.length){ toast('Tick at least one worker.'); return; }
+  if(replace && keys.every(k=>!(d.matrix[k]||[]).length) && !confirm('Nobody is ticked, so this clears the not-yet-started crew on '+items.length+' bed'+(items.length===1?'':'s')+'. Continue?')) return;
+  d.busy=true; d.result={created:[],skipped:[],failed:[],removed:[],locked:[]}; render();
+  /* Each worker-activity pair runs full server validation, so size a request by pairs, not beds (about 24 pairs per call). */
+  const pairs=keys.reduce((n,k)=>n+(d.matrix[k]||[]).length,0), CH=Math.max(1,Math.min(25,Math.floor(24/Math.max(1,pairs))));
+  try{
+    for(let i=0;i<items.length;i+=CH){
+      d.progress='Working on beds '+(i+1)+'–'+Math.min(i+CH,items.length)+' of '+items.length+'…'; render();
+      const r=await apiCall('assign-turnover-bulk',{ items:items.slice(i,i+CH), mode:d.mode, scheduledDate:d.date }, 180000);
+      ['created','skipped','failed','removed','locked'].forEach(k=>{ (r[k]||[]).forEach(x=>d.result[k].push(x)); });
+    }
+  }catch(e){ d.result.error=e.message||'The request failed.'; }
+  d.busy=false; d.progress='';
+  const n=d.result.created.length+d.result.removed.length; if(n) toast(n+' change'+(n===1?'':'s')+' saved.');
+  render(); await loadToday();
+}
+async function phaUnassignOne(id){
+  if(pha.busy) return; pha.busy=true;
+  try{ const r=await apiCall('unassign-sessions',{ sessionIds:[id] }); toast(r.removed&&r.removed.length?'Assignment cleared.':'Nothing to clear. It may have been started.'); await loadToday(); }
+  catch(e){ toast(e.message); }
+  finally{ pha.busy=false; render(); }
+}
+async function phaClearSelected(){
+  const ids=Object.keys(pha.sel); if(pha.busy||!ids.length) return;
+  const n=ids.reduce((t,id)=>t+phaAssigned(id).length,0);
+  if(!n){ toast('The selected beds have no not-yet-started assignments to clear.'); return; }
+  if(!confirm('Clear '+n+' not-yet-started assignment'+(n===1?'':'s')+' on '+ids.length+' bed'+(ids.length===1?'':'s')+'? Sessions a worker has already started are not touched.')) return;
+  pha.busy=true; render();
+  try{ const r=await apiCall('unassign-sessions',{ bedIds:ids }, 120000);
+    toast((r.removed||[]).length+' assignment'+((r.removed||[]).length===1?'':'s')+' cleared'+((r.locked||[]).length?'; '+r.locked.length+' already started, left as is.':'.')); await loadToday(); }
+  catch(e){ toast(e.message); }
+  finally{ pha.busy=false; render(); }
+}
+
 function phCoverRow(p){
   const m=p&&p.coverMix; if(!m||!m.label) return '';
   return m.openNow?`<div class="row"><span>Cover crop mix</span><span style="text-align:right;max-width:62%;">${esc(m.label)}</span></div><div class="note" style="margin:2px 0 6px;">${esc(m.purpose||'')} Production ended ${esc(m.exitDate||'')}.</div>`
@@ -4304,6 +4405,23 @@ async function mockBackend(action, p){
       s.workerId=p.toWorkerId; s.workerName=(demoWorkers.find(w=>w.workerId===p.toWorkerId)||{}).name||p.toWorkerId;
       if(action==='close-and-new-session') s.status='ACTIVE';
       return ok({done:true});
+    }
+    case 'assign-turnover-bulk': {
+      const out={created:[],skipped:[],failed:[],removed:[],locked:[]};
+      (p.items||[]).forEach(it=>(it.assignments||[]).forEach(a=>{
+        if(p.mode==='replace'){ for(let i=demoSessions.length-1;i>=0;i--){ const s=demoSessions[i]; if(s.bedId===it.bedId&&s.activity===a.activity&&s.status==='ASSIGNED'&&!a.workerIds.includes(s.workerId)){ out.removed.push({sessionId:s.id}); demoSessions.splice(i,1); } } }
+        a.workerIds.forEach(w=>{
+          if(demoSessions.some(s=>s.bedId===it.bedId&&s.activity===a.activity&&s.workerId===w&&s.status!=='COMPLETED')){ out.skipped.push({bedId:it.bedId,activity:a.activity,workerId:w}); return; }
+          demoSessions.push({ id:'S-'+Math.floor(Math.random()*90000+10000), bedId:it.bedId, workerId:w, workerName:(demoWorkers.find(x=>x.workerId===w)||{}).name||w, activity:a.activity, status:'ASSIGNED', assignedTime:new Date().toISOString(), startTime:'' });
+          out.created.push({bedId:it.bedId,activity:a.activity,workerId:w}); }); }));
+      return ok(out);
+    }
+    case 'unassign-sessions': {
+      const out={removed:[],locked:[]};
+      for(let i=demoSessions.length-1;i>=0;i--){ const s=demoSessions[i], hit=(p.sessionIds&&p.sessionIds.includes(s.id))||(p.bedIds&&p.bedIds.includes(s.bedId));
+        if(!hit||s.status==='COMPLETED') continue;
+        if(s.status==='ASSIGNED'){ out.removed.push({sessionId:s.id}); demoSessions.splice(i,1); } else out.locked.push({sessionId:s.id}); }
+      return ok(out);
     }
     case 'resolve-exception': {
       const x=demoExceptions.find(e=>e.id===p.exceptionId); if(x) x.status='RESOLVED';
