@@ -730,7 +730,7 @@ function bedExceptions(bedId){ return state.exceptions.filter(x=>x.bedId===bedId
 function bedSessions(bedId){ return state.sessions.filter(x=>x.bedId===bedId && x.status!=='COMPLETED'); }
 
 /* ============================== RENDER ============================== */
-function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0; ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : ui.screen==='planning' ? planningScreen() : boardScreen(); attachMapEvents(); attachPlanningEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
+function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0; ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : ui.screen==='planning' ? planningScreen() : ui.screen==='labor' ? laborScreen() : boardScreen(); attachMapEvents(); attachPlanningEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
 function goPlanning(){ ui.screen='planning'; render(); }
 function goBoard(){ ui.screen='board'; render(); }
 
@@ -1212,10 +1212,9 @@ function modalHTML(){
   else if(ui.modal==='bed-edit') inner=bedEditModal();
   else if(ui.modal==='crop-edit') inner=cropEditModal();
   else if(ui.modal==='team') inner=teamModal();
-  else if(ui.modal==='labor') inner=laborModal();
   else if(ui.modal==='urgent') inner=urgentModal();
   else if(ui.modal==='phassign') inner=phaModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'?' wide':(ui.modal==='labor'||(ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -1729,40 +1728,42 @@ function lbYmd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,
 function lbRange(days){ const to=new Date(), from=new Date(); from.setDate(from.getDate()-(days-1)); return { from:lbYmd(from), to:lbYmd(to) }; }
 const lbHM=m=>{ const t=Math.round(m); return Math.floor(t/60)+':'+String(t%60).padStart(2,'0'); };
 const lbDec=m=>(Math.round(m/60*100)/100).toFixed(2);
-function openLabor(){ const r=lbRange(7); openModal('labor',{ from:r.from, to:r.to, preset:'7', view:'budget', loading:true, error:'', sessions:null, missing:0 }); lbRefresh(); }
+function openLabor(){ const r=lbRange(7); if(ui.screen!=='labor') ui.laborFrom=(ui.screen==='planning')?'planning':'board'; ui.modal=null; ui.modalDraft={}; ui.screen='labor';
+  ui.lab={ from:r.from, to:r.to, preset:'7', view:'budget', loading:true, error:'', sessions:null, missing:0 }; window.scrollTo(0,0); render(); lbRefresh(); }
+function lbBack(){ ui.screen=(ui.laborFrom==='planning')?'planning':'board'; ui.lab=null; window.scrollTo(0,0); render(); }
 async function lbLoad(){
-  const d=ui.modalDraft, n=++lbLoad._n; d.loading=true; d.error=''; render();
+  const d=ui.lab, n=++lbLoad._n; d.loading=true; d.error=''; render();
   try{
     const r=await apiCall('get-labor-hours',{ from:d.from||'', to:d.to||'' }, 60000);
-    if(ui.modalDraft!==d||n!==lbLoad._n) return;
+    if(ui.lab!==d||n!==lbLoad._n) return;
     d.sessions=r.sessions||[]; d.missing=r.missingElapsed||0; d.sKey=d.from+'|'+d.to;
-  }catch(e){ if(ui.modalDraft!==d||n!==lbLoad._n) return; d.error=e.message; d.sessions=null; }
-  d.loading=false; if(ui.modal==='labor'&&ui.modalDraft===d) render();
+  }catch(e){ if(ui.lab!==d||n!==lbLoad._n) return; d.error=e.message; d.sessions=null; }
+  d.loading=false; if(ui.screen==='labor'&&ui.lab===d) render();
 }
 lbLoad._n=0;
 function lbPreset(p){
-  const d=ui.modalDraft; d.preset=p;
+  const d=ui.lab; d.preset=p;
   if(p==='all'){ d.from=''; d.to=''; } else if(p==='7'||p==='30'){ const r=lbRange(Number(p)); d.from=r.from; d.to=r.to; }
   lbRefresh();
 }
-function lbDate(which,v){ const d=ui.modalDraft; d[which]=v; d.preset='custom'; lbRefresh(); }
+function lbDate(which,v){ const d=ui.lab; d[which]=v; d.preset='custom'; lbRefresh(); }
 /* Time-log views (By worker / All sessions) read the sessions; Budget vs Actual and By worker also read the labor budget (LaborBudget.gs). */
-function lbRefresh(){ const d=ui.modalDraft; if(d.view!=='budget') lbLoad(); if(d.view==='budget'||d.view==='worker') lbBudgetLoad(); }
-function lbView(v){ const d=ui.modalDraft, k=d.from+'|'+d.to; d.view=v;
+function lbRefresh(){ const d=ui.lab; if(d.view!=='budget') lbLoad(); if(d.view==='budget'||d.view==='worker') lbBudgetLoad(); }
+function lbView(v){ const d=ui.lab, k=d.from+'|'+d.to; d.view=v;
   if(v!=='budget'&&d.sKey!==k) lbLoad();
   if((v==='budget'||v==='worker')&&d.bKey!==k) lbBudgetLoad();
   render(); }
 /* Budget vs Actual: labor hours ALLOWED by the labor matrix against the human hours actually recorded, same date range. Advisory only. */
 async function lbBudgetLoad(){
-  const d=ui.modalDraft, n=++lbBudgetLoad._n; d.bLoading=true; d.bError=''; render();
+  const d=ui.lab, n=++lbBudgetLoad._n; d.bLoading=true; d.bError=''; render();
   try{
     const p={from:d.from||'',to:d.to||''}; if(!d.from&&!d.to) p.all=true;
     const r=IS_DEMO?{lines:[],system:{overHours:0,atCount:0,underHours:0,unavailableCount:0},activities:[],users:[]}:await apiCall('get-labor-budget',p,60000);
-    if(ui.modalDraft!==d||n!==lbBudgetLoad._n) return;
+    if(ui.lab!==d||n!==lbBudgetLoad._n) return;
     if(!r||!r.system||!Array.isArray(r.lines)||!Array.isArray(r.users)) throw new Error('The server sent an older labor-budget format. Deploy the current LaborBudget.gs and reload.');
     d.budget=r; d.bKey=d.from+'|'+d.to;
-  }catch(e){ if(ui.modalDraft!==d||n!==lbBudgetLoad._n) return; d.bError=e.message; d.budget=null; }
-  d.bLoading=false; if(ui.modal==='labor'&&ui.modalDraft===d) render();
+  }catch(e){ if(ui.lab!==d||n!==lbBudgetLoad._n) return; d.bError=e.message; d.budget=null; }
+  d.bLoading=false; if(ui.screen==='labor'&&ui.lab===d) render();
 }
 lbBudgetLoad._n=0;
 /* ---- Budget vs Actual helpers ----
@@ -1822,7 +1823,7 @@ function lbBudCell(o){   /* activity budget as h:mm; a dash when that activity h
   return (!o||!o.cmp)?`<td class="num lbd-na">\u2014</td>`:`<td class="num">${lbHM(o.bud*60)}</td>`;
 }
 const lbFmtDay=v=>{ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v||'')); return m?new Date(+m[1],+m[2]-1,+m[3]).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):''; };
-function lbReload(){ const d=ui.modalDraft; d.sKey=null; d.bKey=null; lbLoad(); lbBudgetLoad(); }
+function lbReload(){ const d=ui.lab; d.sKey=null; d.bKey=null; lbLoad(); lbBudgetLoad(); }
 const lbBudNum=o=>o&&o.cmp?Math.round(o.bud*100)/100:'';
 
 /* Group sessions by two levels; every level carries sessions + minutes. */
@@ -1840,8 +1841,8 @@ function lbGroups(d){
   const S=d.sessions||[];
   return lbGroup(S, s=>s.workerId||'(no worker)', s=>s.worker||s.workerId||'(no worker)', s=>s.activity||'(no activity)', s=>s.activity||'(no activity)');
 }
-function laborModal(){
-  const d=ui.modalDraft, S=d.sessions||[], total=S.reduce((a,s)=>a+s.minutes,0);
+function laborBody(){
+  const d=ui.lab, S=d.sessions||[], total=S.reduce((a,s)=>a+s.minutes,0);
   const filters=`<div class="lb-filters">
     <div class="field"><label>From</label><input class="tm-in" type="date" value="${esc(d.from)}" onchange="lbDate('from',this.value)"></div>
     <div class="field"><label>To</label><input class="tm-in" type="date" value="${esc(d.to)}" onchange="lbDate('to',this.value)"></div>
@@ -1869,11 +1870,20 @@ function laborModal(){
       <tr class="lb-total"><td>Total</td><td class="num">${S.length}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td><td></td></tr></tbody></table></div>`;
   }
   const notes=`<p class="lb-note">Completed sessions only, dated by the time they ended. Time while a session was paused is not counted; a session still running appears once it is completed. Reassignment handoffs are not counted as work.${d.view==='worker'?' Activity budget is what that worker\u2019s sessions of the activity should take (labor matrix); a dash means no valid budget. See Budget vs Actual for how each is set.':''}${d.missing?` ${d.missing} session${d.missing===1?' has':'s have'} no recorded duration and show as 0:00.`:''}</p>`;
-  return `<div class="tm-head"><h2>Labor Hours</h2><div style="display:flex;gap:8px;"><button class="tm-mini" onclick="lbReload()">Reload</button><button class="tm-close" onclick="closeModal()">Close</button></div></div>${filters}${body}${d.view==='budget'?'':notes}`;
+  return `${filters}${body}${d.view==='budget'?'':notes}`;
+}
+/* Full-page Labor Hours: top bar with back / reload / log out, content uses the whole width. */
+function laborScreen(){
+  const back=ui.laborFrom==='planning'?'Season Planning':'Daily board';
+  return `<div class="topbar">
+    <div><div class="brand">Labor Hours</div><div class="sub">${esc(state.name||'')} \u00b7 ${esc(state.role||'')}</div></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button onclick="lbBack()">\u2190 ${back}</button><button onclick="lbReload()">Reload</button><button onclick="logout()">Log out</button></div>
+  </div>
+  <div style="flex:1;padding:16px 20px 40px;width:100%;box-sizing:border-box;">${ui.lab?laborBody():''}</div>`;
 }
 const lbCsvCell=v=>{ let s=String(v==null?'':v); if(/^[=+\-@\t\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
 function lbCsv(){
-  const d=ui.modalDraft, S=d.sessions||[]; if(!S.length) return;
+  const d=ui.lab, S=d.sessions||[]; if(!S.length) return;
   const total=S.reduce((a,s)=>a+s.minutes,0); let rows;
   if(d.view==='sessions'){
     rows=[['Worker ID','Worker','Activity','Bed','Started','Ended','Hours (h:mm)','Hours (decimal)']]
