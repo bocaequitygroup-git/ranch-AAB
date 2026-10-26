@@ -1817,7 +1817,7 @@ const PLAN_TABS=[
   {k:'beds',label:'Bed Status Board',views:[['bedboard','Bed status']]},
   {k:'ofo',label:'Open Field Operation',views:[['operation','Schedule editor'],['calendar','Production calendar']]},
   {k:'plan',label:'Bed Planting Plan',views:[['smart','Smart allocation'],['plan','Bed layout'],['sheet','Bed plan sheet']]},
-  {k:'cohorts',label:'Cohorts',views:[['cohorts','Cohort production'],['exec','Planting execution'],['harvest','Harvest'],['irrigation','Irrigation calendar']]},
+  {k:'cohorts',label:'Cohorts',views:[['cohorts','Cohort production'],['exec','Planting execution'],['harvest','Harvest'],['irrigation','Irrigation calendar'],['labor','Labor budget']]},
   {k:'post',label:'Post-Harvest & Cover Crop',views:[['postharvest','Turnover & cover crop']]}
 ];
 const PLAN_MODES=PLAN_TABS.reduce((a,t)=>a.concat(t.views),[]);   /* flat [mode,label] list; the tab strip is built from PLAN_TABS */
@@ -1891,7 +1891,7 @@ function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete
 function setPMode(m){ if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
-function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard') bbLoad(true); if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
+function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard') bbLoad(true); if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='labor') laborBudgetLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
 function selectCrop(id){ ui.pSelectedCrop=id; ui.pModifying=false; render(); }
 function selectCropByBed(n){ const c=getPlan(ui.pBlock,ui.pYear).crops.find(x=>x.bedNums.includes(n)); if(c){ ui.pSelectedCrop=c.id; render(); } }
 
@@ -3094,6 +3094,44 @@ function calScreen(){
   <div class="cal-note">Read live from the workbook. Every entry comes from Open Field Operation, the source of truth for planting dates. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).${calState.missing&&calState.missing.length?` <b style="color:var(--danger)">${calState.missing.length} Open Field Operation planting(s) are missing from the calendar feed: ${esc(calState.missing.slice(0,6).join(', '))}${calState.missing.length>6?'…':''}.</b>`:''}${!IS_DEMO&&!calState.ofoSet?' <b style="color:var(--warn)">Could not re-read Open Field Operation to verify; showing the feed\'s open-field plantings.</b>':''}${calState.hidden&&calState.hidden.length?` ${calState.hidden.length} Master Calendar slot(s) not in Open Field Operation are not shown.`:''} ${IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
 }
 
+/* ============================== LABOR BUDGET ==============================
+ * Advisory manager view (LaborBudget.gs, action 'get-labor-budget'). Read-only: nothing here touches the worker flow, and any
+ * failure only shows in this panel. Rows with a blank acreage / weight / hours show no badge and no error text. */
+const laborBudget={data:null,busy:false,error:null,from:'',to:'',block:''};
+function laborBudgetInit(){ if(!laborBudget.to){ laborBudget.to=calToday(); laborBudget.from=calAdd(laborBudget.to,-30); } }
+async function laborBudgetLoad(force){
+  laborBudgetInit(); if(laborBudget.busy||(!force&&laborBudget.data)) return;
+  laborBudget.busy=true; laborBudget.error=null; render();
+  try{
+    if(IS_DEMO){ laborBudget.data={rows:[],over:0,within:0,from:laborBudget.from,to:laborBudget.to,blocksMissingAcres:[]}; }
+    else{ const p={from:laborBudget.from,to:laborBudget.to}; if(laborBudget.block) p.blockId=laborBudget.block; laborBudget.data=await apiCall('get-labor-budget',p); }
+  }catch(err){ laborBudget.error=err.message||'Labor budgets are unavailable right now.'; }
+  laborBudget.busy=false; render();
+}
+function laborBudgetSet(k,v){ laborBudget[k]=v; laborBudgetLoad(true); }
+function laborBudgetBadge(r){
+  if(r.status==='OVER') return `<span class="chip" style="background:var(--danger);color:#fff;">${esc(r.label)}</span>`;
+  if(r.status==='WITHIN') return `<span class="chip chip-ok">${esc(r.label)}</span>`;
+  return '';
+}
+function laborBudgetScreen(){
+  laborBudgetInit(); if(!laborBudget.data&&!laborBudget.busy&&!laborBudget.error) laborBudgetLoad();
+  const shell=inner=>`<div class="cal"><div class="cal-top"><h2>Labor budget</h2><button class="btn btn-outline" style="width:auto;margin:0" onclick="goBoard()">Close</button></div>${inner}</div>`;
+  const ctl=`<div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <label>From <input type="date" value="${esc(laborBudget.from)}" onchange="laborBudgetSet('from',this.value)"></label>
+    <label>To <input type="date" value="${esc(laborBudget.to)}" onchange="laborBudgetSet('to',this.value)"></label>
+    <select onchange="laborBudgetSet('block',this.value)" aria-label="Block"><option value="">All blocks</option>${['Block 1','Block 2','Block 3','Block 4','Zone 5'].map(b=>`<option ${laborBudget.block===b?'selected':''}>${b}</option>`).join('')}</select>
+    <span style="font-size:12px;opacity:.7;">Advisory only. Budgets never block or change field work.</span></div>`;
+  if(laborBudget.busy&&!laborBudget.data) return shell(ctl+'<div class="card">Loading labor budgets…</div>');
+  if(laborBudget.error&&!laborBudget.data) return shell(ctl+`<div class="card">${esc(laborBudget.error)}<br><button class="btn btn-outline" style="width:auto;margin-top:8px" onclick="laborBudgetLoad(true)">Retry</button></div>`);
+  const d=laborBudget.data||{rows:[]}, rows=d.rows||[], miss=d.blocksMissingAcres||[];
+  const note=miss.length?`<div class="card" style="font-size:13px;">No acreage on file for ${miss.map(esc).join(', ')}, so per-acre budgets there show no badge. Add the blocks to the LABOR_BUDGET_ACREAGE sheet (Block_ID, Acres).</div>`:'';
+  const body=rows.length?`<div class="bb-wrap" style="max-height:520px;"><table class="bb-t"><thead><tr><th>Block</th><th>Activity</th><th>Basis</th><th>Budget h</th><th>Actual h</th><th>Variance</th><th></th></tr></thead><tbody>${rows.map(r=>{ const has=r.status==='OVER'||r.status==='WITHIN';
+    return `<tr><td>${esc(r.block)}</td><td>${esc(r.activity)}</td><td>${esc(r.basis.replace(/_/g,' ').toLowerCase())}</td><td>${has?r.budgetHours:''}</td><td>${has?r.actualHours:''}</td><td>${has?(r.varianceHours>0?'+':'')+r.varianceHours+' ('+(r.variancePct>0?'+':'')+r.variancePct+'%)':''}</td><td>${laborBudgetBadge(r)}</td></tr>`; }).join('')}</tbody></table></div>`
+    :'<div class="card">No logged work in this range.</div>';
+  return shell(ctl+`<div class="card"><b>${d.over||0}</b> over budget · <b>${d.within||0}</b> within · ${esc(d.from||laborBudget.from)} to ${esc(d.to||laborBudget.to)}</div>`+note+body);
+}
+
 /* ============================== IRRIGATION CALENDAR ==============================
  * A cohort's irrigation calendar switches on when its planting is VERIFIED (COHORT_PRODUCTION.Actual_DOB, written by
  * verify-planting). Watering dates run from that verified planting date using IRRIGATION_PROFILE (IrrigationCalendar.gs).
@@ -3201,7 +3239,7 @@ function planToolbarControls(){
   const yr=`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`;
   const blk=`<select onchange="setPBlock(this.value)" aria-label="Block">${PLAN_BLOCKS.map(b=>`<option value="${b}" ${b===ui.pBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select>`;
   const refresh=`<button class="btn btn-ghost" style="width:auto;margin:0;" onclick="refreshPlanning()">↻ Refresh</button>`;
-  if(m==='addcrop'||m==='calendar'||m==='irrigation'||m==='operation'||m==='sheet') return '';
+  if(m==='addcrop'||m==='calendar'||m==='irrigation'||m==='labor'||m==='operation'||m==='sheet') return '';
   if(m==='cohorts') return yr;
   if(m==='cropref') return `<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`;
   if(m==='infra'||m==='smart') return yr+refresh;
@@ -3743,6 +3781,7 @@ function planningScreen(){
     ui.pMode==='addcrop' ? addCropScreen() :
     ui.pMode==='calendar' ? calScreen() :
     ui.pMode==='irrigation' ? irrScreen() :
+    ui.pMode==='labor' ? laborBudgetScreen() :
     ui.pMode==='operation' ? opScreen() :
     ui.pMode==='cohorts' ? cohortScreen() :
     planLayout(rotationLeftHTML(), rotationMatrixHTML(), '', rotationEditorHTML())
