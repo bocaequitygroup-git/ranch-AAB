@@ -1818,10 +1818,11 @@ function lbBudIndex(b){   /* { w: {WORKERID:{bud,cmp,unc}}, k: {WORKERID|activit
   });
   return {w,k};
 }
-function lbBudCell(o){
-  if(!o||!o.cmp) return `<td class="num lbd-na">Budget Unavailable</td>`;
-  return `<td class="num">${lbN(o.bud)}${o.unc?`<div class="lbd-na" style="font-size:11px;font-weight:400;">${o.unc} session${o.unc===1?'':'s'} with no budget</div>`:''}</td>`;
+function lbBudCell(o){   /* activity budget as h:mm; a dash when that activity has no valid budget */
+  return (!o||!o.cmp)?`<td class="num lbd-na">\u2014</td>`:`<td class="num">${lbHM(o.bud*60)}</td>`;
 }
+const lbFmtDay=v=>{ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v||'')); return m?new Date(+m[1],+m[2]-1,+m[3]).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):''; };
+function lbReload(){ const d=ui.modalDraft; d.sKey=null; d.bKey=null; lbLoad(); lbBudgetLoad(); }
 const lbBudNum=o=>o&&o.cmp?Math.round(o.bud*100)/100:'';
 
 /* Group sessions by two levels; every level carries sessions + minutes. */
@@ -1848,26 +1849,27 @@ function laborModal(){
       ${[['7','Last 7 days'],['30','Last 30 days'],['all','All time']].map(([k,l])=>`<option value="${k}" ${d.preset===k?'selected':''}>${l}</option>`).join('')}${d.preset==='custom'?'<option value="custom" selected>Custom range</option>':''}</select></div>
     <div class="seg">${[['budget','Budget vs Actual'],['worker','By worker'],['sessions','All sessions']].map(([k,l])=>`<button class="${d.view===k?'active':''}" onclick="lbView('${k}')">${l}</button>`).join('')}</div>
     <button class="tm-mini" ${S.length&&d.view!=='budget'?'':'disabled'} onclick="lbCsv()">Download CSV</button></div>`;
+  const range=(d.from&&d.to)?` from ${esc(lbFmtDay(d.from))} to ${esc(lbFmtDay(d.to))}`:' \u00b7 all time';
+  const summary=S.length?`<p style="margin:10px 0 8px;font-size:14px;"><b>${lbDec(total)} h</b> total labor hours \u00b7 ${S.length} session${S.length===1?'':'s'}${range}</p>`:'';
   let body='';
   if(d.view==='budget') body=lbBudgetBody(d);
   else if(d.error) body=`<div class="error">${esc(d.error)}</div>`;
   else if(d.loading&&!d.sessions) body=`<div class="note" style="margin-top:0;">Loading labor hours\u2026</div>`;
   else if(!S.length) body=`<div class="note" style="margin-top:0;">No completed sessions in this period.</div>`;
   else if(d.view==='sessions'){
-    body=`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>Worker</th><th>Activity</th><th>Bed</th><th>Started</th><th>Ended</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th></tr></thead><tbody>
+    body=summary+`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>Worker</th><th>Activity</th><th>Bed</th><th>Started</th><th>Ended</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th></tr></thead><tbody>
       ${S.map(s=>`<tr><td>${esc(s.worker||s.workerId)}</td><td>${esc(s.activity)}</td><td>${esc(s.bedId)}</td><td>${esc(s.start)}</td><td>${esc(s.end)}</td><td class="num">${lbHM(s.minutes)}</td><td class="num">${lbDec(s.minutes)}</td></tr>`).join('')}
       <tr class="lb-total"><td colspan="5">Total \u00b7 ${S.length} session${S.length===1?'':'s'}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td></tr></tbody></table></div>`;
-  } else {   /* By worker, with the Budget column */
+  } else {   /* By worker: worker rows carry the hours only; each activity row carries that worker's activity budget (h:mm) */
     const G=lbGroups(d), bi=d.budget?lbBudIndex(d.budget):null;
-    const bc=(g,key)=>bi?lbBudCell(bi[g][key]):(d.bError?'<td></td>':'<td class="num lbd-na">Loading\u2026</td>');
-    const tb=bi?Object.values(bi.w).reduce((t,o)=>({bud:t.bud+o.bud,cmp:t.cmp+o.cmp,unc:t.unc+o.unc}),{bud:0,cmp:0,unc:0}):null;
-    body=`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>Worker / activity</th><th class="num">Sessions</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th><th class="num">Budget</th></tr></thead><tbody>
-      ${G.map(a=>`<tr class="lb-row-w"><td>${esc(a.label)}</td><td class="num">${a.n}</td><td class="num">${lbHM(a.min)}</td><td class="num">${lbDec(a.min)}</td>${bc('w',String(a.key).toUpperCase())}</tr>`
-        +a.kidList.map(k=>`<tr class="lb-row-k"><td>${esc(k.label)}</td><td class="num">${k.n}</td><td class="num">${lbHM(k.min)}</td><td class="num">${lbDec(k.min)}</td>${bc('k',String(a.key).toUpperCase()+'|'+lbNorm(k.key))}</tr>`).join('')).join('')}
-      <tr class="lb-total"><td>Total</td><td class="num">${S.length}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td>${tb?lbBudCell(tb):'<td></td>'}</tr></tbody></table></div>`;
+    const bc=key=>bi?lbBudCell(bi.k[key]):(d.bError?'<td></td>':'<td class="num lbd-na">Loading\u2026</td>');
+    body=summary+`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>Worker / activity</th><th class="num">Sessions</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th><th class="num">Activity budget (h:mm)</th></tr></thead><tbody>
+      ${G.map(a=>`<tr class="lb-row-w"><td>${esc(a.label)}</td><td class="num">${a.n}</td><td class="num">${lbHM(a.min)}</td><td class="num">${lbDec(a.min)}</td><td></td></tr>`
+        +a.kidList.map(k=>`<tr class="lb-row-k"><td>${esc(k.label)}</td><td class="num">${k.n}</td><td class="num">${lbHM(k.min)}</td><td class="num">${lbDec(k.min)}</td>${bc(String(a.key).toUpperCase()+'|'+lbNorm(k.key))}</tr>`).join('')).join('')}
+      <tr class="lb-total"><td>Total</td><td class="num">${S.length}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td><td></td></tr></tbody></table></div>`;
   }
-  const notes=`<p class="lb-note">Completed sessions only, dated by the time they ended. Time while a session was paused is not counted; a session still running appears once it is completed. Reassignment handoffs are not counted as work.${d.view==='worker'?' Budget adds up only the sessions that have a valid budget (see Budget vs Actual for how each is set).':''}${d.missing?` ${d.missing} session${d.missing===1?' has':'s have'} no recorded duration and show as 0:00.`:''}</p>`;
-  return `<div class="tm-head"><h2>Total labor hours</h2><div style="display:flex;gap:8px;"><button class="tm-mini" onclick="closeModal();openTeam()">Team</button><button class="tm-close" onclick="closeModal()">Close</button></div></div>${filters}${body}${d.view==='budget'?'':notes}`;
+  const notes=`<p class="lb-note">Completed sessions only, dated by the time they ended. Time while a session was paused is not counted; a session still running appears once it is completed. Reassignment handoffs are not counted as work.${d.view==='worker'?' Activity budget is what that worker\u2019s sessions of the activity should take (labor matrix); a dash means no valid budget. See Budget vs Actual for how each is set.':''}${d.missing?` ${d.missing} session${d.missing===1?' has':'s have'} no recorded duration and show as 0:00.`:''}</p>`;
+  return `<div class="tm-head"><h2>Labor Hours</h2><div style="display:flex;gap:8px;"><button class="tm-mini" onclick="lbReload()">Reload</button><button class="tm-close" onclick="closeModal()">Close</button></div></div>${filters}${body}${d.view==='budget'?'':notes}`;
 }
 const lbCsvCell=v=>{ let s=String(v==null?'':v); if(/^[=+\-@\t\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
 function lbCsv(){
@@ -1879,9 +1881,9 @@ function lbCsv(){
       .concat([['Total','','','','','',lbHM(total),lbDec(total)]]);
   } else {
     const bi=d.budget?lbBudIndex(d.budget):null;
-    rows=[['Worker','Activity','Sessions','Hours (h:mm)','Hours (decimal)','Budget (hours)']];
+    rows=[['Worker','Activity','Sessions','Hours (h:mm)','Hours (decimal)','Activity budget (hours)']];
     lbGroups(d).forEach(a=>a.kidList.forEach(k=>rows.push([a.label,k.label,k.n,lbHM(k.min),lbDec(k.min),bi?lbBudNum(bi.k[String(a.key).toUpperCase()+'|'+lbNorm(k.key)]):''])));
-    rows.push(['Total','',S.length,lbHM(total),lbDec(total),bi?lbBudNum(Object.values(bi.w).reduce((t,o)=>({bud:t.bud+o.bud,cmp:t.cmp+o.cmp}),{bud:0,cmp:0})):'']);
+    rows.push(['Total','',S.length,lbHM(total),lbDec(total),'']);
   }
   const name='labor-hours-'+d.view+'_'+(d.from||'start')+'_to_'+(d.to||'today')+'.csv';
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(lbCsvCell).join(',')).join('\n')],{type:'text/csv'})); a.download=name;
