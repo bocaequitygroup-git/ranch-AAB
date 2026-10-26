@@ -1241,9 +1241,12 @@ function startableActivities(bedId, hasCohortFallback){
     /* validateActivity_ lets Activity_Domain 'Prep' run with no cohort (tillage, amending, broadforking ...), whatever the bed's status
      * is, so Soil & Bed Prep can be batched alongside the reset checklist. */
     const prep=(st==='AVAILABLE'||st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES')?cat.filter(a=>String(a.domain||'')==='Prep' && !(Number(a.postHarvestSequence)>0)):[];
-    if(prep.length) return {list:prep, why:''};
+    /* An unlocked (verified AVAILABLE) bed may take every Crop Care activity, even before a cohort is planted (server: ALLOW_CROPCARE_ON_AVAILABLE_BED_). */
+    const care=(st==='AVAILABLE')?cat.filter(a=>String(a.domain||'').trim().toLowerCase()==='cropcare' && !(Number(a.postHarvestSequence)>0)):[];
+    const bedList=prep.concat(care);
+    if(bedList.length) return {list:bedList, why:''};
     if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Work is assigned one step at a time from the reset checklist (ACT_037–051).'};
-    return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available. There is nothing to start until a manager approves a cohort assignment for it.'
+    return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available but no assignable activities are loaded. Tap Refresh.'
                         : st==='BLOCKED' ? 'This bed is blocked. Clear the block and verify it first.'
                         : 'No cohort is assigned to this bed.'};
   }
@@ -3403,10 +3406,17 @@ function bedInfoModal(){
   const area=(len>0&&sp>0)?(len*sp/12):null;   /* sq ft = bed length (ft) x spacing (in) / 12 */
   const areaTxt=area===null?'\u2014':Math.round(area).toLocaleString()+' sq ft \u00b7 '+(area/43560).toFixed(3)+' acres';
   const when=v=>{ if(!v) return ''; const t=new Date(v); return isNaN(t.getTime())?String(v):t.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); };
-  let action='';
-  if(cohort) action=`<div class="note">This bed holds cohort ${esc(cohort)}. Assign and track its work from the Daily board.</div>`;
-  else if(st==='POST-HARVEST ACTIVITIES') action=`<div class="note">In post-harvest. Finish its steps, then verify it from the Post-Harvest &amp; Cover Crop tab or the Daily board.</div>`;
-  else if(st==='UNVERIFIED'||st==='BLOCKED') action=`<button class="btn btn-primary" ${d.busy?'disabled':''} onclick="bbVerifyFromInfo()">${d.busy?'Verifying\u2026':'Verify ready for production'}</button>`;
+  /* What this bed may be given right now = the same rule the Daily board and the server use:
+   *   not unlocked (Not verified / Post-harvest) -> the required unlock steps (+ soil & bed prep)
+   *   unlocked (Available)                       -> all Crop Care + soil & bed prep
+   *   holds a cohort                             -> the activities its current stage allows */
+  let nAssign=0, why=''; try{ nAssign=dispatchListFor(d.bedId,!!cohort).length; if(!nAssign) why=startableActivities(d.bedId,!!cohort).why||''; }catch(e){}
+  const assignBtn=st==='BLOCKED'?`<div class="note">This bed is blocked. Clear the block and verify it first.</div>`
+    :nAssign?`<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(d.bedId)}',hasCohort:${cohort?'true':'false'}})">Assign activities (${nAssign} available)</button>`
+    :`<div class="note">${esc(why||'No activity can be assigned to this bed right now.')}</div>`;
+  const unlockNote=(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES')&&!cohort?`<div class="note" style="margin:0 0 8px;">Not unlocked yet. The list shows the steps required to make this bed ready; once it is verified Available, all Crop Care activities open up.</div>`:'';
+  const verifyBtn=(st==='UNVERIFIED'||st==='BLOCKED')&&!cohort?`<button class="btn btn-outline" ${d.busy?'disabled':''} onclick="bbVerifyFromInfo()">${d.busy?'Verifying\u2026':'Verify ready for production'}</button>`:'';
+  const action=unlockNote+assignBtn+verifyBtn;
   const body=d.loading?`<div class="empty">Loading bed profile\u2026</div>`:`
     ${d.err?`<div class="error">Full profile unavailable: ${esc(d.err)}. Showing what the board has.</div>`:''}
     <div class="card"><div class="row"><span><b style="color:var(--ink);">Bed profile</b></span><span class="chip" style="background:${sty.fill};color:${sty.tc};">${esc(sty.label)}</span></div>
