@@ -1210,6 +1210,7 @@ function modalHTML(){
   else if(ui.modal==='move') inner=moveModal();
   else if(ui.modal==='terminate') inner=terminateModal();
   else if(ui.modal==='bed-edit') inner=bedEditModal();
+  else if(ui.modal==='bed-info') inner=bedInfoModal();
   else if(ui.modal==='crop-edit') inner=cropEditModal();
   else if(ui.modal==='team') inner=teamModal();
   else if(ui.modal==='urgent') inner=urgentModal();
@@ -3379,18 +3380,54 @@ async function bbLoad(force){
 function bbEnsure(){ if(!bb.busy&&!bb.tried) setTimeout(()=>bbLoad(),0); }
 function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; render(); }
 function bbForget(){ Object.keys(state.pp).forEach(k=>delete state.pp[k]); }
+/* Click a bed on the Bed Status Board -> Bed profile panel (info + the actions that make sense for that bed's status). */
 async function bbBedClick(bedId){
-  const rows=(bb.data[bb.sel]&&bb.data[bb.sel].beds)||[], b=rows.find(x=>x.bedId===bedId); if(!b) return;
-  const st=bbStatusOf(b);
-  if(b.currentCohortId){ toast(bedId+' holds cohort '+b.currentCohortId+' ('+bbStyle(st).label+'). Work on it from the Daily board.'); return; }
-  if(st==='POST-HARVEST ACTIVITIES'){ toast(bedId+' is in post-harvest. Finish its steps, then verify it from the Post-Harvest & Cover Crop tab or the Daily board.'); return; }
-  if(st==='UNVERIFIED'||st==='BLOCKED'){
-    if(!confirm('Verify '+bedId+' is physically ready for production? It becomes Available and can be planted.')) return;
-    try{ await apiCall('verify-bed-ready',{bedId}); toast(bedId+' verified and released to Available.'); bbForget(); await bbLoad(true); }
-    catch(e){ toast(errMsg(e)); }
-    return;
-  }
-  toast(bedId+' is '+bbStyle(st).label+'.');
+  const rows=(bb.data[bb.sel]&&bb.data[bb.sel].beds)||[], row=rows.find(x=>x.bedId===bedId); if(!row) return;
+  openModal('bed-info',{bedId,row,block:bb.sel,loading:true,prof:null,err:'',busy:false});
+  try{
+    const r=await apiCall('get-bed-profile',{bedId}), prof=(r&&(r.profile||r.bed))||r||{};
+    if(ui.modal!=='bed-info'||ui.modalDraft.bedId!==bedId) return;
+    Object.assign(ui.modalDraft,{loading:false,prof});
+  }catch(e){ if(ui.modal==='bed-info'&&ui.modalDraft.bedId===bedId) Object.assign(ui.modalDraft,{loading:false,err:errMsg(e)}); }
+  render();
+}
+function bedInfoModal(){
+  const d=ui.modalDraft, row=d.row||{}, P=d.prof||{};
+  const pick=(k,alt)=>{ const v=P[k]!=null&&P[k]!==''?P[k]:(alt!=null?alt:''); return v; };
+  const show=v=>(v===null||v===undefined||v==='')?'\u2014':esc(v);
+  const kv=(l,v)=>`<div class="row"><span>${l}</span><span>${show(v)}</span></div>`;
+  const st=String(pick('Bed_Status',row.bedStatus)||'').trim().toUpperCase()||'UNVERIFIED', sty=bbStyle(st);
+  const cohort=String(pick('Current_Cohort_ID',row.currentCohortId)||'').trim();
+  let g=null; try{ g=gridBeds().find(x=>String(x.id)===String(d.bedId))||null; }catch(e){}
+  const len=Number(P.Bed_Length), sp=Number(P['Center-to-Center Spacing (in)']);
+  const area=(len>0&&sp>0)?(len*sp/12):null;   /* sq ft = bed length (ft) x spacing (in) / 12 */
+  const areaTxt=area===null?'\u2014':Math.round(area).toLocaleString()+' sq ft \u00b7 '+(area/43560).toFixed(3)+' acres';
+  const when=v=>{ if(!v) return ''; const t=new Date(v); return isNaN(t.getTime())?String(v):t.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); };
+  let action='';
+  if(cohort) action=`<div class="note">This bed holds cohort ${esc(cohort)}. Assign and track its work from the Daily board.</div>`;
+  else if(st==='POST-HARVEST ACTIVITIES') action=`<div class="note">In post-harvest. Finish its steps, then verify it from the Post-Harvest &amp; Cover Crop tab or the Daily board.</div>`;
+  else if(st==='UNVERIFIED'||st==='BLOCKED') action=`<button class="btn btn-primary" ${d.busy?'disabled':''} onclick="bbVerifyFromInfo()">${d.busy?'Verifying\u2026':'Verify ready for production'}</button>`;
+  const body=d.loading?`<div class="empty">Loading bed profile\u2026</div>`:`
+    ${d.err?`<div class="error">Full profile unavailable: ${esc(d.err)}. Showing what the board has.</div>`:''}
+    <div class="card"><div class="row"><span><b style="color:var(--ink);">Bed profile</b></span><span class="chip" style="background:${sty.fill};color:${sty.tc};">${esc(sty.label)}</span></div>
+      ${kv('Block',pick('Block_ID',BLOCK_LABELS[d.block]||d.block))}${kv('Location type',pick('Location_Type',row.locationType))}${kv('Zone',pick('Zone'))}
+      ${kv('Bed length',P.Bed_Length!==undefined&&P.Bed_Length!==''?P.Bed_Length+' ft':'')}${kv('Center-to-center spacing',P['Center-to-Center Spacing (in)']!==undefined&&P['Center-to-Center Spacing (in)']!==''?P['Center-to-Center Spacing (in)']+' in':'')}
+      ${kv('Usable top width',P['Usable Top Width (in)']!==undefined&&P['Usable Top Width (in)']!==''?P['Usable Top Width (in)']+' in':'')}${kv('Bed area',areaTxt==='\u2014'?'':areaTxt)}
+      ${kv('Health status',pick('Bed_Health_Status'))}${kv('Irrigation status',pick('Bed_Irrigation_Status'))}</div>
+    <div class="card"><div class="row"><span><b style="color:var(--ink);">Current use</b></span></div>
+      ${kv('Bed status',sty.label)}${kv('Current cohort',cohort)}${g&&g.cropName?kv('Crop',g.cropName):''}${g&&g.currentStage?kv('Stage',g.currentStage):''}
+      ${kv('Last action',pick('Last_Action'))}${P.Last_Action_Date?kv('Last action date',when(P.Last_Action_Date)):''}</div>
+    ${action}`;
+  return `<h2 style="font-size:15px;">Bed ${esc(d.bedId)}</h2>${body}
+  <button class="btn btn-outline" onclick="closeModal();openBedEdit('${esc(d.bedId)}')">Edit bed</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
+}
+async function bbVerifyFromInfo(){
+  const d=ui.modalDraft; if(!d||d.busy) return;
+  if(!confirm('Verify '+d.bedId+' is physically ready for production? It becomes Available and can be planted.')) return;
+  d.busy=true; render();
+  try{ await apiCall('verify-bed-ready',{bedId:d.bedId}); closeModal(); toast(d.bedId+' verified and released to Available.'); bbForget(); await bbLoad(true); }
+  catch(e){ d.busy=false; d.err=errMsg(e); render(); }
 }
 async function bbCount(){
   if(bb.relBusy) return; bb.relBusy=true; bb.res=null; render();
