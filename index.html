@@ -283,6 +283,10 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .tm-notice{border:2px solid var(--ok);background:#E4F1E5;color:#173a19;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;}
 .tm-notice .tm-pin{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:26px;font-weight:800;letter-spacing:.18em;margin:6px 0;user-select:all;}
 .tm-notice .tm-sub{font-size:12px;}
+.lbd-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 10px;} .lbd-head h3{margin:0;font-size:18px;} .lbd-sub{color:var(--muted,#6B6B5E);font-size:13px;}
+.lbd-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 14px;}
+.lbd-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;} .lbd-card .k{font-size:12px;color:var(--muted,#6B6B5E);} .lbd-card .v{font-size:26px;font-weight:800;line-height:1.2;margin:2px 0;} .lbd-card .s{font-size:12px;color:var(--muted,#6B6B5E);}
+.lbd-over{color:var(--danger);} .lbd-ok{color:var(--ok);} .lbd-na{color:var(--muted,#6B6B5E);font-style:italic;}
 .lb-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px;}
 .lb-filters .field{margin:0;} .lb-filters .tm-in{width:auto;min-width:130px;}
 .lb-row-w td{font-weight:800;background:var(--sand);} .lb-row-k td:first-child{padding-left:24px;color:var(--ink-soft);}
@@ -1725,9 +1729,9 @@ function lbYmd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,
 function lbRange(days){ const to=new Date(), from=new Date(); from.setDate(from.getDate()-(days-1)); return { from:lbYmd(from), to:lbYmd(to) }; }
 const lbHM=m=>{ const t=Math.round(m); return Math.floor(t/60)+':'+String(t%60).padStart(2,'0'); };
 const lbDec=m=>(Math.round(m/60*100)/100).toFixed(2);
-function openLabor(){ const r=lbRange(7); openModal('labor',{ from:r.from, to:r.to, preset:'7', view:'worker', loading:true, error:'', sessions:null, missing:0 }); lbLoad(); }
+function openLabor(){ const r=lbRange(7); openModal('labor',{ from:r.from, to:r.to, preset:'7', view:'budget', loading:true, error:'', sessions:null, missing:0 }); lbRefresh(); }
 async function lbLoad(){
-  const d=ui.modalDraft, n=++lbLoad._n; if(d.view==='budget'){ lbBudgetLoad(); return; } d.loading=true; d.error=''; render();
+  const d=ui.modalDraft, n=++lbLoad._n; d.loading=true; d.error=''; render();
   try{
     const r=await apiCall('get-labor-hours',{ from:d.from||'', to:d.to||'' }, 60000);
     if(ui.modalDraft!==d||n!==lbLoad._n) return;
@@ -1739,35 +1743,75 @@ lbLoad._n=0;
 function lbPreset(p){
   const d=ui.modalDraft; d.preset=p;
   if(p==='all'){ d.from=''; d.to=''; } else if(p==='7'||p==='30'){ const r=lbRange(Number(p)); d.from=r.from; d.to=r.to; }
-  lbLoad();
+  lbRefresh();
 }
-function lbDate(which,v){ const d=ui.modalDraft; d[which]=v; d.preset='custom'; lbLoad(); }
-function lbView(v){ const d=ui.modalDraft; d.view=v; if(v==='budget') lbBudgetLoad(); else if(d.sKey!==d.from+'|'+d.to) lbLoad(); render(); }
-/* Vs budget: labor hours ALLOWED by the labor matrix (LaborBudget.gs) against the human hours actually recorded, same date range. Advisory only. */
+function lbDate(which,v){ const d=ui.modalDraft; d[which]=v; d.preset='custom'; lbRefresh(); }
+/* Time-log views (By worker / By activity / All sessions) read the sessions; Budget vs Actual and By activity also read the labor budget (LaborBudget.gs). */
+function lbRefresh(){ const d=ui.modalDraft; if(d.view!=='budget') lbLoad(); if(d.view==='budget'||d.view==='activity') lbBudgetLoad(); }
+function lbView(v){ const d=ui.modalDraft, k=d.from+'|'+d.to; d.view=v;
+  if(v!=='budget'&&d.sKey!==k) lbLoad();
+  if((v==='budget'||v==='activity')&&d.bKey!==k) lbBudgetLoad();
+  render(); }
+/* Budget vs Actual: labor hours ALLOWED by the labor matrix against the human hours actually recorded, same date range. Advisory only. */
 async function lbBudgetLoad(){
   const d=ui.modalDraft, n=++lbBudgetLoad._n; d.bLoading=true; d.bError=''; render();
   try{
     const p={from:d.from||'',to:d.to||''}; if(!d.from&&!d.to) p.all=true;
     const r=IS_DEMO?{rows:[],over:0,within:0,blocksMissingAcres:[]}:await apiCall('get-labor-budget',p,60000);
     if(ui.modalDraft!==d||n!==lbBudgetLoad._n) return;
-    d.budget=r;
+    d.budget=r; d.bKey=d.from+'|'+d.to;
   }catch(e){ if(ui.modalDraft!==d||n!==lbBudgetLoad._n) return; d.bError=e.message; d.budget=null; }
   d.bLoading=false; if(ui.modal==='labor'&&ui.modalDraft===d) render();
 }
 lbBudgetLoad._n=0;
+/* ---- Budget vs Actual helpers ---- */
+const lbH=h=>(Math.round(h*100)/100).toFixed(2)+' h';
+const lbV=h=>(Math.round(h*100)/100===0?'':(h>0?'+':'\u2212'))+lbH(Math.abs(h));
+const lbP=p=>(p>0?'+':p<0?'\u2212':'')+Math.abs(Math.round(p*10)/10).toFixed(1)+'%';
+const lbMinTxt=h=>{ const m=Math.round(Math.abs(h)*60); return m<60?m+' minute'+(m===1?'':'s'):Math.floor(m/60)+' h '+(m%60)+' min'; };
+/* Per activity: budget and actual of the rows that CAN be compared, plus recorded hours with no budget. */
+function lbAgg(b){
+  const by={};
+  ((b&&b.rows)||[]).forEach(r=>{
+    const a=by[r.activity]||(by[r.activity]={activity:r.activity,bud:0,act:0,unc:0,cmp:0,kids:[]});
+    const has=r.status==='OVER'||r.status==='WITHIN';
+    if(has){ a.bud+=r.budgetHours; a.act+=r.actualHours; a.cmp++; } else a.unc+=(r.actualHours||0);
+    a.kids.push(r);
+  });
+  Object.values(by).forEach(a=>{ a.var=a.act-a.bud; a.pct=a.bud>0?a.var/a.bud*100:0; a.over=a.var>0; });
+  return by;
+}
+function lbBudgetCells(a){   /* Budget | Variance | Var % | Status for one activity */
+  if(!a||!a.cmp) return `<td class="num lbd-na">Budget Unavailable</td><td></td><td></td><td></td>`;
+  const c=a.over?'lbd-over':'lbd-ok';
+  return `<td class="num">${lbH(a.bud)}</td><td class="num ${c}">${lbV(a.var)}</td><td class="num ${c}">${lbP(a.pct)}</td><td>${a.over?'<span class="chip" style="background:var(--danger);color:#fff;">Over budget</span>':'<span class="chip chip-ok">Within budget</span>'}</td>`;
+}
 function lbBudgetBody(d){
   if(d.bError) return `<div class="error">${esc(d.bError)}</div>`;
   if(d.bLoading&&!d.budget) return `<div class="note" style="margin-top:0;">Loading budgets\u2026</div>`;
-  const b=d.budget||{rows:[]}, rows=(b.rows||[]).slice(), miss=b.blocksMissingAcres||[];
-  const rank={OVER:0,WITHIN:1,UNAVAILABLE:2};
-  rows.sort((x,y)=>rank[x.status]-rank[y.status]||(y.overMinutes-x.overMinutes)||String(x.activity).localeCompare(String(y.activity))||String(x.block).localeCompare(String(y.block)));
-  if(!rows.length) return `<div class="note" style="margin-top:0;">No completed work with a labor budget in this period.</div>`;
-  const hm=h=>h==null?'':lbHM(h*60), sg=h=>(h>0?'+':h<0?'-':'')+lbHM(Math.abs(h)*60);
-  const tr=rows.map(r=>{ const has=r.status==='OVER'||r.status==='WITHIN', over=r.status==='OVER';
-    const badge=over?`<span class="chip" style="background:var(--danger);color:#fff;">${esc(r.label)}</span>`:(has?`<span class="chip chip-ok">${esc(r.label)}</span>`:'');
-    return `<tr><td>${esc(r.activity)}</td><td>${esc(r.block)}</td><td class="num">${has?hm(r.budgetHours):''}</td><td class="num">${hm(r.actualHours)}</td><td class="num" ${over?'style="color:var(--danger);font-weight:700;"':''}>${has?sg(r.varianceHours)+' ('+(r.variancePct>0?'+':'')+r.variancePct+'%)':''}</td><td>${badge}</td></tr>`; }).join('');
-  const note=`<p class="lb-note">Budget is the labor time allowed for the work (per acre, per run, or per 100 lb harvested). Actual is the recorded human time from completed sessions, all workers added together. A minus variance means the work took less time than budgeted. Advisory only: budgets never limit or change field work. Rows with no budget (no acreage, weight or run data) show actual time only.${miss.length?` No acreage on file for ${miss.map(esc).join(', ')}: add it to the LABOR_BUDGET_ACREAGE sheet.`:''}</p>`;
-  return `<div class="note" style="margin-top:0;"><b>${b.over||0}</b> over budget \u00b7 <b>${b.within||0}</b> within</div><div class="tm-wrap"><table class="tm-t"><thead><tr><th>Activity</th><th>Block</th><th class="num">Budget (h:mm)</th><th class="num">Actual (h:mm)</th><th class="num">Variance</th><th></th></tr></thead><tbody>${tr}</tbody></table></div>${note}`;
+  const b=d.budget||{rows:[]}, miss=b.blocksMissingAcres||[], by=lbAgg(b), acts=Object.values(by);
+  if(!acts.length) return `<div class="note" style="margin-top:0;">No completed work in this period.</div>`;
+  const cmp=acts.filter(a=>a.cmp), bud=cmp.reduce((t,a)=>t+a.bud,0), act=cmp.reduce((t,a)=>t+a.act,0), v=act-bud, p=bud>0?v/bud*100:0, unc=acts.reduce((t,a)=>t+a.unc,0);
+  const over=v>0, cc=over?'lbd-over':'lbd-ok';
+  const head=`<div class="lbd-head"><h3>Labor Budget</h3><span class="chip">Advisory</span><span class="lbd-sub">Ngapori Ranch \u00b7 Manager view</span></div>`;
+  const cards=cmp.length?`<div class="lbd-cards">
+    <div class="lbd-card"><div class="k">Budgeted labor</div><div class="v">${lbH(bud)}</div><div class="s">Allowed by the labor rates</div></div>
+    <div class="lbd-card"><div class="k">Actual labor</div><div class="v">${lbH(act)}</div><div class="s">All workers, counted once</div></div>
+    <div class="lbd-card"><div class="k">Variance</div><div class="v ${cc}">${lbV(v)}</div><div class="s">${v===0?'On budget':lbMinTxt(v)+(over?' over':' under')}</div></div>
+    <div class="lbd-card"><div class="k">Variance %</div><div class="v ${cc}">${lbP(p)}</div><div class="s">${over?'Over budget':'Within budget'}</div></div></div>`
+    :`<div class="lbd-card" style="margin-bottom:14px;"><div class="k">Budgeted labor</div><div class="v lbd-na" style="font-size:18px;">Budget Unavailable</div><div class="s">No activity in this period has the data needed for a budget.</div></div>`;
+  const sorted=acts.slice().sort((x,y)=>(y.cmp?1:0)-(x.cmp?1:0)||(y.var-x.var)||x.activity.localeCompare(y.activity));
+  const rows=sorted.map(a=>{
+    const act2=a.act+a.unc;
+    const parent=`<tr class="lb-row-w"><td>${esc(a.activity)}</td>${a.cmp?`<td class="num">${lbH(a.bud)}</td><td class="num">${lbH(a.act)}${a.unc?`<div class="lbd-na" style="font-size:11px;font-weight:400;">+${lbH(a.unc)} with no budget</div>`:''}</td><td class="num ${a.over?'lbd-over':'lbd-ok'}">${lbV(a.var)}</td><td class="num ${a.over?'lbd-over':'lbd-ok'}">${lbP(a.pct)}</td><td>${a.over?'<span class="chip" style="background:var(--danger);color:#fff;">Over budget</span>':'<span class="chip chip-ok">Within budget</span>'}</td>`
+      :`<td class="num lbd-na">Budget Unavailable</td><td class="num">${lbH(act2)}</td><td></td><td></td><td></td>`}</tr>`;
+    const kids=a.kids.map(r=>{ const has=r.status==='OVER'||r.status==='WITHIN', c=r.status==='OVER'?'lbd-over':'lbd-ok';
+      return `<tr class="lb-row-k"><td>${esc(r.block)}</td>${has?`<td class="num">${lbH(r.budgetHours)}</td><td class="num">${lbH(r.actualHours)}</td><td class="num ${c}">${lbV(r.varianceHours)}</td><td class="num ${c}">${lbP(r.variancePct)}</td><td></td>`
+        :`<td class="num lbd-na">Budget Unavailable</td><td class="num">${r.actualHours==null?'':lbH(r.actualHours)}</td><td></td><td></td><td></td>`}</tr>`; }).join('');
+    return parent+kids; }).join('');
+  const table=`<h4 style="margin:4px 0 6px;">Activity budget breakdown</h4><div class="tm-wrap"><table class="tm-t"><thead><tr><th>Activity / block</th><th class="num">Budget</th><th class="num">Actual</th><th class="num">Variance</th><th class="num">Variance %</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const note=`<p class="lb-note">Budget is the labor time allowed for the work by the configured rates (per acre, per run, or per 100 lb harvested). Actual is the verified human time from completed sessions, all workers added together, each session counted once. A minus variance means the work took less time than budgeted. Only activities with a valid budget are in the totals above${unc?` (${lbH(unc)} recorded without a budget is not included)`:''}. Advisory only: budgets never block workers or change task status.${miss.length?` No acreage on file for ${miss.map(esc).join(', ')}: add it to the LABOR_BUDGET_ACREAGE sheet.`:''}</p>`;
+  return head+cards+table+note;
 }
 
 /* Group sessions by two levels; every level carries sessions + minutes. */
@@ -1794,7 +1838,7 @@ function laborModal(){
     <div class="field"><label>To</label><input class="tm-in" type="date" value="${esc(d.to)}" onchange="lbDate('to',this.value)"></div>
     <div class="field"><label>Show</label><select class="tm-in" onchange="lbPreset(this.value)">
       ${[['7','Last 7 days'],['30','Last 30 days'],['all','All time']].map(([k,l])=>`<option value="${k}" ${d.preset===k?'selected':''}>${l}</option>`).join('')}${d.preset==='custom'?'<option value="custom" selected>Custom range</option>':''}</select></div>
-    <div class="seg">${[['worker','By worker'],['activity','By activity'],['sessions','All sessions'],['budget','Vs budget']].map(([k,l])=>`<button class="${d.view===k?'active':''}" onclick="lbView('${k}')">${l}</button>`).join('')}</div>
+    <div class="seg">${[['budget','Budget vs Actual'],['worker','By worker'],['activity','By activity'],['sessions','All sessions']].map(([k,l])=>`<button class="${d.view===k?'active':''}" onclick="lbView('${k}')">${l}</button>`).join('')}</div>
     <button class="tm-mini" ${S.length&&d.view!=='budget'?'':'disabled'} onclick="lbCsv()">Download CSV</button></div>`;
   let body='';
   if(d.view==='budget') body=lbBudgetBody(d);
@@ -1806,11 +1850,11 @@ function laborModal(){
       ${S.map(s=>`<tr><td>${esc(s.worker||s.workerId)}</td><td>${esc(s.activity)}</td><td>${esc(s.bedId)}</td><td>${esc(s.start)}</td><td>${esc(s.end)}</td><td class="num">${lbHM(s.minutes)}</td><td class="num">${lbDec(s.minutes)}</td></tr>`).join('')}
       <tr class="lb-total"><td colspan="5">Total \u00b7 ${S.length} session${S.length===1?'':'s'}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td></tr></tbody></table></div>`;
   } else {
-    const G=lbGroups(d);
-    body=`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>${d.view==='activity'?'Activity / worker':'Worker / activity'}</th><th class="num">Sessions</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th></tr></thead><tbody>
-      ${G.map(a=>`<tr class="lb-row-w"><td>${esc(a.label)}</td><td class="num">${a.n}</td><td class="num">${lbHM(a.min)}</td><td class="num">${lbDec(a.min)}</td></tr>`
-        +a.kidList.map(k=>`<tr class="lb-row-k"><td>${esc(k.label)}</td><td class="num">${k.n}</td><td class="num">${lbHM(k.min)}</td><td class="num">${lbDec(k.min)}</td></tr>`).join('')).join('')}
-      <tr class="lb-total"><td>Total</td><td class="num">${S.length}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td></tr></tbody></table></div>`;
+    const G=lbGroups(d), isAct=d.view==='activity', ag=isAct&&d.budget?lbAgg(d.budget):null, e4=isAct?'<td></td><td></td><td></td><td></td>':'';
+    body=`<div class="tm-wrap"><table class="tm-t"><thead><tr><th>${isAct?'Activity / worker':'Worker / activity'}</th><th class="num">Sessions</th><th class="num">Hours (h:mm)</th><th class="num">Hours (decimal)</th>${isAct?'<th class="num">Budget</th><th class="num">Variance</th><th class="num">Variance %</th><th>Status</th>':''}</tr></thead><tbody>
+      ${G.map(a=>`<tr class="lb-row-w"><td>${esc(a.label)}</td><td class="num">${a.n}</td><td class="num">${lbHM(a.min)}</td><td class="num">${lbDec(a.min)}</td>${isAct?(ag?lbBudgetCells(ag[a.label]):(d.bError?'':'<td class="num lbd-na">Loading\u2026</td><td></td><td></td><td></td>')):''}</tr>`
+        +a.kidList.map(k=>`<tr class="lb-row-k"><td>${esc(k.label)}</td><td class="num">${k.n}</td><td class="num">${lbHM(k.min)}</td><td class="num">${lbDec(k.min)}</td>${e4}</tr>`).join('')).join('')}
+      <tr class="lb-total"><td>Total</td><td class="num">${S.length}</td><td class="num">${lbHM(total)}</td><td class="num">${lbDec(total)}</td>${e4}</tr></tbody></table></div>`;
   }
   const notes=`<p class="lb-note">Completed sessions only, dated by the time they ended. Time while a session was paused is not counted; a session still running appears once it is completed. Reassignment handoffs are not counted as work.${d.missing?` ${d.missing} session${d.missing===1?' has':'s have'} no recorded duration and show as 0:00.`:''}</p>`;
   return `<div class="tm-head"><h2>Total labor hours</h2><div style="display:flex;gap:8px;"><button class="tm-mini" onclick="closeModal();openTeam()">Team</button><button class="tm-close" onclick="closeModal()">Close</button></div></div>${filters}${body}${d.view==='budget'?'':notes}`;
