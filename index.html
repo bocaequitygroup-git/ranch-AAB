@@ -1047,11 +1047,13 @@ function dpRows(b){   /* every row the manager can see for this bed, grouped by 
   const cat=state.activityCatalog||[], sess=bedSessions(b.id), p=b.postHarvest, rows=[], seen={};
   const meta=n=>cat.find(c=>c.name===n)||{};
   const live=n=>{ const l=sess.filter(q=>q.activity===n); return l.some(q=>['ACTIVE','PAUSED','EXCEPTION'].includes(String(q.status||'').toUpperCase()))?'IN PROGRESS':l.length?'ASSIGNED':''; };
+  const nx=phNextStep(p);
   if(p) (p.steps||[]).forEach(x=>{ const m=meta(x.name); seen[x.name]=1;
     let off='', st=live(x.name)||'PENDING';
     if(x.status==='COMPLETE'){ off='Done'; st=x.overridden?'OVERRIDDEN':'DONE'; }
     else if(x.gate==='BUFFER'){ off='Automatic wait'; st='AUTOMATIC WAIT'; }
     else if(x.gate==='WINDOW'&&x.status!=='OPEN'){ off='Waiting for window'; st='WAITING'; }
+    else if(nx&&x.name!==nx.name){ off='After '+nx.name; st='LOCKED'; }
     rows.push({name:x.name,id:m.id||'',domain:x.domain||m.domain||'Required workflow',desc:m.description||'',st,off,wf:true,cat:'POST'}); });
   cat.filter(a=>a.name&&!seen[a.name]).forEach(a=>{ seen[a.name]=1; rows.push({name:a.name,id:a.id||'',domain:a.domain||'Other',desc:a.description||'',st:live(a.name)||'AVAILABLE',off:'',wf:false,cat:actCatOf(a)}); });
   return rows;
@@ -1245,7 +1247,7 @@ function startableActivities(bedId, hasCohortFallback){
     const care=(st==='AVAILABLE')?cat.filter(a=>String(a.domain||'').trim().toLowerCase()==='cropcare' && !(Number(a.postHarvestSequence)>0)):[];
     const bedList=prep.concat(care);
     if(bedList.length) return {list:bedList, why:''};
-    if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Work is assigned one step at a time from the reset checklist (ACT_037–051).'};
+    if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Work is assigned one step at a time, in order, from the SOP reset checklist (ACT_037–039, ACT_041–044), then you verify the bed.'};
     return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available but no assignable activities are loaded. Tap Refresh.'
                         : st==='BLOCKED' ? 'This bed is blocked. Clear the block and verify it first.'
                         : 'No cohort is assigned to this bed.'};
@@ -1397,7 +1399,10 @@ function dispatchModal(){
 function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
 /* Required-workflow steps this bed can be given right now (any order): not complete, not an automatic buffer, window open. */
-function wfAssignable(b){ const p=b&&b.postHarvest; return p?(p.steps||[]).map((x,i)=>Object.assign({idx:i},x)).filter(x=>x.status!=='COMPLETE'&&x.gate!=='BUFFER'&&(x.gate!=='WINDOW'||x.status==='OPEN')):[]; }
+/* SOP order: only the first unfinished step can be assigned (any number of workers on it). Everything after it waits; the manager override skips any step. */
+function phNextStep(p){ return p?(p.steps||[]).find(x=>x.status!=='COMPLETE')||null:null; }
+function phStepOpen(x){ return !!x&&x.gate!=='BUFFER'&&!(x.gate==='WINDOW'&&x.status!=='OPEN'); }
+function wfAssignable(b){ const p=b&&b.postHarvest, n=phNextStep(p); return (n&&phStepOpen(n))?[Object.assign({idx:p.steps.indexOf(n)},n)]:[]; }
 function dispatchListFor(bedId,hasCohort){
   const b=(state.beds||[]).find(x=>x.id===bedId)||{}, cat=state.activityCatalog||[];
   const wf=wfAssignable(b).map(x=>{ const c=cat.find(y=>y.name===x.name)||{}; return {id:c.id||'',name:x.name,domain:'Required workflow',description:c.description||'',postHarvestSequence:x.idx+1,wf:true}; });
@@ -3414,9 +3419,22 @@ function bedInfoModal(){
   const assignBtn=st==='BLOCKED'?`<div class="note">This bed is blocked. Clear the block and verify it first.</div>`
     :nAssign?`<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(d.bedId)}',hasCohort:${cohort?'true':'false'}})">Assign activities (${nAssign} available)</button>`
     :`<div class="note">${esc(why||'No activity can be assigned to this bed right now.')}</div>`;
+  /* Turnover status: when nothing can be assigned but required steps remain (automatic wait / seasonal window), say so and offer the
+   * manager override + verify here. Before this the panel only said "being reset" and the bed looked stuck with no way forward. */
+  const bedRow=(state.beds||[]).find(x=>String(x.id)===String(d.bedId))||{}, ph=bedRow.postHarvest;
+  let phBlock='';
+  if(ph&&!nAssign&&st==='POST-HARVEST ACTIVITIES'&&!cohort){
+    const nx=phNextStep(ph), w=ph.waiting, scope='BED:'+d.bedId; PH_STEPS[scope]=ph;
+    const left=(ph.steps||[]).filter(x=>x.status!=='COMPLETE').length;
+    const why1=!nx?'':nx.gate==='BUFFER'?'an automatic waiting period; it unlocks by itself'+(w&&w.eligibleDate?' on '+w.eligibleDate:''):(nx.gate==='WINDOW'&&nx.status!=='OPEN')?'a seasonal window that has not opened'+(w&&w.eligibleDate?' (opens '+w.eligibleDate+')':''):'not assignable yet';
+    phBlock=ph.readyToVerify
+      ?`<div class="note" style="margin:0 0 8px;">All required steps are complete or overridden. Verify the bed to release it to Available.</div><button class="btn btn-ok" onclick="closeModal();doVerifyTurnover('${esc(scope)}','${esc(d.bedId)}')">Verify Bed Ready &amp; Release to Available</button>`
+      :`<div class="note" style="margin:0 0 8px;"><b>${left} required step${left===1?'':'s'} left. Next: ${esc(nx?nx.name:'')}</b><br>${esc(why1)}. Later steps open in order. A manager can skip any step with an override and a written reason.</div>
+        <button class="btn btn-outline" onclick="openModal('override',{cohortId:'${esc(scope)}',selected:[],reason:''})">Manager override\u2026</button>`;
+  }
   const unlockNote=(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES')&&!cohort?`<div class="note" style="margin:0 0 8px;">Not unlocked yet. The list shows the steps required to make this bed ready; once it is verified Available, all Crop Care activities open up.</div>`:'';
   const verifyBtn=(st==='UNVERIFIED'||st==='BLOCKED')&&!cohort?`<button class="btn btn-outline" ${d.busy?'disabled':''} onclick="bbVerifyFromInfo()">${d.busy?'Verifying\u2026':'Verify ready for production'}</button>`:'';
-  const action=unlockNote+assignBtn+verifyBtn;
+  const action=unlockNote+(phBlock||assignBtn)+verifyBtn;
   const body=d.loading?`<div class="empty">Loading bed profile\u2026</div>`:`
     ${d.err?`<div class="error">Full profile unavailable: ${esc(d.err)}. Showing what the board has.</div>`:''}
     <div class="card"><div class="row"><span><b style="color:var(--ink);">Bed profile</b></span><span class="chip" style="background:${sty.fill};color:${sty.tc};">${esc(sty.label)}</span></div>
@@ -3713,11 +3731,11 @@ function phaVisible(){ return phaBeds().filter(b=>pha.block==='ALL'||String(b.bl
 function phaOpenSess(id){ return (state.sessions||[]).filter(s=>s.bedId===id && String(s.status||'').toUpperCase()!=='COMPLETED'); }
 function phaAssigned(id){ return phaOpenSess(id).filter(s=>String(s.status||'').toUpperCase()==='ASSIGNED'); }
 /* Mirrors validateActivity_: a step can be assigned unless it is complete, an automatic buffer, or a seasonal window not yet open. */
-function phaStepOK(b,name){ const s=((b.postHarvest||{}).steps||[]).find(x=>x.name===name); return !!s && s.status!=='COMPLETE' && s.gate!=='BUFFER' && !(s.gate==='WINDOW'&&s.status!=='OPEN'); }
+function phaStepOK(b,name){ const n=phNextStep(b.postHarvest); return !!n && n.name===name && phStepOpen(n); }
 function phaSteps(b){ return ((b.postHarvest||{}).steps||[]).filter(s=>phaStepOK(b,s.name)).map(s=>s.name); }
 function phaCanAssign(b){ const p=b.postHarvest; return !!(p && !p.readyToVerify && phaSteps(b).length); }
 function phaSelectable(b){ return phaCanAssign(b) || phaAssigned(b.id).length>0; }
-function phaWhy(b){ const p=b.postHarvest; return p.readyToVerify?'All steps done. Verify the bed instead.':'Only automatic waits or closed seasonal windows remain. They unlock on their own.'; }
+function phaWhy(b){ const p=b.postHarvest; if(p.readyToVerify) return 'All steps done. Verify the bed instead.'; const n=phNextStep(p), w=p.waiting; return n?(n.name+' is next, but it cannot be assigned yet'+(w&&w.eligibleDate?' (unlocks '+w.eligibleDate+')':'')+'. Use Manager override to skip it with a reason.'):'Nothing to assign.'; }
 function phaCrewCell(b){
   const ss=phaOpenSess(b.id); if(!ss.length) return '<span class="qsub">Unassigned</span>';
   const g={}; ss.forEach(s=>{ (g[s.activity]=g[s.activity]||[]).push(s); });
@@ -3750,7 +3768,7 @@ function postHarvestScreen(){
   const rows=beds.map(b=>{ const p=b.postHarvest, m=p.coverMix||{}, steps=p.stepCount||(p.steps||[]).length, nxt=p.readyToVerify?'Ready to verify':(p.nextStep?'Step '+(p.nextStepNumber||'?')+' of '+steps+': '+p.nextStep:'—'), can=phaSelectable(b), why=phaWhy(b);
     return `<tr><td><input type="checkbox" class="pha-cb" data-id="${esc(b.id)}" ${pha.sel[b.id]?'checked':''} ${can?'':'disabled'} title="${esc(can?'':why)}" onchange="phaTog(this.dataset.id,this.checked)"></td><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button></td><td>${esc(b.cohortId||'bed-level')}</td><td>${esc(m.exitDate||'—')}</td><td style="white-space:normal;min-width:190px;">${esc(m.label||'No standard mix: manager decides')}</td><td style="white-space:normal;min-width:180px;">${esc(nxt)}</td><td style="white-space:normal;min-width:190px;">${phaCrewCell(b)}</td><td style="white-space:nowrap;"><button class="dc-mini" ${phaCanAssign(b)?'':'disabled'} title="${esc(phaCanAssign(b)?'':why)}" onclick="phaOpenAssign(['${esc(b.id)}'])">${phaAssigned(b.id).length?'Edit crew':'Assign'}</button></td><td><span class="chip ${p.readyToVerify?'chip-ok':'chip-warn'}">${p.readyToVerify?'Verify bed ready':'In turnover'}</span></td></tr>`; }).join('');
   return admWrap(`<h2 style="margin:0 0 4px;">Post-harvest & cover crop sequence</h2>
-    <div class="note" style="margin-top:0;">When a cohort is terminated (ACT_053), the bed goes through field cleanup (ACT_037–039) and cover crop establishment (ACT_041–044). Only the manager's Verify Bed Ready returns it to Available.</div>
+    <div class="note" style="margin-top:0;">When a cohort is terminated (ACT_053), the bed goes through field cleanup (ACT_037–039) and cover crop establishment (ACT_041–044), in that order. Any step can be skipped by a manager override with a written explanation. Only the manager's Verify Bed Ready returns the bed to Available.</div>
     ${crSectionHead('Cover crop planting windows')}<div class="card">
       ${coverLoad.err?`<div class="notice">${esc(coverLoad.err)} <button class="dc-mini" onclick="coverLoad.tried=false;loadCoverWindows()">Retry</button></div>`:''}
       ${COVER_WINDOWS.length?COVER_WINDOWS.map(w=>`<div class="row"><span><b>${esc(w.name)} (${esc(w.crop)})</b></span><span style="text-align:right;">${esc(w.startLabel)} – ${esc(w.endLabel)}</span></div>`).join(''):`<div class="note">${coverLoad.busy?'Loading windows…':'No cover crop windows loaded.'}</div>`}
