@@ -1073,6 +1073,44 @@ function dpCatTabs(d,rows){
   return `<div class="seg wrap" style="margin-bottom:8px;">${ACTION_CATS.map(([k,l])=>{ const n=cnt(k), c=pick(k); return `<button class="${d.cat===k?'active':''}" ${n?'':'style="opacity:.6;"'} onclick="dpSetCat('${k}')">${esc(l)}<span class="n">${n}</span>${c&&k!=='ALL'?`<span class="n">· ${c}✓</span>`:''}</button>`; }).join('')}</div>`;
 }
 function dpStChip(st){ const k={'DONE':'chip-ok','OVERRIDDEN':'chip-neutral','IN PROGRESS':'chip-ok','ASSIGNED':'chip-warn','PENDING':'chip-neutral','AVAILABLE':'chip-neutral','AUTOMATIC WAIT':'chip-neutral','WAITING':'chip-neutral'}[st]||'chip-neutral'; return `<span class="chip ${k}">${esc(st.charAt(0)+st.slice(1).toLowerCase())}</span>`; }
+/* ---------- Activity verification: who completed each post-harvest step, when, actual vs budget hours; manager signs off one or many ----------
+ * Data comes from get-manager-today-view (postHarvest.steps[].work, BedStatusEngine.gs). Verifying writes only Verified_By / Verified_Date. */
+function avHM(h){ const m=Math.max(0,Math.round(Number(h||0)*60)); return Math.floor(m/60)+':'+String(m%60).padStart(2,'0'); }
+function avWhen(v){ if(!v) return ''; const d=new Date(v); return isNaN(d.getTime())?'':d.toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
+function avS(b){ if(!ui.av||ui.av.bedId!==b.id) ui.av={bedId:b.id,sel:{}}; return ui.av; }
+function avStepsOf(b,pending){ const p=b.postHarvest; return p?(p.steps||[]).filter(s=>s.work&&(pending?s.needsVerification:s.verified)):[]; }
+function avLines(s){
+  const w=s.work, many=w.completedBy.length>1;
+  const who=w.completedBy.map(x=>esc(x.name)+(many?' ('+avHM(x.hours)+')':'')).join(', ');
+  let hrs;
+  if(w.budgetHours!=null){ const d=Number(w.varianceHours||0);
+    hrs=`Time taken <b>${avHM(w.actualHours)}</b> vs budget <b>${avHM(w.budgetHours)}</b> \u00b7 ${d>0.004?`<b style="color:var(--warn);">${avHM(d)} over budget</b>`:d<-0.004?`${avHM(-d)} under budget`:'on budget'}`; }
+  else hrs=`Time taken <b>${avHM(w.actualHours)}</b> \u00b7 budget unavailable${w.budgetReason?' ('+esc(w.budgetReason)+')':''}`;
+  return `<div class="qsub" style="text-transform:none;letter-spacing:0;">Completed by <b>${who}</b> \u00b7 ${esc(avWhen(w.completedAt))}${w.sessions>1?' \u00b7 '+w.sessions+' sessions':''}</div>
+    <div class="qsub" style="text-transform:none;letter-spacing:0;">${hrs}${w.budgetRule?' <span style="opacity:.7">('+esc(w.budgetRule)+')</span>':''}</div>`
+    +(w.verified?`<div class="qsub" style="text-transform:none;letter-spacing:0;">Verified by ${esc(w.verifiedByName||w.verifiedBy)} \u00b7 ${esc(avWhen(w.verifiedAt))}</div>`:'');
+}
+function avBlock(b){
+  const pend=avStepsOf(b,true), ver=avStepsOf(b,false); if(!pend.length&&!ver.length) return '';
+  const d=avS(b), n=pend.filter(s=>d.sel[s.name]).length;
+  const rows=pend.map(s=>`<label class="dp-row on" style="align-items:flex-start;"><input type="checkbox" ${d.sel[s.name]?'checked':''} data-v="${esc(s.name)}" onchange="avTog(this.dataset.v,this.checked)">
+    <div style="flex:1;min-width:0;"><b>${esc(s.name)}</b> <span class="chip chip-warn">Pending verification</span>${avLines(s)}</div></label>`).join('');
+  const done=ver.length?`<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:12px;">Verified activities (${ver.length})</summary>${ver.map(s=>`<div class="dp-row"><div style="flex:1;min-width:0;"><b>${esc(s.name)}</b> <span class="chip chip-ok">Verified</span>${avLines(s)}</div></div>`).join('')}</details>`:'';
+  return `<div class="dp-box"><div class="t"><span>Completed \u00b7 pending verification (${pend.length})</span></div>
+    ${pend.length?`<div class="dp-tools"><button onclick="avAll(true)">Select all</button><button onclick="avAll(false)">Clear</button></div>${rows}
+      <button class="btn btn-primary" ${n?'':'disabled'} onclick="avVerifySelected()">${n?'Verify selected ('+n+')':'Verify selected'}</button>`
+      :'<div class="note" style="margin:0;">Every completed activity is verified.</div>'}${done}</div>`;
+}
+function avTog(name,on){ const d=ui.av; if(!d) return; if(on) d.sel[name]=true; else delete d.sel[name]; dpRefresh(); }
+function avAll(on){ const b=dpBed(), d=avS(b); d.sel={}; if(on) avStepsOf(b,true).forEach(s=>{ d.sel[s.name]=true; }); dpRefresh(); }
+async function avVerifySelected(){
+  const b=dpBed(), d=avS(b), names=avStepsOf(b,true).map(s=>s.name).filter(n=>d.sel[n]); if(!names.length) return;
+  if(!confirm('Verify '+names.length+' completed '+(names.length===1?'activity':'activities')+' on '+b.id+'?\n\n'+names.join('\n')+'\n\nThis is logged with your name and the time. It does not release the bed.')) return;
+  try{ const ph=b.postHarvest;
+    await apiCall('verify-activities',{ scope:ph.bedLevel?'BED:'+b.id:b.cohortId, bedId:b.id, cohortId:ph.bedLevel?'':b.cohortId, activities:names });
+    toast(names.length===1?'Activity verified.':names.length+' activities verified.'); ui.av={bedId:b.id,sel:{}}; await loadToday(); }
+  catch(e){ toast(e.message); }
+}
 function dpInner(b,sess){
   const d=dpS(b), rows=dpRows(b), sel=rows.filter(r=>!r.off), selNames=sel.map(r=>r.name), open=maOpenSet2(b.id);
   d.acts=d.acts.filter(n=>selNames.includes(n));
@@ -1116,6 +1154,7 @@ function dpInner(b,sess){
     <div class="dp-tools" style="margin:6px 0 4px;">${d.cat==='ALL'?'':`<button onclick="dpAllA()">Select all in this tab</button>`}<button onclick="dpClearA()">Clear selection</button></div>
     ${list||`<div class="note" style="margin-top:0;">No activity selected yet. Choose one from the dropdown above.</div>`}
     <div class="note" style="margin-bottom:0;">Workers you pick above apply to every ticked activity. Use "customize" on a row to give that activity a different crew.</div></div>
+  ${avBlock(b)}
   ${ovBlock}
   ${activeWorkSection(b,sess)}
   <div class="dp-foot">${res}${missing?`<div class="note" style="margin:0 0 6px;color:var(--warn);font-weight:600;">${missing} selected activit${missing===1?'y has':'ies have'} no worker.</div>`:''}
@@ -1349,7 +1388,8 @@ async function doOverridePostHarvest(){
   catch(e){ toast(e.message); }
 }
 async function doVerifyTurnover(scope,bedId){
-  try{ if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',{ bedId }); else await apiCall('complete-cohort',{ cohortId:scope }); toast('Bed verified and released to Available.'); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); }
+  try{ /* requireVerified + verifyAll: any completed activity still awaiting verification is signed off with the release (BedStatusEngine.gs) */
+    if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',{ bedId, requireVerified:true, verifyAll:true }); else await apiCall('complete-cohort',{ cohortId:scope, requireVerified:true, verifyAll:true }); toast('Bed verified and released to Available.'); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); }
   catch(e){ toast(e.message); }
 }
 /* Bed-level turnover (BED_STATUS_RULES R14): a bed with NO cohort that was given Post-Harvest work. No crop, so no fixed
