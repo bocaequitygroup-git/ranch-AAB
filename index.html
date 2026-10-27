@@ -845,10 +845,11 @@ function mapSVG(){
 }
 function attachMapEvents(){ document.querySelectorAll('[data-bed]').forEach(el=>{ el.addEventListener('click', ()=>selectBed(el.dataset.bed)); }); }
 
+function bedPanelStatus(b){ const s=String(b.bedStatus||'').trim().toUpperCase(); if(!s||s==='UNVERIFIED') return 'Not verified'; return s.toLowerCase().replace(/^./,c=>c.toUpperCase()); }
 function panelHTML(){
   const b = bedViewById(ui.selectedBed); if(!b) return '';
   const sess=bedSessions(b.id), exc=bedExceptions(b.id), hr=state.harvestReady.find(h=>h.bedId===b.id);
-  return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${b.cohortId?`${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}`:`${esc(b.blockId)} · ${esc(String(b.locationType||'field').toLowerCase())} bed · ${b.proposals.length?'Proposed':'Available'}`}</div></div><button onclick="closePanel()">✕</button></div>
+  return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${b.cohortId?`${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}`:`${esc(b.blockId)} · ${esc(String(b.locationType||'field').toLowerCase())} bed · ${b.proposals.length?'Proposed':bedPanelStatus(b)}`}</div></div><button onclick="closePanel()">✕</button></div>
   <div class="tabs">
     <button class="${ui.tab==='overview'?'active':''}" onclick="setTab('overview')">Overview</button>
     ${b.cohortId?`<button class="${ui.tab==='activity'?'active':''}" onclick="setTab('activity')">Activity</button>`:''}
@@ -1053,7 +1054,6 @@ function dpRows(b){   /* every row the manager can see for this bed, grouped by 
     if(x.status==='COMPLETE'){ off='Done'; st=x.overridden?'OVERRIDDEN':'DONE'; }
     else if(x.gate==='BUFFER'){ off='Automatic wait'; st='AUTOMATIC WAIT'; }
     else if(x.gate==='WINDOW'&&x.status!=='OPEN'){ off='Waiting for window'; st='WAITING'; }
-    else if(nx&&x.name!==nx.name){ off='After '+nx.name; st='LOCKED'; }
     rows.push({name:x.name,id:m.id||'',domain:x.domain||m.domain||'Required workflow',desc:m.description||'',st,off,wf:true,cat:'POST'}); });
   cat.filter(a=>a.name&&!seen[a.name]).forEach(a=>{ seen[a.name]=1; rows.push({name:a.name,id:a.id||'',domain:a.domain||'Other',desc:a.description||'',st:live(a.name)||'AVAILABLE',off:'',wf:false,cat:actCatOf(a)}); });
   return rows;
@@ -1112,7 +1112,7 @@ function dpInner(b,sess){
   <div class="dp-box"><div class="t"><span>Select activities to dispatch (${d.acts.length} selected${d.cat!=='ALL'?' · showing '+esc((ACTION_CATS.find(c=>c[0]===d.cat)||[0,''])[1]):''})</span></div>
     ${dpCatTabs(d,rows)}
     ${ph&&(d.cat==='ALL'||d.cat==='POST')?`<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px;">Required workflow · ${done} / ${tot} complete</div><div class="dc-bar"><i style="width:${tot?Math.round(done/tot*100):0}%"></i></div>`:''}
-    ${vis.length?`<select class="dp-pick" onchange="dpPickA(this.value)"><option value="">+ Add an activity (${vis.length} available)…</option>${picker}</select>`:`<div class="note" style="margin-top:0;">${esc(d.cat==='ALL'?'No activities are loaded from ACTIVITY_REFERENCE. Tap Refresh.':dpCatEmpty(d.cat,b))}</div>`}
+    ${vis.length?`<select class="dp-pick" onchange="dpPickA(this.value)"><option value="">+ Add an activity (${vis.filter(r=>!r.off).length} available${vis.some(r=>r.off==='Done')?' · '+vis.filter(r=>r.off==='Done').length+' done':''})…</option>${picker}</select>`:`<div class="note" style="margin-top:0;">${esc(d.cat==='ALL'?'No activities are loaded from ACTIVITY_REFERENCE. Tap Refresh.':dpCatEmpty(d.cat,b))}</div>`}
     <div class="dp-tools" style="margin:6px 0 4px;">${d.cat==='ALL'?'':`<button onclick="dpAllA()">Select all in this tab</button>`}<button onclick="dpClearA()">Clear selection</button></div>
     ${list||`<div class="note" style="margin-top:0;">No activity selected yet. Choose one from the dropdown above.</div>`}
     <div class="note" style="margin-bottom:0;">Workers you pick above apply to every ticked activity. Use "customize" on a row to give that activity a different crew.</div></div>
@@ -1224,7 +1224,7 @@ function modalHTML(){
  * (getActivityCatalog_(), ActivityEngine.gs). There is no hard-coded activity list in this file: if the
  * backend sends no catalog the picker says so instead of showing a stale copy. The server
  * (validateActivity_) remains the final judge of every dispatch. */
-const ACTIVITY_GROUP_ORDER=['Required workflow','Prep','Greenhouse Propagation','Planting','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
+const ACTIVITY_GROUP_ORDER=['Required workflow','Prep','Planting','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
 /* 'HARVESTCOMPLETE' (buildTodayView_ upper-cases it), 'HarvestComplete' (sheet) and 'PRE_PLANTING' all compare equal. */
 function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); }
 /* WHAT A BED MAY START — decided by the bed's own state, never the whole catalogue (server validateActivity_ stays the judge).
@@ -1247,7 +1247,7 @@ function startableActivities(bedId, hasCohortFallback){
     const care=(st==='AVAILABLE')?cat.filter(a=>String(a.domain||'').trim().toLowerCase()==='cropcare' && !(Number(a.postHarvestSequence)>0)):[];
     const bedList=prep.concat(care);
     if(bedList.length) return {list:bedList, why:''};
-    if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Work is assigned one step at a time, in order, from the SOP reset checklist (ACT_037–039, ACT_041–044), then you verify the bed.'};
+    if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Assign the SOP reset steps (ACT_037–039, ACT_041–044) in any order, then verify the bed.'};
     return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available but no assignable activities are loaded. Tap Refresh.'
                         : st==='BLOCKED' ? 'This bed is blocked. Clear the block and verify it first.'
                         : 'No cohort is assigned to this bed.'};
@@ -1278,12 +1278,12 @@ function activityGroups(){
  * (no cohort / crop / stage / bed-status gating here). The server (validateActivity_) applies each activity's own rules. */
 function setDispatchActivity(name){ ui.modalDraft.activity=name; render(); }
 function setDispatchWorker(id){ ui.modalDraft.workerId=id; render(); }
-/* Controlled bed turnover (Post-Harvest, ACTIVITY_REFERENCE.Post_Harvest_Sequence). NOT a picker: the manager sees ONLY the
- * next required step; later steps stay locked until it completes. Time-based buffers are confirmed, not assigned. */
+/* Controlled bed turnover (Post-Harvest, ACTIVITY_REFERENCE.Post_Harvest_Sequence). steps can be done in any order.
+ * Time-based buffers are confirmed, not assigned. */
 const PH_STEPS={};   /* cohortId -> postHarvest view, set while rendering so the override modal can list the remaining steps */
 function phChecklist(p){
   const g={}; (p.steps||[]).forEach(s=>{ const k=s.domain||'Other'; (g[k]=g[k]||[]).push(s); });
-  const chip=s=>s.status==='COMPLETE'?(s.overridden?'<span class="chip chip-neutral">Overridden</span>':'<span class="chip chip-ok">Done</span>'):(s.name===p.nextStep?'<span class="chip chip-warn">Next</span>':'<span class="chip chip-neutral">Locked</span>');
+  const chip=s=>s.status==='COMPLETE'?(s.overridden?'<span class="chip chip-neutral">Overridden</span>':'<span class="chip chip-ok">Done</span>'):'<span class="chip chip-neutral">To do</span>';
   return Object.entries(g).map(([k,l])=>`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">${esc(k)}</div>${l.map(s=>`<div class="row"><span>${esc(s.name)}</span>${chip(s)}</div>`).join('')}`).join('');
 }
 function phOverrideNotes(p){ return (p.overrides||[]).map(o=>`<div class="note"><b>${esc(o.name)}</b> overridden by ${esc(o.by)}${o.date?' on '+esc(o.date):''}: ${esc(o.reason)}</div>`).join(''); }
@@ -1321,7 +1321,7 @@ function turnoverBlock(b,sess){
     <div style="font-weight:700;margin-bottom:4px;">${esc(p.nextStep)}</div>
     ${p.nextStepDescription?`<div class="note" style="margin-top:0;">${esc(p.nextStepDescription)}</div>`:''}
     ${action}
-    <div class="note">Later steps stay locked until this one is completed or you override it.</div>${overrideBtn}</div>`;
+    <div class="note">Steps can be done in any order. The bed is released only when you verify it.</div>${overrideBtn}</div>`;
 }
 /* Manager override: skip steps that will not be done this season. An explanation is required and is logged server-side. */
 function togglePhOverride(name,on){ const s=ui.modalDraft.selected, i=s.indexOf(name); if(on&&i<0) s.push(name); if(!on&&i>=0) s.splice(i,1); }
@@ -1387,7 +1387,7 @@ function dispatchModal(){
   </div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)"><option value="">Select a worker…</option>${state.workers.map(w=>`<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
   <p style="font-size:12px;color:var(--ink-soft);">Dispatched to the worker as Pending. Their timer starts when they tap Start.</p>
-  <p style="font-size:12px;color:var(--ink-soft);">Only activities this bed's current state allows are listed.${d.hasCohort?' Post-harvest steps open in order after the cohort is terminated.':''}</p>
+  <p style="font-size:12px;color:var(--ink-soft);">Only activities this bed's current state allows are listed.${d.hasCohort?' Post-harvest steps open after the cohort is terminated.':''}</p>
   <button class="btn btn-primary" ${d.activity&&d.workerId?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Assign activity</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
@@ -1399,10 +1399,11 @@ function dispatchModal(){
 function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
 /* Required-workflow steps this bed can be given right now (any order): not complete, not an automatic buffer, window open. */
-/* SOP order: only the first unfinished step can be assigned (any number of workers on it). Everything after it waits; the manager override skips any step. */
+/* Any order: every unfinished step that is not an automatic wait / closed window can be assigned. The bed is released only by the manager's Verify Bed Ready. */
 function phNextStep(p){ return p?(p.steps||[]).find(x=>x.status!=='COMPLETE')||null:null; }
 function phStepOpen(x){ return !!x&&x.gate!=='BUFFER'&&!(x.gate==='WINDOW'&&x.status!=='OPEN'); }
-function wfAssignable(b){ const p=b&&b.postHarvest, n=phNextStep(p); return (n&&phStepOpen(n))?[Object.assign({idx:p.steps.indexOf(n)},n)]:[]; }
+function phStepAssignable(x){ return !!x&&x.status!=='COMPLETE'&&phStepOpen(x); }
+function wfAssignable(b){ const p=b&&b.postHarvest; return p?(p.steps||[]).map((x,i)=>Object.assign({idx:i},x)).filter(phStepAssignable):[]; }
 function dispatchListFor(bedId,hasCohort){
   const b=(state.beds||[]).find(x=>x.id===bedId)||{}, cat=state.activityCatalog||[];
   const wf=wfAssignable(b).map(x=>{ const c=cat.find(y=>y.name===x.name)||{}; return {id:c.id||'',name:x.name,domain:'Required workflow',description:c.description||'',postHarvestSequence:x.idx+1,wf:true}; });
@@ -1509,7 +1510,7 @@ async function submitMultiAssign(){
 }
 function fixedDispatchModal(d){
   return `<h2 style="font-size:15px;">Assign next required activity</h2>
-  <div class="note" style="margin-top:0;">Post-harvest turnover step. Later steps unlock as each one is completed.</div>
+  <div class="note" style="margin-top:0;">Post-harvest turnover step. Steps can be done in any order; you verify the bed at the end.</div>
   <div class="field"><label>Activity</label><div style="font-weight:700;">${esc(d.fixedActivity)}</div></div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)"><option value="">Select a worker…</option>${state.workers.map(w=>`<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
   <button class="btn btn-primary" ${d.workerId?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.fixedActivity)}', document.getElementById('md-worker').value)">Assign</button>
@@ -3429,7 +3430,7 @@ function bedInfoModal(){
     const why1=!nx?'':nx.gate==='BUFFER'?'an automatic waiting period; it unlocks by itself'+(w&&w.eligibleDate?' on '+w.eligibleDate:''):(nx.gate==='WINDOW'&&nx.status!=='OPEN')?'a seasonal window that has not opened'+(w&&w.eligibleDate?' (opens '+w.eligibleDate+')':''):'not assignable yet';
     phBlock=ph.readyToVerify
       ?`<div class="note" style="margin:0 0 8px;">All required steps are complete or overridden. Verify the bed to release it to Available.</div><button class="btn btn-ok" onclick="closeModal();doVerifyTurnover('${esc(scope)}','${esc(d.bedId)}')">Verify Bed Ready &amp; Release to Available</button>`
-      :`<div class="note" style="margin:0 0 8px;"><b>${left} required step${left===1?'':'s'} left. Next: ${esc(nx?nx.name:'')}</b><br>${esc(why1)}. Later steps open in order. A manager can skip any step with an override and a written reason.</div>
+      :`<div class="note" style="margin:0 0 8px;"><b>${left} required step${left===1?'':'s'} left. Next: ${esc(nx?nx.name:'')}</b><br>${esc(why1)}. A manager can skip any step with an override and a written reason.</div>
         <button class="btn btn-outline" onclick="openModal('override',{cohortId:'${esc(scope)}',selected:[],reason:''})">Manager override\u2026</button>`;
   }
   const unlockNote=(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES')&&!cohort?`<div class="note" style="margin:0 0 8px;">Not unlocked yet. The list shows the steps required to make this bed ready; once it is verified Available, all Crop Care activities open up.</div>`:'';
@@ -3731,11 +3732,11 @@ function phaVisible(){ return phaBeds().filter(b=>pha.block==='ALL'||String(b.bl
 function phaOpenSess(id){ return (state.sessions||[]).filter(s=>s.bedId===id && String(s.status||'').toUpperCase()!=='COMPLETED'); }
 function phaAssigned(id){ return phaOpenSess(id).filter(s=>String(s.status||'').toUpperCase()==='ASSIGNED'); }
 /* Mirrors validateActivity_: a step can be assigned unless it is complete, an automatic buffer, or a seasonal window not yet open. */
-function phaStepOK(b,name){ const n=phNextStep(b.postHarvest); return !!n && n.name===name && phStepOpen(n); }
+function phaStepOK(b,name){ return phStepAssignable(((b.postHarvest||{}).steps||[]).find(x=>x.name===name)); }
 function phaSteps(b){ return ((b.postHarvest||{}).steps||[]).filter(s=>phaStepOK(b,s.name)).map(s=>s.name); }
 function phaCanAssign(b){ const p=b.postHarvest; return !!(p && !p.readyToVerify && phaSteps(b).length); }
 function phaSelectable(b){ return phaCanAssign(b) || phaAssigned(b.id).length>0; }
-function phaWhy(b){ const p=b.postHarvest; if(p.readyToVerify) return 'All steps done. Verify the bed instead.'; const n=phNextStep(p), w=p.waiting; return n?(n.name+' is next, but it cannot be assigned yet'+(w&&w.eligibleDate?' (unlocks '+w.eligibleDate+')':'')+'. Use Manager override to skip it with a reason.'):'Nothing to assign.'; }
+function phaWhy(b){ const p=b.postHarvest; if(p.readyToVerify) return 'All steps done. Verify the bed instead.'; const n=phNextStep(p), w=p.waiting; return n?('No remaining step can be assigned yet ('+n.name+' is waiting'+(w&&w.eligibleDate?', unlocks '+w.eligibleDate:'')+'). Use Manager override to skip it with a reason.'):'Nothing to assign.'; }
 function phaCrewCell(b){
   const ss=phaOpenSess(b.id); if(!ss.length) return '<span class="qsub">Unassigned</span>';
   const g={}; ss.forEach(s=>{ (g[s.activity]=g[s.activity]||[]).push(s); });
@@ -3768,7 +3769,7 @@ function postHarvestScreen(){
   const rows=beds.map(b=>{ const p=b.postHarvest, m=p.coverMix||{}, steps=p.stepCount||(p.steps||[]).length, nxt=p.readyToVerify?'Ready to verify':(p.nextStep?'Step '+(p.nextStepNumber||'?')+' of '+steps+': '+p.nextStep:'—'), can=phaSelectable(b), why=phaWhy(b);
     return `<tr><td><input type="checkbox" class="pha-cb" data-id="${esc(b.id)}" ${pha.sel[b.id]?'checked':''} ${can?'':'disabled'} title="${esc(can?'':why)}" onchange="phaTog(this.dataset.id,this.checked)"></td><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button></td><td>${esc(b.cohortId||'bed-level')}</td><td>${esc(m.exitDate||'—')}</td><td style="white-space:normal;min-width:190px;">${esc(m.label||'No standard mix: manager decides')}</td><td style="white-space:normal;min-width:180px;">${esc(nxt)}</td><td style="white-space:normal;min-width:190px;">${phaCrewCell(b)}</td><td style="white-space:nowrap;"><button class="dc-mini" ${phaCanAssign(b)?'':'disabled'} title="${esc(phaCanAssign(b)?'':why)}" onclick="phaOpenAssign(['${esc(b.id)}'])">${phaAssigned(b.id).length?'Edit crew':'Assign'}</button></td><td><span class="chip ${p.readyToVerify?'chip-ok':'chip-warn'}">${p.readyToVerify?'Verify bed ready':'In turnover'}</span></td></tr>`; }).join('');
   return admWrap(`<h2 style="margin:0 0 4px;">Post-harvest & cover crop sequence</h2>
-    <div class="note" style="margin-top:0;">When a cohort is terminated (ACT_053), the bed goes through field cleanup (ACT_037–039) and cover crop establishment (ACT_041–044), in that order. Any step can be skipped by a manager override with a written explanation. Only the manager's Verify Bed Ready returns the bed to Available.</div>
+    <div class="note" style="margin-top:0;">When a cohort is terminated (ACT_053), the bed goes through field cleanup (ACT_037–039) and cover crop establishment (ACT_041–044), in any order. Any step can be skipped by a manager override with a written explanation. Only the manager's Verify Bed Ready returns the bed to Available.</div>
     ${crSectionHead('Cover crop planting windows')}<div class="card">
       ${coverLoad.err?`<div class="notice">${esc(coverLoad.err)} <button class="dc-mini" onclick="coverLoad.tried=false;loadCoverWindows()">Retry</button></div>`:''}
       ${COVER_WINDOWS.length?COVER_WINDOWS.map(w=>`<div class="row"><span><b>${esc(w.name)} (${esc(w.crop)})</b></span><span style="text-align:right;">${esc(w.startLabel)} – ${esc(w.endLabel)}</span></div>`).join(''):`<div class="note">${coverLoad.busy?'Loading windows…':'No cover crop windows loaded.'}</div>`}
