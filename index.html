@@ -437,7 +437,7 @@ async function fetchTodayView(){
 function applyTodayView(d){
   state.beds = d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
   state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||[];
-  state.activityCatalog=d.activityCatalog||[];
+  state.activityCatalog=d.activityCatalog||[]; state.overrides=d.overrides||[];
   state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
   state.todayError=''; state.lastSync=new Date();
 }
@@ -1225,7 +1225,7 @@ function actionsPanel(b,sess){
 /* Monitor progress: while a bed is open, quietly re-read the live data every 30s. Skipped while a modal is open or the
  * manager is mid-edit in a field, so a refresh never wipes what they are typing or choosing. */
 async function refreshLive(){
-  if(!state.token || ui.modal || ui.loading || refreshLive._busy || !(ui.selectedBed||ui.ppSelectedBed)) return;
+  if(!state.token || ui.modal || ui.loading || refreshLive._busy || !(ui.selectedBed||ui.ppSelectedBed||(ui.screen==='planning'&&ui.pMode==='bedboard'))) return;
   const ae=document.activeElement; if(ae && /^(SELECT|TEXTAREA|INPUT)$/.test(ae.tagName)) return;
   refreshLive._busy=true;
   try{
@@ -1530,6 +1530,7 @@ function maRefresh(){
   const keep=(el,fn)=>{ const t=el.scrollTop; fn(); el.scrollTop=t; };
   keep(g('ma-acts'),()=>{ g('ma-acts').innerHTML=maRowsActs(); }); keep(g('ma-planwrap'),()=>{ g('ma-planwrap').innerHTML=maPlanHTML(); });
   g('ma-cats').innerHTML=maCatTabs(); g('ma-foot').innerHTML=maFootHTML(); const n=g('ma-n'); if(n) n.textContent=maD().acts.length;
+  const tk=g('ma-tasks'); if(tk) tk.innerHTML=bedTasksBlock(maD().bedId,{buttons:false});
 }
 /* Read-only "Required" block: the finished reset steps (Done, verified, grayed out), then Planting as the one open required step,
  * then the steps that stay locked until planting is verified. Data: b.reset (server, display only), b.cohortId / b.plantingDate. */
@@ -1558,6 +1559,7 @@ function multiAssignModal(){
   const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId)||{};
   return `<div class="ma-head"><h2 style="font-size:16px;margin:0;">Assign activities · Bed ${esc(d.bedId)}</h2><span class="qsub">${esc(b.cropName||'')}${b.currentStage?' · '+esc(b.currentStage):''}</span></div>
   ${reqStepsHTML(b)}
+  <details open style="margin:0 0 10px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px;"><summary style="cursor:pointer;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.03em;">Already assigned on this bed</summary><div id="ma-tasks" style="max-height:34vh;overflow-y:auto;">${bedTasksBlock(d.bedId,{buttons:false})}</div></details>
   <div class="ma-cols">
     <div class="ma-col"><div class="ma-colhead"><h3>1 · Pick activities</h3>
       <div class="seg wrap" id="ma-cats">${maCatTabs()}</div>
@@ -2075,7 +2077,7 @@ function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete
 function setPMode(m){ if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
-function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard') bbLoad(true); if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='assigncohort'){ loadToday(); asg.tried=false; ensureAcLoaded(true); } if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
+function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard'){ bbLoad(true); loadToday(); } if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='assigncohort'){ loadToday(); asg.tried=false; ensureAcLoaded(true); } if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
 function selectCrop(id){ ui.pSelectedCrop=id; ui.pModifying=false; render(); }
 function selectCropByBed(n){ const c=getPlan(ui.pBlock,ui.pYear).crops.find(x=>x.bedNums.includes(n)); if(c){ ui.pSelectedCrop=c.id; render(); } }
 
@@ -3481,6 +3483,30 @@ async function bbBedClick(bedId){
   }catch(e){ if(ui.modal==='bed-info'&&ui.modalDraft.bedId===bedId) Object.assign(ui.modalDraft,{loading:false,err:errMsg(e)}); }
   render();
 }
+/* ---- Live tasks on a bed: Active / Assigned / Reassigned (with note), each with Activity ID, name and a short description ---- */
+function shortDesc(t,n){ t=String(t||'').replace(/\s+/g,' ').trim(); const m=t.match(/^.*?[.;](\s|$)/); let x=m?m[0].trim():t; if(x.length>n) x=x.slice(0,n-1).trimEnd()+'\u2026'; return x; }
+function sessDesc(s){ const c=(state.activityCatalog||[]).find(x=>x.name===s.activity); return shortDesc((c&&c.description)||s.description||'',110); }
+function bedTasksBlock(bedId,opts){
+  opts=opts||{};
+  const rank=k=>({ACTIVE:0,PAUSED:1,EXCEPTION:1,IN_PROGRESS:0,ASSIGNED:2}[k]);
+  const list=bedSessions(bedId).slice().sort((a,b)=>{ const ka=String(a.status||'').toUpperCase(), kb=String(b.status||'').toUpperCase();
+    return ((rank(ka)===undefined?3:rank(ka))-(rank(kb)===undefined?3:rank(kb)))||String(a.activityId||a.activity).localeCompare(String(b.activityId||b.activity)); });
+  const n=k=>list.filter(s=>k.includes(String(s.status||'').toUpperCase())).length;
+  const sum=list.length?`${n(['ACTIVE','PAUSED','EXCEPTION','IN_PROGRESS'])} in progress \u00b7 ${n(['ASSIGNED'])} assigned${list.some(s=>s.reassignedFrom)?' \u00b7 '+list.filter(s=>s.reassignedFrom).length+' reassigned':''}`:'';
+  const cards=list.map(s=>{
+    const st=taskStatus(s), t=taskTimes(s), pending=String(s.status||'').toUpperCase()==='ASSIGNED';
+    const who=(s.workerName||s.workerId||'Unassigned')+((s.workerName&&s.workerId&&s.workerName!==s.workerId)?' ('+s.workerId+')':'');
+    const re=s.reassignedFrom?`<div class="note" style="margin:4px 0 0;"><span class="chip chip-warn">Reassigned</span> from <b>${esc(s.reassignedFromName||s.reassignedFrom)}</b>${s.reassignedBy?' by '+esc(s.reassignedBy):''}${s.reassignedAt?' \u00b7 '+esc(fmtTs(s.reassignedAt)):''}${s.reassignNote?`<br>Note: ${esc(s.reassignNote)}`:''}</div>`:'';
+    return `<div class="card" style="margin:0 0 8px;"><div class="row"><span><b>${esc(actLabel(s.activity,s))}</b></span><span class="chip ${st[1]}">${esc(st[0])}</span></div>
+      <div class="qsub" style="margin:2px 0 4px;">${esc(sessDesc(s))}</div>
+      <div class="row"><span>Worker</span><span>${esc(who)}</span></div>
+      <div class="row"><span>${pending?'Dispatched':'Started'}</span><span>${pending?esc(fmtTs(t.dispatched)||'\u2014')+' \u00b7 waiting for worker to start':esc(fmtTs(t.started)||'\u2014')}</span></div>
+      ${re}
+      ${opts.buttons?`<div style="margin-top:6px;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button> <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`:''}</div>`; }).join('');
+  const recent=(((state.todayById||{})[bedId]||{}).activityLog||[]).slice(0,3).map(r=>`<div class="row"><span>${esc(actLabel(r.taskType||r.activityName||''))} \u00b7 ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
+  const body=`${sum?`<div class="qsub" style="margin:0 0 6px;">${esc(sum)}</div>`:''}${cards||`<div class="empty" style="padding:8px 0;">No task is assigned or running on this bed.</div>`}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}`;
+  return `<div id="bed-tasks"><h2 style="font-size:13px;margin:12px 0 6px;">Assigned &amp; active tasks${list.length?' ('+list.length+')':''}</h2>${body}</div>`;
+}
 function bedInfoModal(){
   const d=ui.modalDraft, row=d.row||{}, P=d.prof||{};
   const pick=(k,alt)=>{ const v=P[k]!=null&&P[k]!==''?P[k]:(alt!=null?alt:''); return v; };
@@ -3527,6 +3553,7 @@ function bedInfoModal(){
     <div class="card"><div class="row"><span><b style="color:var(--ink);">Current use</b></span></div>
       ${kv('Bed status',sty.label)}${kv('Current cohort',cohort)}${g&&g.cropName?kv('Crop',g.cropName):''}${g&&g.currentStage?kv('Stage',g.currentStage):''}
       ${kv('Last action',pick('Last_Action'))}${P.Last_Action_Date?kv('Last action date',when(P.Last_Action_Date)):''}</div>
+    ${bedTasksBlock(d.bedId,{buttons:true})}
     ${action}`;
   return `<h2 style="font-size:15px;">Bed ${esc(d.bedId)}</h2>${body}
   <button class="btn btn-outline" onclick="closeModal();openBedEdit('${esc(d.bedId)}')">Edit bed</button>
@@ -3551,6 +3578,53 @@ async function bbRelease(){
   try{ bb.res=await apiCall('release-block-beds',{block:BLOCK_LABELS[bb.sel],reason:bb.reason.trim(),dryRun:false},330000); bb.dry=null; bb.confirm=false; bbForget(); toast((bb.res.released||0)+' bed(s) released in '+BLOCK_LABELS[bb.sel]+'.'); await bbLoad(true); }
   catch(e){ bb.res={error:errMsg(e)}; }
   bb.relBusy=false; render();
+}
+/* ---- Bed Status Board: every assigned / active / reassigned activity on every bed, plus manager overrides ---- */
+function bbBedNo(id){ const m=String(id).match(/^([A-Za-z]+)(\d+)-(\d+)$/); return m?[m[1],+m[2],+m[3]]:[String(id),0,0]; }
+function bbBedCmp(a,b){ const x=bbBedNo(a), y=bbBedNo(b); return x[0].localeCompare(y[0])||(x[1]-y[1])||(x[2]-y[2])||String(a).localeCompare(String(b)); }
+function bbOverrideBed(bedId){
+  const b=(state.todayById||{})[bedId], ph=b&&b.postHarvest;
+  if(!ph){ toast('Manager override applies to beds in post-harvest turnover. '+bedId+' has no turnover steps.'); return; }
+  const scope=ph.bedLevel?'BED:'+bedId:b.cohortId; PH_STEPS[scope]=ph;
+  openModal('override',{cohortId:scope,selected:[],reason:''});
+}
+function bbTasksPanel(){
+  const open=(state.sessions||[]).filter(s=>String(s.status||'').toUpperCase()!=='COMPLETED');
+  const ovs=state.overrides||[];
+  const byBed={}; open.forEach(s=>{ (byBed[s.bedId]=byBed[s.bedId]||[]).push(s); });
+  const ovByBed={}; ovs.forEach(o=>{ (ovByBed[o.bedId]=ovByBed[o.bedId]||[]).push(o); });
+  const rk=s=>({ACTIVE:0,PAUSED:1,EXCEPTION:1,ASSIGNED:2}[String(s.status||'').toUpperCase()]??3);
+  const n=l=>open.filter(s=>l.includes(String(s.status||'').toUpperCase())).length;
+  const synced=state.lastSync?state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit',second:'2-digit'}):'not loaded';
+  const sum=`${open.length} open \u00b7 ${n(['ACTIVE','PAUSED','EXCEPTION'])} in progress \u00b7 ${n(['ASSIGNED'])} assigned \u00b7 ${open.filter(s=>s.reassignedFrom).length} reassigned \u00b7 ${ovs.length} override${ovs.length===1?'':'s'}`;
+  const beds=Object.keys(byBed).sort(bbBedCmp);
+  const rows=beds.map(bed=>{
+    const l=byBed[bed].slice().sort((a,b)=>rk(a)-rk(b)||String(a.activityId||a.activity).localeCompare(String(b.activityId||b.activity)));
+    const tb=(state.todayById||{})[bed]||{}, st=bbStyle(bbStatusOf({bedStatus:tb.bedStatus})), mo=(ovByBed[bed]||[]).length;
+    const head=`<tr><td colspan="6" style="background:var(--sand);font-weight:800;padding:8px;"><span>${esc(bed)}</span> <span class="qsub" style="font-weight:600;">${esc(tb.blockId||'')} \u00b7 ${esc(st.label)}${tb.cohortId?' \u00b7 '+esc(tb.cohortId):''}</span>
+      ${mo?`<span class="chip chip-neutral" style="margin-left:6px;">${mo} override${mo===1?'':'s'}</span>`:''}
+      <span style="float:right;"><button class="dc-mini" onclick="bbOverrideBed('${esc(bed)}')">Manager override\u2026</button></span></td></tr>`;
+    const body=l.map(s=>{
+      const stt=taskStatus(s), who=s.workerName||s.workerId||'Unassigned', asg=String(s.status||'').toUpperCase()==='ASSIGNED';
+      const re=s.reassignedFrom?`<span class="chip chip-warn">Reassigned</span> from ${esc(s.reassignedFromName||s.reassignedFrom)}${s.reassignedBy?' by '+esc(s.reassignedBy):''}${s.reassignedAt?' \u00b7 '+esc(fmtTs(s.reassignedAt)):''}${s.reassignNote?`<div class="qsub">Note: ${esc(s.reassignNote)}</div>`:''}`:'<span class="qsub">\u2014</span>';
+      return `<tr><td style="white-space:normal;min-width:230px;"><b>${esc(actLabel(s.activity,s))}</b><div class="qsub">${esc(sessDesc(s))}</div></td>
+        <td>${esc(who)}</td><td><span class="chip ${stt[1]}">${esc(stt[0])}</span></td>
+        <td style="white-space:nowrap;">${esc(fmtTs(s.assignedTime)||'\u2014')}${s.scheduledDate?`<div class="qsub">for ${esc(schedLabel(s))}</div>`:''}</td>
+        <td style="white-space:normal;min-width:190px;">${re}</td>
+        <td style="white-space:nowrap;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>${asg?` <button class="dc-mini" data-id="${esc(s.id)}" onclick="phaUnassignOne(this.dataset.id)">Clear</button>`:''}</td></tr>`; }).join('');
+    return head+body; }).join('');
+  const ovRows=ovs.map(o=>`<tr><td style="white-space:nowrap;">${esc(fmtTs(o.date)||'\u2014')}</td><td>${esc(o.bedId||'\u2014')}</td>
+      <td style="white-space:normal;min-width:200px;"><b>${esc(o.activityId?o.activityId+': '+o.activity:o.activity)}</b><div class="qsub">${esc(sessDesc({activity:o.activity}))}</div></td>
+      <td style="white-space:normal;min-width:220px;">${esc(o.reason||'')}</td><td>${esc(o.managerName||o.managerId||'')}</td></tr>`).join('');
+  return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Assigned &amp; active activities \u00b7 all beds</b></span>
+      <span><span class="qsub">updated ${esc(synced)}</span> <button class="dc-mini" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Loading\u2026':'\u21bb Refresh'}</button></span></div>
+    <div class="qsub" style="margin:4px 0 8px;">${esc(sum)}</div>
+    ${rows?`<div class="bb-wrap"><table class="bb-t"><thead><tr><th>Activity</th><th>Worker</th><th>Status</th><th>Date assigned</th><th>Reassigned \u00b7 manager note</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+          :`<div class="empty" style="padding:10px 0;">${state.lastSync?'No activity is assigned or running on any bed.':'Loading\u2026'}</div>`}
+    <h2 style="font-size:13px;margin:14px 0 6px;">Manager overrides (R16)</h2>
+    ${ovRows?`<div class="bb-wrap"><table class="bb-t"><thead><tr><th>Date</th><th>Bed</th><th>Activity</th><th>Reason</th><th>By</th></tr></thead><tbody>${ovRows}</tbody></table></div>`
+            :`<div class="empty" style="padding:8px 0;">No post-harvest step has been overridden.</div>`}
+    <div class="note">A step that still has a crew assigned or running cannot be overridden: use Clear on its assignment first (started tasks are handed over with Reassign instead).</div></div>`;
 }
 function bbScreen(){
   bbEnsure();
@@ -3584,6 +3658,7 @@ function bbScreen(){
     ${bb.err?`<div class="error">${esc(bb.err)}</div>`:''}
     <div class="bb-wrap"><table class="bb-t"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
     <div class="legend" style="padding:10px 0 4px;">${legend}</div>
+    ${bbTasksPanel()}
     <h2 style="font-size:13px;margin:12px 0 6px;">${esc(BLOCK_LABELS[bb.sel])}</h2>
     <div class="bb-grid">${grid||`<div class="empty">${bb.busy?'Loading…':'No beds loaded for this block.'}</div>`}</div>
     ${relPanel}</div></div></div>`;
