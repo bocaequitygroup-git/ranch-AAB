@@ -1530,7 +1530,11 @@ function reqStepsHTML(b){
     ? `<div style="padding:4px 0;opacity:.55;"><span aria-hidden="true">✓</span> <b>Planting</b> <span style="font-size:11px;">Required · Done · verified ${esc(b.plantingDate)} · irrigation calendar active</span></div>`
     : hasC
       ? `<div style="padding:4px 0;"><b>▶ Planting</b> <span style="font-size:11px;">Required next · ${esc(b.cropName||b.cohortId)} (${esc(b.cohortId)})${pre?' · assigned, not yet planted or verified':''}. Assign Planting below; after the crop is in the ground use <b>Verify planting</b>.</span></div>`
-      : `<div style="padding:4px 0;"><b>▶ Planting</b> <span style="font-size:11px;">Required next · no cohort is assigned to this bed yet. Assign a cohort in Bed Planting Plan, then plant and verify.</span></div>`;
+      : (()=>{ if(!state.aq.loaded) ensureAcLoaded(); const p=acNext(b);
+          return p?`<div style="padding:4px 0;"><b>▶ Planting</b> <span style="font-size:11px;">Required next · planned: <b>${esc(p.cropName||p.cropId)}</b> (${esc(p.cohortId)}), planting ${esc(p.plannedDob||'?')}. Assign this cohort to the bed to open Planting.</span>
+              <div style="margin-top:6px;"><button class="btn btn-primary" style="width:auto;margin:0;padding:6px 12px;font-size:12.5px;" ${asg.busy?'disabled':''} onclick="acAssign([this.dataset.v],true)" data-v="${esc(p.cohortId)}">Assign ${esc(p.cohortId)} to ${esc(b.id)}</button></div></div>`
+            :`<div style="padding:4px 0;"><b>▶ Planting</b> <span style="font-size:11px;">Required next · no cohort is proposed for this bed yet.</span>
+              <div style="margin-top:6px;"><button class="btn btn-outline" style="width:auto;margin:0;padding:6px 12px;font-size:12.5px;" onclick="closeModal();goPlanning();setPMode('assigncohort')">Open Assign Cohort</button></div></div>`; })();
   const locked = verified ? '' : `<div style="padding:3px 0;opacity:.55;font-size:11.5px;">🔒 Irrigation calendar and Crop Care open after planting is verified.</div>`;
   if(!rows && !hasC && String(b.bedStatus||'').toUpperCase()!=='AVAILABLE') return '';
   return `<details open style="margin:0 0 10px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px;"><summary style="cursor:pointer;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.03em;">Required before and at planting${steps.length?` · ${steps.length} reset step${steps.length===1?'':'s'} done`:''}</summary>${rows}${plant}${locked}</details>`;
@@ -1979,6 +1983,7 @@ function lbCsv(){
 const PLAN_TABS=[
   {k:'infra',label:'Infrastructure & Crop Groups',views:[['infra','Block layout'],['rotation','Rotation editor'],['cropref','Crop profile'],['addcrop','Add crop']]},
   {k:'beds',label:'Bed Status Board',views:[['bedboard','Bed status']]},
+  {k:'assign',label:'Assign Cohort',views:[['assigncohort','Ready beds']]},
   {k:'ofo',label:'Open Field Operation',views:[['operation','Schedule editor'],['calendar','Production calendar']]},
   {k:'plan',label:'Bed Planting Plan',views:[['smart','Smart allocation'],['plan','Bed layout'],['sheet','Bed plan sheet']]},
   {k:'cohorts',label:'Cohorts',views:[['cohorts','Cohort production'],['exec','Planting execution'],['harvest','Harvest'],['irrigation','Irrigation calendar']]},
@@ -2055,7 +2060,7 @@ function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete
 function setPMode(m){ if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
-function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard') bbLoad(true); if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
+function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard') bbLoad(true); if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='assigncohort'){ loadToday(); asg.tried=false; ensureAcLoaded(true); } if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
 function selectCrop(id){ ui.pSelectedCrop=id; ui.pModifying=false; render(); }
 function selectCropByBed(n){ const c=getPlan(ui.pBlock,ui.pYear).crops.find(x=>x.bedNums.includes(n)); if(c){ ui.pSelectedCrop=c.id; render(); } }
 
@@ -3426,9 +3431,9 @@ function infraScreen(){
 /* ---- Tab: Bed Status Board ---- */
 const BB_STATUS=[
   ['UNVERIFIED','Not verified','#E9E4D2','#1B1B18'],
-  ['POST-HARVEST ACTIVITIES','Post-harvest','#F1DFA8','#1B1B18'],
-  ['AVAILABLE','Available · verified ready','#8FBF8A','#14261D'],
-  ['RESERVED','Reserved','#BFD7EA','#14261D'],
+  ['POST-HARVEST ACTIVITIES','Post-harvest · reset in progress','#F1DFA8','#1B1B18'],
+  ['AVAILABLE','Available · verified, ready to assign cohort','#8FBF8A','#14261D'],
+  ['RESERVED','Reserved · cohort assigned, awaiting planting','#BFD7EA','#14261D'],
   ['PLANTED','Planted','#6FA86F','#fff'],
   ['GROWING','Growing','#2E7D32','#fff'],
   ['HARVEST READY','Harvest ready','#C9A227','#1B1B18'],
@@ -3937,10 +3942,82 @@ function phCoverRow(p){
     :`<div class="note" style="margin:2px 0 6px;">${esc(m.label)}</div>`;
 }
 
+/* ---- Tab: Assign Cohort ----
+ * Every bed that is AVAILABLE (verified ready) and has no cohort, with the cohort the confirmed Season Plan puts on it
+ * (BedAssignmentEngine.gs proposal). Assign one, the selected ones, or all of them. Assignment is approve-assignments ->
+ * approveAssignment() -> assignBed(), so every server check still applies (plan link, planting window, bed free, rotation).
+ * Assigning makes the bed RESERVED; planting itself still opens only on the planned date and is verified by the manager. */
+const asg={busy:false,tried:false,block:'',off:{},msg:''};
+function ensureAcLoaded(force){
+  if(asg.busy||(asg.tried&&!force)) return;   /* a failed load is retried only by Refresh, never in a render loop */
+  asg.tried=true; if(state.aq.loaded&&!force) return;
+  asg.busy=true;
+  loadAssignmentQueue().catch(()=>{}).finally(()=>{ asg.busy=false; render(); });
+}
+function acReadyBeds(){ return (state.beds||[]).filter(b=>String(b.bedStatus||'').toUpperCase()==='AVAILABLE' && !b.cohortId); }
+function acNext(b){ const l=proposalIndex()[bedKey(b.id)]||[]; return l[0]||null; }   /* earliest planned cohort for that bed */
+async function acRefreshProposals(){
+  if(asg.busy) return; asg.busy=true; asg.msg=''; render();
+  try{ const r=await apiCall('generate-bed-recommendations',{ year: ui.year }, 90000); await loadAssignmentQueue(); asg.msg=r.proposed+' recommended · '+r.exceptions+' need review (see Cohorts › Cohort production).'; }
+  catch(e){ asg.msg='Could not refresh proposals: '+(e.code?('['+e.code+'] '):'')+e.message; }
+  asg.busy=false; render();
+}
+async function acAssign(ids, skipConfirm){
+  ids=(ids||[]).filter(Boolean); if(!ids.length||asg.busy) return;
+  if(!skipConfirm && !confirm('Assign a cohort to '+ids.length+' bed'+(ids.length===1?'':'s')+'? Each bed becomes Reserved until planting.')) return;
+  asg.busy=true; asg.msg=''; render();
+  let ok=0, failed=0; const errs=[];
+  for(let i=0;i<ids.length;i+=APPROVE_CHUNK){
+    toast('Assigning '+Math.min(i+APPROVE_CHUNK,ids.length)+' of '+ids.length+'…');
+    try{ const r=await apiCall('approve-assignments',{ cohortIds: ids.slice(i,i+APPROVE_CHUNK) }, 120000);
+      ok+=r.approved; failed+=r.failed; (r.results||[]).filter(x=>!x.ok).forEach(x=>errs.push(x.cohortId+' ('+x.errorCode+')')); }
+    catch(e){ failed+=ids.length-i; errs.push(e.message); break; }
+  }
+  asg.msg=ok+' cohort'+(ok===1?'':'s')+' assigned'+(failed?(' · '+failed+' not assigned: '+errs.slice(0,6).join(', ')+(errs.length>6?'…':'')):'');
+  toast(asg.msg);
+  try{ await loadToday(); }catch(e){}
+  try{ await loadAssignmentQueue(); }catch(e){}
+  asg.busy=false; render();
+}
+function acToggle(cid,on){ if(on) delete asg.off[cid]; else asg.off[cid]=1; render(); }
+function acSelectAll(on){ acReadyBeds().forEach(b=>{ const p=acNext(b); if(!p) return; if(on) delete asg.off[p.cohortId]; else asg.off[p.cohortId]=1; }); render(); }
+function acScreen(){
+  ensureAcLoaded();
+  const ready=acReadyBeds(), blocks=Array.from(new Set(ready.map(b=>b.blockId).filter(Boolean))).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
+  const shown=ready.filter(b=>!asg.block||b.blockId===asg.block).sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true}));
+  const withP=shown.filter(b=>acNext(b)), noP=shown.filter(b=>!acNext(b)), sel=withP.filter(b=>!asg.off[acNext(b).cohortId]);
+  const allIds=withP.map(b=>acNext(b).cohortId), selIds=sel.map(b=>acNext(b).cohortId);
+  const row=b=>{ const p=acNext(b);
+    return p?`<label class="ma-row ${asg.off[p.cohortId]?'':'on'}" style="align-items:center;"><input type="checkbox" ${asg.off[p.cohortId]?'':'checked'} ${asg.busy?'disabled':''} onchange="acToggle(this.dataset.v,this.checked)" data-v="${esc(p.cohortId)}">
+        <span><b style="font-weight:700;">${esc(b.id)}</b> → ${esc(p.cropName||p.cropId)} <span class="d">${esc(p.cohortId)} · wave ${esc(p.waveNumber||'')} · planting ${esc(p.plannedDob||'?')}${p.reasons&&p.reasons.length?' · '+esc(p.reasons[0].replace(/^✓\s*/,'')):''}</span></span>
+        <button class="btn btn-outline" style="width:auto;margin:0;padding:4px 10px;font-size:12px;" ${asg.busy?'disabled':''} onclick="event.preventDefault();acAssign([this.dataset.v],true)" data-v="${esc(p.cohortId)}">Assign</button></label>`
+      :`<div class="ma-row" style="opacity:.75;"><span style="width:20px;"></span><span><b style="font-weight:700;">${esc(b.id)}</b> <span class="d">Ready, but no planned cohort is proposed for this bed yet.</span></span></div>`; };
+  const byBlock={}; shown.forEach(b=>{ (byBlock[b.blockId||'No block']=byBlock[b.blockId||'No block']||[]).push(b); });
+  const body=Object.keys(byBlock).map(k=>`<div class="ma-grp">${esc(k)} · ${byBlock[k].length}</div>${byBlock[k].map(row).join('')}`).join('');
+  return `<div class="card" style="max-width:920px;margin:0 auto;">
+    <h2 style="margin:0 0 4px;font-size:18px;">Assign cohort to ready beds</h2>
+    <div class="note" style="margin:0 0 10px;">Beds that are <b>Available · verified, ready to assign cohort</b>, with the cohort the confirmed Season Plan puts on each. Assigning makes the bed <b>Reserved</b>; planting still opens on the planned date and is verified by you afterwards. Beds still in post-harvest are not listed: release them first.</div>
+    <div class="qbtns" style="flex-wrap:wrap;gap:8px;">
+      <button class="btn btn-primary" ${(!allIds.length||asg.busy)?'disabled':''} onclick="acAssign(allIds_())">${asg.busy?'Working…':`Assign all ${allIds.length} ready bed${allIds.length===1?'':'s'}`}</button>
+      <button class="btn btn-outline" style="width:auto;" ${(!selIds.length||asg.busy)?'disabled':''} onclick="acAssign(selIds_())">Assign selected (${selIds.length})</button>
+      <button class="btn btn-ghost" style="width:auto;" onclick="acSelectAll(true)">Select all</button><button class="btn btn-ghost" style="width:auto;" onclick="acSelectAll(false)">Clear</button>
+      <select onchange="asg.block=this.value;render()"><option value="">All blocks</option>${blocks.map(x=>`<option ${asg.block===x?'selected':''} value="${esc(x)}">${esc(x)}</option>`).join('')}</select>
+      <button class="btn btn-outline" style="width:auto;" ${asg.busy?'disabled':''} onclick="acRefreshProposals()">Refresh proposals</button>
+    </div>
+    <div class="note" style="margin:8px 0;">${ready.length} ready bed${ready.length===1?'':'s'} · ${withP.length} with a planned cohort · ${noP.length} without a proposal${noP.length?'. If the plan has changed or a proposal was rejected earlier, press <b>Refresh proposals</b>.':''}</div>
+    ${asg.msg?`<div class="ma-res">${esc(asg.msg)}</div>`:''}
+    ${!state.aq.loaded&&!state.aq.error?'<div class="note">Loading proposals…</div>':''}${state.aq.error?`<div class="note" style="color:var(--warn);">${esc(state.aq.error)}</div>`:''}
+    ${ready.length?`<div class="ma-list" style="max-height:60vh;">${body}</div>`:'<div class="empty">No bed is ready. Release beds on the Bed Status Board (finish the reset and Verify Bed Ready) and they appear here.</div>'}
+  </div>`;
+}
+function allIds_(){ return acReadyBeds().filter(b=>!asg.block||b.blockId===asg.block).map(acNext).filter(Boolean).map(p=>p.cohortId); }
+function selIds_(){ return allIds_().filter(id=>!asg.off[id]); }
+
 /* ---- render: screen shell ---- */
 function planningScreen(){
   if(ui.pMode==='plan') ensurePlanLoaded();
   if(ui.pMode==='postharvest') ensureCoverLoaded();
+  if(ui.pMode==='assigncohort') ensureAcLoaded();
   if(ui.pMode==='rotation'||ui.pMode==='infra') ensureRotationLoaded();
   return `<div class="topbar">
     <div><div class="brand">Season Planning</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')} · Season ${ui.pYear}</div></div>
@@ -3952,6 +4029,7 @@ function planningScreen(){
   <div class="wrap">${
     ui.pMode==='infra' ? infraScreen() :
     ui.pMode==='bedboard' ? bbScreen() :
+    ui.pMode==='assigncohort' ? acScreen() :
     ui.pMode==='smart' ? smartScreen() :
     ui.pMode==='postharvest' ? postHarvestScreen() :
     ui.pMode==='sheet' ? sheetScreen() :
