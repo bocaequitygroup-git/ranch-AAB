@@ -1263,7 +1263,7 @@ function modalHTML(){
  * (getActivityCatalog_(), ActivityEngine.gs). There is no hard-coded activity list in this file: if the
  * backend sends no catalog the picker says so instead of showing a stale copy. The server
  * (validateActivity_) remains the final judge of every dispatch. */
-const ACTIVITY_GROUP_ORDER=['Required workflow','Prep','Planting','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
+const ACTIVITY_GROUP_ORDER=['Required workflow','Prep','Planting','Recovery','CropCare','Harvest','Field Cleanup & Prep','Cover Cropping','Next-Season Prep','State'];
 /* 'HARVESTCOMPLETE' (buildTodayView_ upper-cases it), 'HarvestComplete' (sheet) and 'PRE_PLANTING' all compare equal. */
 function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); }
 /* WHAT A BED MAY START — decided by the bed's own state, never the whole catalogue (server validateActivity_ stays the judge).
@@ -1272,6 +1272,18 @@ function stageKey(x){ return String(x||'').toLowerCase().replace(/[^a-z]/g,''); 
  *   cohort growing.. -> only activities allowed at the cohort's current stage
  * Post-harvest steps never appear for a bed holding a cohort: they open in order after termination (turnover card). */
 function bedStageKey(b){ return stageKey(b.currentStage) || (stageKey(b.cohortStatus)==='preplanting'?'preplanting':''); }
+/* PLANTING METHOD — the crop decides, the manager does not choose. CROP_REFERENCE.Planting_Method DIRECT_SEED -> DirectSeeding; every other
+ * method (TRANSPLANT, CUTTING, SLIP, SUCKER, CROWN) -> Transplanting. The server sends bed.plantingActivity (ActivityEngine.gs 4.1b); CROP_MASTER is the
+ * fallback. '' = method unknown: nothing is offered and the server would refuse it too (PLANTING_METHOD_UNKNOWN). Replanting is a recovery
+ * operation, listed separately, never a third method. */
+function plantingActivityFor(b){
+  if(!b) return '';
+  if(b.plantingActivity) return b.plantingActivity;
+  const cm=(typeof CROP_MASTER!=='undefined'?CROP_MASTER:[]).find(c=>(b.cropId&&c.id===b.cropId)||(b.cropName&&c.name===b.cropName));
+  const m=String((cm&&cm.plantMethod)||'').toUpperCase().replace(/[\s-]+/g,'_');
+  if(!m) return '';
+  return (m==='DIRECT_SEED'||m==='DIRECT_SEEDING'||m==='FIELD_DIRECT') ? 'DirectSeeding' : (['TRANSPLANT','TRANSPLANTING','CUTTING','SLIP','SUCKER','CROWN'].includes(m) ? 'Transplanting' : '');
+}
 function startableActivities(bedId, hasCohortFallback){
   const b=(state.beds||[]).find(x=>x.id===bedId), cat=state.activityCatalog||[];
   const hasCohort=b?!!b.cohortId:!!hasCohortFallback;
@@ -1294,9 +1306,12 @@ function startableActivities(bedId, hasCohortFallback){
   if(stage==='preplanting'&&b.plannedDob&&String(b.plannedDob)>new Date().toISOString().slice(0,10))
     return {list:[], why:`Planting opens on ${b.plannedDob}.`};
   const plantingVerified=!!b.plantingDate;   /* Actual_DOB, stamped by Verify planting */
+  const plantActivity=plantingActivityFor(b);
   const list=cat.filter(a=>!(Number(a.postHarvestSequence)>0) && (!(a.allowedStages||[]).length || (a.allowedStages||[]).some(x=>stageKey(x)===stage))
-    && (plantingVerified || String(a.domain||'').trim().toLowerCase()!=='cropcare'));
-  return {list, why: list.length?'':`No activity is allowed at this cohort's stage (${stage||'not set'}).`};
+    && (plantingVerified || String(a.domain||'').trim().toLowerCase()!=='cropcare')
+    && (a.plantingRole!=='method' || a.name===plantActivity));   /* only the bed's own planting method */
+  const noMethod=!list.length && stage==='preplanting' && !plantActivity;
+  return {list, why: list.length?'':(noMethod?'This crop has no planting method. Set Planting_Method (DIRECT_SEED or TRANSPLANT) on CROP_REFERENCE.':`No activity is allowed at this cohort's stage (${stage||'not set'}).`)};
 }
 function startButton(b,label){
   const r=startableActivities(b.id,!!b.cohortId);
@@ -1308,7 +1323,7 @@ function activityGroups(){
   const cat=startableActivities(ui.modalDraft.bedId, ui.modalDraft.hasCohort).list;
   const groups={};
   cat.forEach(a=>{
-    const g=a.domain||'Other';
+    const g=a.plantingRole==='recovery'?'Recovery':(a.domain||'Other');
     (groups[g]=groups[g]||[]).push(a);
   });
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
@@ -1501,7 +1516,7 @@ function maFootHTML(){
   const sum=!d.acts.length?`<span style="color:var(--ink-soft);">Pick the activities, then choose who does each one.</span>`
     : c.missing?`<span style="color:var(--warn);font-weight:600;">${c.missing} selected activit${c.missing===1?'y has':'ies have'} no worker yet.</span> Choose a worker for each, or remove it.`
     : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode)}</div>`).join('')}</div>`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode)}</div>`).join('')}</div>`;
   const ok=d.acts.length&&!c.missing&&c.fresh>0&&!d.busy;
   return `<div class="ma-sum">${sum}</div>${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
@@ -4635,7 +4650,7 @@ function buildDemoBeds(){
       beds.push({ id:`B${blk}-${String(i).padStart(2,'0')}`, blockId:'Block '+blk, locationType:'FIELD',
         cropName: vacant? '' : crop[0], cohortId: vacant? '' : crop[1]+'-C0'+((n%4)+1),
         currentStage: stage, cohortStatus: vacant? '' : 'ACTIVE',
-        plantingDate:'', harvestWindow:'', activityLog:[] });
+        plantingDate:'', plantingActivity: vacant?'':(n%2?'DirectSeeding':'Transplanting'), harvestWindow:'', activityLog:[] });
     }
   }
   return beds;
@@ -4670,11 +4685,11 @@ const demoAssign = {
 };
 const demoCatalog = [
   ['Prep',['Tillage','Amending','PreIrrigation','DripInstall']],
-  ['Planting',['Planting','DirectSeeding','Transplanting','Replanting','Thinning','Seeding']],
+  ['Planting',['DirectSeeding','Transplanting','Replanting','Thinning']],
   ['CropCare',['Weeding','Fertilizing','IrrigationCheck','PestControl','DiseaseControl','Pruning','Trellising','Cultivation','Fertilization','Irrigation']],
   ['Harvest',['HarvestPrep','Harvest']],
   ['State',['Scouting','PestScouting','DiseaseScouting','CropInspection','MaturityInspection']]
-].flatMap(([domain,names])=>names.map(name=>({ name, domain, description:'', allowedStages:[], requiresApproval:false }))).map((x,i)=>Object.assign(x,{id:'ACT_'+String(i+1).padStart(3,'0')}));  // demo only: same shape getActivityCatalog_() returns
+].flatMap(([domain,names])=>names.map(name=>({ name, domain, description:'', allowedStages:[], requiresApproval:false }))).map((x,i)=>Object.assign(x,{id:'ACT_'+String(i+1).padStart(3,'0'), plantingRole:(x.name==='DirectSeeding'||x.name==='Transplanting')?'method':(x.name==='Replanting'?'recovery':'')}));  // demo only: same shape getActivityCatalog_() returns
 const demoSessionsByToken = {};
 let demoRejected = 0;
 async function mockBackend(action, p){
