@@ -1282,9 +1282,8 @@ function startableActivities(bedId, hasCohortFallback){
     /* validateActivity_ lets Activity_Domain 'Prep' run with no cohort (tillage, amending, broadforking ...), whatever the bed's status
      * is, so Soil & Bed Prep can be batched alongside the reset checklist. */
     const prep=(st==='AVAILABLE'||st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES')?cat.filter(a=>String(a.domain||'')==='Prep' && !(Number(a.postHarvestSequence)>0)):[];
-    /* An unlocked (verified AVAILABLE) bed may take every Crop Care activity, even before a cohort is planted (server: ALLOW_CROPCARE_ON_AVAILABLE_BED_). */
-    const care=(st==='AVAILABLE')?cat.filter(a=>String(a.domain||'').trim().toLowerCase()==='cropcare' && !(Number(a.postHarvestSequence)>0)):[];
-    const bedList=prep.concat(care);
+    /* Planting comes first (server: ALLOW_CROPCARE_ON_AVAILABLE_BED_ = false): no Crop Care until a cohort's planting is verified. */
+    const bedList=prep;
     if(bedList.length) return {list:bedList, why:''};
     if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Assign the SOP reset steps (ACT_037–039, ACT_041–044) in any order, then verify the bed.'};
     return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available but no assignable activities are loaded. Tap Refresh.'
@@ -1294,7 +1293,9 @@ function startableActivities(bedId, hasCohortFallback){
   const stage=bedStageKey(b||{});
   if(stage==='preplanting'&&b.plannedDob&&String(b.plannedDob)>new Date().toISOString().slice(0,10))
     return {list:[], why:`Planting opens on ${b.plannedDob}.`};
-  const list=cat.filter(a=>!(Number(a.postHarvestSequence)>0) && (!(a.allowedStages||[]).length || (a.allowedStages||[]).some(x=>stageKey(x)===stage)));
+  const plantingVerified=!!b.plantingDate;   /* Actual_DOB, stamped by Verify planting */
+  const list=cat.filter(a=>!(Number(a.postHarvestSequence)>0) && (!(a.allowedStages||[]).length || (a.allowedStages||[]).some(x=>stageKey(x)===stage))
+    && (plantingVerified || String(a.domain||'').trim().toLowerCase()!=='cropcare'));
   return {list, why: list.length?'':`No activity is allowed at this cohort's stage (${stage||'not set'}).`};
 }
 function startButton(b,label){
@@ -1500,7 +1501,7 @@ function maFootHTML(){
   const sum=!d.acts.length?`<span style="color:var(--ink-soft);">Pick the activities, then choose who does each one.</span>`
     : c.missing?`<span style="color:var(--warn);font-weight:600;">${c.missing} selected activit${c.missing===1?'y has':'ies have'} no worker yet.</span> Choose a worker for each, or remove it.`
     : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(f.errorCode)}</div>`).join('')}</div>`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode)}</div>`).join('')}</div>`;
   const ok=d.acts.length&&!c.missing&&c.fresh>0&&!d.busy;
   return `<div class="ma-sum">${sum}</div>${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
@@ -1515,9 +1516,29 @@ function maRefresh(){
   keep(g('ma-acts'),()=>{ g('ma-acts').innerHTML=maRowsActs(); }); keep(g('ma-planwrap'),()=>{ g('ma-planwrap').innerHTML=maPlanHTML(); });
   g('ma-cats').innerHTML=maCatTabs(); g('ma-foot').innerHTML=maFootHTML(); const n=g('ma-n'); if(n) n.textContent=maD().acts.length;
 }
+/* Read-only "Required" block: the finished reset steps (Done, verified, grayed out), then Planting as the one open required step,
+ * then the steps that stay locked until planting is verified. Data: b.reset (server, display only), b.cohortId / b.plantingDate. */
+function reqShortDate(v){ const d=v?new Date(v):null; return d&&!isNaN(d)?d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+', '+d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}):''; }
+function reqStepsHTML(b){
+  if(!b || b.postHarvest) return '';   /* a bed still in turnover is handled by the Required workflow rows below */
+  const steps=(b.reset&&b.reset.steps||[]).filter(s=>s.status==='COMPLETE');
+  const rows=steps.map(s=>{
+    const w=s.work||{}, who=s.overridden?'Overridden by manager':(s.verified?`Done · verified${w.verifiedByName?' by '+esc(w.verifiedByName):''}${w.verifiedAt?' · '+esc(reqShortDate(w.verifiedAt)):''}`:'Done · not yet verified');
+    return `<div style="display:flex;gap:8px;align-items:baseline;padding:3px 0;opacity:.55;"><span aria-hidden="true">✓</span><span style="flex:1;"><b style="font-weight:700;">${esc(actLabel(s.name))}</b> <span style="font-size:11px;">Required · ${who}</span></span></div>`; }).join('');
+  const hasC=!!b.cohortId, verified=!!b.plantingDate, pre=String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING';
+  const plant = verified
+    ? `<div style="padding:4px 0;opacity:.55;"><span aria-hidden="true">✓</span> <b>Planting</b> <span style="font-size:11px;">Required · Done · verified ${esc(b.plantingDate)} · irrigation calendar active</span></div>`
+    : hasC
+      ? `<div style="padding:4px 0;"><b>▶ Planting</b> <span style="font-size:11px;">Required next · ${esc(b.cropName||b.cohortId)} (${esc(b.cohortId)})${pre?' · assigned, not yet planted or verified':''}. Assign Planting below; after the crop is in the ground use <b>Verify planting</b>.</span></div>`
+      : `<div style="padding:4px 0;"><b>▶ Planting</b> <span style="font-size:11px;">Required next · no cohort is assigned to this bed yet. Assign a cohort in Bed Planting Plan, then plant and verify.</span></div>`;
+  const locked = verified ? '' : `<div style="padding:3px 0;opacity:.55;font-size:11.5px;">🔒 Irrigation calendar and Crop Care open after planting is verified.</div>`;
+  if(!rows && !hasC && String(b.bedStatus||'').toUpperCase()!=='AVAILABLE') return '';
+  return `<details open style="margin:0 0 10px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px;"><summary style="cursor:pointer;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.03em;">Required before and at planting${steps.length?` · ${steps.length} reset step${steps.length===1?'':'s'} done`:''}</summary>${rows}${plant}${locked}</details>`;
+}
 function multiAssignModal(){
   const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId)||{};
   return `<div class="ma-head"><h2 style="font-size:16px;margin:0;">Assign activities · Bed ${esc(d.bedId)}</h2><span class="qsub">${esc(b.cropName||'')}${b.currentStage?' · '+esc(b.currentStage):''}</span></div>
+  ${reqStepsHTML(b)}
   <div class="ma-cols">
     <div class="ma-col"><div class="ma-colhead"><h3>1 · Pick activities</h3>
       <div class="seg wrap" id="ma-cats">${maCatTabs()}</div>
