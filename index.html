@@ -1286,7 +1286,7 @@ function startableActivities(bedId, hasCohortFallback){
     const bedList=prep;
     if(bedList.length) return {list:bedList, why:''};
     if(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES') return {list:[], why:'This bed is being reset. Assign the SOP reset steps (ACT_037–039, ACT_041–044) in any order, then verify the bed.'};
-    return {list:[], why: st==='AVAILABLE' ? 'This bed is verified Available but no assignable activities are loaded. Tap Refresh.'
+    return {list:[], why: st==='AVAILABLE' ? 'Nothing to assign yet. Assign the planned cohort to this bed (Assign Cohort tab); Planting appears once it is assigned.'
                         : st==='BLOCKED' ? 'This bed is blocked. Clear the block and verify it first.'
                         : 'No cohort is assigned to this bed.'};
   }
