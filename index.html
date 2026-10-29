@@ -456,7 +456,7 @@ function applyTodayView(d){
   state.activityCatalog=d.activityCatalog||[]; state.overrides=d.overrides||[];
   state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
   state.todayError=''; state.lastSync=new Date();
-  rbLoad(true);   /* review board (Checked / Verified / brand audits) refreshes with every board load */
+  rbLoad(true);   /* review board (Checked / Verified) refreshes with every board load */
 }
 /* Overlapping loads are coalesced: while one is running, any further loadToday() call (a Refresh tap, or a write action
  * that wants fresh data afterwards) queues exactly ONE follow-up run and awaits it, so callers still get data read after
@@ -595,6 +595,33 @@ function boardNotice(views){
   }
   return '';
 }
+
+/* ---- Fertilizer details (GovernanceEngine.gs): the MANAGER enters them when assigning a fertilizer task. Type, brand and quantity are
+ * required; notes and "organic?" are optional metadata only (never a gate, never a warning). Stored per activity in ui.dp.fert / ui.modalDraft.fert. ---- */
+function isFertAct(n){ const c=(state.activityCatalog||[]).find(x=>x.name===n); return !!c&&c.isFertilizer===true; }
+function fertOf(store,a){ if(!store.fert) store.fert={}; return store.fert[a]||(store.fert[a]={type:'',brand:'',qty:'',unit:'lbs',organic:'',notes:''}); }
+function fertDone(f){ return !!f&&!!String(f.type||'').trim()&&!!String(f.brand||'').trim()&&Number(f.qty)>0&&!!f.unit; }
+function fertPayloadOf(store,a){ const f=fertOf(store,a); return {type:String(f.type).trim(),brand:String(f.brand).trim(),quantity:Number(f.qty),unit:f.unit,organic:f.organic||'',notes:String(f.notes||'').trim()}; }
+function fertAssignments(store,acts,crewOf){ return acts.map(a=>{ const o={activity:a,workerIds:crewOf(a).slice()}; if(isFertAct(a)) o.fertilizer=fertPayloadOf(store,a); return o; }); }
+function fertBox(ctx,a){
+  const store=ctx==='ma'?maD():ui.dp, f=fertOf(store,a), fn=ctx+'Fert';
+  const inp=(k,ph,extra)=>`<input type="text" ${extra||''} value="${esc(f[k])}" placeholder="${esc(ph)}" data-a="${esc(a)}" data-k="${k}" oninput="${fn}(this.dataset.a,this.dataset.k,this.value)" style="width:100%;margin-top:4px;">`;
+  const opt=(v,list)=>list.map(([val,lab])=>`<option value="${esc(val)}" ${v===val?'selected':''}>${esc(lab)}</option>`).join('');
+  return `<div style="margin-top:6px;padding:6px 8px;border:1px solid #bcd6bf;border-radius:8px;background:#EEF5EE;">
+    <div class="qsub" style="text-transform:none;letter-spacing:0;font-weight:700;">Fertilizer details${fertDone(f)?'':' <span style="color:var(--warn);">· type, brand and quantity required</span>'}</div>
+    ${inp('type','Fertilizer type * (e.g. Fish emulsion)','maxlength="80"')}
+    ${inp('brand','Brand name * (e.g. Neptune\u2019s Harvest)','maxlength="80"')}
+    <div style="display:flex;gap:6px;margin-top:4px;"><input type="number" min="0" step="any" inputmode="decimal" placeholder="Quantity *" value="${esc(f.qty)}" data-a="${esc(a)}" data-k="qty" oninput="${fn}(this.dataset.a,this.dataset.k,this.value)" style="flex:2;">
+      <select data-a="${esc(a)}" data-k="unit" onchange="${fn}(this.dataset.a,this.dataset.k,this.value)" style="flex:1;">${opt(f.unit,['lbs','oz','kg','g','gal','qt','L','mL'].map(u=>[u,u]))}</select></div>
+    ${inp('notes','Notes (optional)','maxlength="500"')}
+    <select data-a="${esc(a)}" data-k="organic" onchange="${fn}(this.dataset.a,this.dataset.k,this.value)" style="width:100%;margin-top:4px;">${opt(f.organic,[['','Organic? (optional)'],['ORGANIC','Organic'],['NON_ORGANIC','Non-organic']])}</select></div>`;
+}
+function maFert(a,k,v){ fertOf(maD(),a)[k]=v; const ft=document.getElementById('ma-foot'); if(ft) ft.innerHTML=maFootHTML(); }
+function dpFert(a,k,v){ fertOf(ui.dp,a)[k]=v; dpSyncGo(); }
+function dpCanGo(){ const d=ui.dp, b=dpBed(), open=maOpenSet2(b.id); let total=0,dup=0,missing=0,fm=0;
+  d.acts.forEach(a=>{ const cr=dpCrew(a); if(!cr.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fm++; cr.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
+  return !!d.acts.length&&!missing&&!fm&&total-dup>0&&!d.busy; }
+function dpSyncGo(){ const b=document.getElementById('dp-go'); if(b) b.disabled=!dpCanGo(); const n=document.getElementById('dp-fertnote'); if(n){ const d=ui.dp, fm=d.acts.filter(a=>isFertAct(a)&&!fertDone(fertOf(d,a))).length; n.style.display=fm?'block':'none'; n.textContent=fm+' fertilizer task'+(fm===1?'':'s')+' still need type, brand and quantity.'; } }
 
 /* ============================== DISPATCH / TRIAGE ACTIONS ============================== */
 let _assignBusy=false;
@@ -1058,7 +1085,7 @@ function verifyCloseBlock(b){
 function sessStatusChip(s){ const t=taskStatus(s); return `<span class="chip ${t[1]}">${esc(t[0])}</span>`; }
 function schedLabel(s){ const d=s.scheduledDate; if(!d) return ''; return d===todayISO()?'Today':d; }
 /* ---------- inline dispatch sidebar state (per bed) ---------- */
-function dpS(b){ if(!ui.dp||ui.dp.bedId!==b.id) ui.dp={bedId:b.id,acts:[],workers:[],custom:{},date:todayISO(),q:'',result:null,busy:false}; return ui.dp; }
+function dpS(b){ if(!ui.dp||ui.dp.bedId!==b.id) ui.dp={bedId:b.id,acts:[],workers:[],custom:{},fert:{},date:todayISO(),q:'',result:null,busy:false}; return ui.dp; }
 function dpBed(){ return (state.beds||[]).find(x=>x.id===(ui.dp||{}).bedId)||{}; }
 function dpCrew(a){ const d=ui.dp; return d.custom[a]||d.workers; }
 function dpRows(b){   /* every row the manager can see for this bed, grouped by Activity_Domain */
@@ -1147,9 +1174,9 @@ function dpInner(b,sess){
         <select data-a="${esc(r.name)}" onchange="dpAddCW(this.dataset.a,this.value)" style="font-size:11px;padding:2px;"><option value="">+ add</option>${workers.filter(w=>!cr.includes(w.workerId)).map(w=>`<option value="${esc(w.workerId)}">${esc(w.name)}</option>`).join('')}</select> <button data-a="${esc(r.name)}" onclick="dpUseDefault(this.dataset.a)">use toolbar crew</button>`
         :`Crew: ${cr.length?cr.map(w=>esc(maWName(w))).join(', '):'<span style="color:var(--warn);">pick workers above</span>'} <button data-a="${esc(r.name)}" onclick="dpCustomize(this.dataset.a)">customize</button>`}</div>`:'';
     return `<div class="dp-row ${r.off?'off':''} ${on?'on':''}"><input type="checkbox" ${on?'checked':''} ${r.off?'disabled':''} data-v="${esc(r.name)}" onchange="dpTogA(this.dataset.v,this.checked)">
-      <div style="flex:1;min-width:0;"><b>${esc(r.name)}</b>${r.id?` (${esc(r.id)})`:''}${r.desc?`<span class="d">${esc(r.desc)}</span>`:''}${crew}</div><span class="st">${dpStChip(r.st)}</span></div>`; }).join('')).join('');
-  let total=0,dup=0,missing=0; d.acts.forEach(a=>{ const cr=dpCrew(a); if(!cr.length) missing++; cr.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
-  const fresh=total-dup, ok=d.acts.length&&!missing&&fresh>0&&!d.busy;
+      <div style="flex:1;min-width:0;"><b>${esc(r.name)}</b>${r.id?` (${esc(r.id)})`:''}${r.desc?`<span class="d">${esc(r.desc)}</span>`:''}${crew}${on&&isFertAct(r.name)?fertBox('dp',r.name):''}</div><span class="st">${dpStChip(r.st)}</span></div>`; }).join('')).join('');
+  let total=0,dup=0,missing=0,fm=0; d.acts.forEach(a=>{ const cr=dpCrew(a); if(!cr.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fm++; cr.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
+  const fresh=total-dup, ok=d.acts.length&&!missing&&!fm&&fresh>0&&!d.busy;
   const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} dispatched.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||f.errorCode)}</div>`).join('')}</div>`;
   const ph=b.postHarvest, remaining=ph?(ph.steps||[]).filter(x=>x.status!=='COMPLETE').length:0;
   const ovScope=ph?(ph.bedLevel?'BED:'+b.id:b.cohortId):''; if(ph) PH_STEPS[ovScope]=ph;   /* the override modal lists the remaining steps from here */
@@ -1175,7 +1202,8 @@ function dpInner(b,sess){
   ${ovBlock}
   ${activeWorkSection(b,sess)}
   <div class="dp-foot">${res}${missing?`<div class="note" style="margin:0 0 6px;color:var(--warn);font-weight:600;">${missing} selected activit${missing===1?'y has':'ies have'} no worker.</div>`:''}
-    <button class="btn btn-primary" ${ok?'':'disabled'} onclick="dpSubmit()">${d.busy?'Dispatching…':`Dispatch selected tasks (${d.acts.length})${fresh&&fresh!==d.acts.length?' · '+fresh+' assignments':''}`}</button>
+    <div id="dp-fertnote" class="note" style="margin:0 0 6px;color:var(--warn);font-weight:600;display:${fm?'block':'none'};">${fm} fertilizer task${fm===1?'':'s'} still need type, brand and quantity.</div>
+    <button id="dp-go" class="btn btn-primary" ${ok?'':'disabled'} onclick="dpSubmit()">${d.busy?'Dispatching…':`Dispatch selected tasks (${d.acts.length})${fresh&&fresh!==d.acts.length?' · '+fresh+' assignments':''}`}</button>
     ${dup?`<div class="note" style="margin:-2px 0 6px;">${dup} already open on this bed, will be skipped.</div>`:''}
     ${verify||verifyCloseBlock(b)}</div>`;
 }
@@ -1197,9 +1225,10 @@ function dpDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getF
 async function dpSubmit(){
   const d=ui.dp; if(d.busy||!d.acts.length) return;
   if(d.acts.some(a=>!dpCrew(a).length)){ toast('Choose a worker for every selected activity.'); return; }
+  if(d.acts.some(a=>isFertAct(a)&&!fertDone(fertOf(d,a)))){ toast('Enter the fertilizer type, brand name and quantity first.'); return; }
   d.busy=true; dpRefresh();
   try{
-    const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments:d.acts.map(a=>({activity:a,workerIds:dpCrew(a).slice()})), scheduledDate:d.date }, 60000);
+    const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments:fertAssignments(d,d.acts,dpCrew), scheduledDate:d.date }, 60000);
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] };
     if(d.result.created.length) toast(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' dispatched.');
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
@@ -1273,7 +1302,6 @@ function modalHTML(){
   else if(ui.modal==='team') inner=teamModal();
   else if(ui.modal==='urgent') inner=urgentModal();
   else if(ui.modal==='phassign') inner=phaModal();
-  else if(ui.modal==='brand-audit') inner=brandAuditModal();
   else if(ui.modal==='new-activity') inner=newActivityModal();
   return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
@@ -1490,7 +1518,7 @@ function dispatchModal(){
  * Every (activity, worker) pair is its own ASSIGNED session validated by validateActivity_(). Post-harvest turnover is NOT here:
  * it stays a controlled one-step-at-a-time sequence (turnoverBlock / fixedDispatchModal). */
 function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
+function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.fert) d.fert={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
 /* Required-workflow steps this bed can be given right now (any order): not complete, not an automatic buffer, window open. */
 /* Any order: every unfinished step that is not an automatic wait / closed window can be assigned. The bed is released only by the manager's Verify Bed Ready. */
 function phNextStep(p){ return p?(p.steps||[]).find(x=>x.status!=='COMPLETE')||null:null; }
@@ -1538,23 +1566,24 @@ function maPlanHTML(){
   const cards=d.acts.map(a=>{ const ws=d.map[a]||[];
     return `<div class="ma-pcard ${ws.length?'':'need'}"><div class="ma-ptop"><span>${esc(actLabel(a))}</span><button title="Remove activity" onclick="maToggleAct(this.dataset.v,false)" data-v="${esc(a)}">×</button></div>
       ${ws.length?`<div class="ma-chips" style="margin:6px 0 0;">${ws.map(w=>`<span class="ma-chip" style="background:#E4F1E5;">${esc(maWName(w))}${open[String(w).toUpperCase()+'|'+a]?' <span style="color:var(--warn);font-size:10.5px;">(already open)</span>':''}<button title="Remove" onclick="maDelWorker(this.dataset.a,this.dataset.w)" data-a="${esc(a)}" data-w="${esc(w)}">×</button></span>`).join('')}</div>`:`<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">No worker yet</div>`}
-      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select></div>`; }).join('');
+      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select>${isFertAct(a)?fertBox('ma',a):''}</div>`; }).join('');
   return bulk+`<div class="ma-plan" style="padding-top:8px;">${cards}</div>`;
 }
 function maCatTabs(){ const d=maD(), list=maList(), cnt=k=>k==='ALL'?list.length:list.filter(a=>actCatOf(a)===k).length;
   return ACTION_CATS.filter(([k])=>k==='ALL'||cnt(k)>0).map(([k,l])=>`<button class="${d.cat===k?'active':''}" onclick="maSetCat('${k}')">${esc(l)}<span class="n">${cnt(k)}</span></button>`).join(''); }
 function maCounts(){
-  const d=maD(), open=maOpenSet(); let total=0, dup=0, missing=0;
-  d.acts.forEach(a=>{ const ws=d.map[a]||[]; if(!ws.length) missing++; ws.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
-  return {total,dup,missing,fresh:total-dup};
+  const d=maD(), open=maOpenSet(); let total=0, dup=0, missing=0, fertMissing=0;
+  d.acts.forEach(a=>{ const ws=d.map[a]||[]; if(!ws.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fertMissing++; ws.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
+  return {total,dup,missing,fertMissing,fresh:total-dup};
 }
 function maFootHTML(){
   const d=maD(), c=maCounts();
   const sum=!d.acts.length?`<span style="color:var(--ink-soft);">Pick the activities, then choose who does each one.</span>`
     : c.missing?`<span style="color:var(--warn);font-weight:600;">${c.missing} selected activit${c.missing===1?'y has':'ies have'} no worker yet.</span> Choose a worker for each, or remove it.`
+    : c.fertMissing?`<span style="color:var(--warn);font-weight:600;">${c.fertMissing} fertilizer task${c.fertMissing===1?'':'s'} still need type, brand and quantity.</span> Fill in the green box on each.`
     : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
   const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}</div>`;
-  const ok=d.acts.length&&!c.missing&&c.fresh>0&&!d.busy;
+  const ok=d.acts.length&&!c.missing&&!c.fertMissing&&c.fresh>0&&!d.busy;
   return `<div class="ma-sum">${sum}</div>${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
     <button class="btn btn-outline" style="width:auto;padding:11px 16px;" onclick="maClear()">Clear</button>
@@ -1614,10 +1643,10 @@ function multiAssignModal(){
 }
 function maSetDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; }
 async function submitMultiAssign(){
-  const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||!c.fresh) return;
+  const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||!c.fresh) return;
   d.busy=true; maRefresh();
   try{
-    const assignments=d.acts.map(a=>({ activity:a, workerIds:(d.map[a]||[]).slice() }));
+    const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]);
     const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments, scheduledDate:d.date }, 60000);
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] };
     if(d.result.created.length) toast(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' assigned.');
@@ -3604,6 +3633,7 @@ function bedTasksBlock(bedId,opts){
     return `<div class="card" style="margin:0 0 8px;"><div class="row"><span><b>${esc(actLabel(s.activity,s))}</b></span><span class="chip ${st[1]}">${esc(st[0])}</span></div>
       <div class="qsub" style="margin:2px 0 4px;">${esc(sessDesc(s))}</div>
       <div class="row"><span>Worker</span><span>${esc(who)}</span></div>
+      ${s.fertilizer?`<div class="row"><span>Fertilizer</span><span>${esc(s.fertilizer.type)} · ${esc(s.fertilizer.brand)} · ${esc(s.fertilizer.quantity)} ${esc(s.fertilizer.unit||'')}</span></div>${s.fertilizer.notes?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(s.fertilizer.notes)}</div>`:''}`:''}
       <div class="row"><span>${pending?'Dispatched':'Started'}</span><span>${pending?esc(fmtTs(t.dispatched)||'\u2014')+' \u00b7 waiting for worker to start':esc(fmtTs(t.started)||'\u2014')}</span></div>
       ${re}
       ${opts.buttons?`<div style="margin-top:6px;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button> <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`:''}</div>`; }).join('');
@@ -3735,8 +3765,7 @@ function bbTasksPanel(){
  * 1) completed post-harvest activities (verify-activities), 2) plantings (verify-planting), 3) beds whose reset is finished (verify-bed-ready / complete-cohort). */
 /* ---- Manager Review Board (GovernanceEngine.gs) ----
  * CHECKED = routine work. Tapping Check records your oversight (Checked_By / Checked_Date) and does nothing else: no bed, cohort, calendar or dispatch change.
- * VERIFIED custom activities get a Verify stamp here. Planting, post-harvest and bed-release verification keep their own panel above.
- * Brand audit warnings (non-organic input on an organic-certified crop) are listed first and stay open until a manager writes what was done. */
+ * VERIFIED custom activities get a Verify stamp here. Planting, post-harvest and bed-release verification keep their own panel above. */
 const rb={ data:null, busy:false, err:'', hide:false, sel:{}, selV:{}, last:0 };
 async function rbLoad(force){
   if(IS_DEMO||rb.busy||rb.hide) return;
@@ -3767,22 +3796,14 @@ function rbRow(it,m){
   return `<label class="dp-row on" style="align-items:flex-start;"><input type="checkbox" ${sel[it.logId]?'checked':''} data-k="${esc(it.logId)}" data-m="${m}" onchange="rbTog(this.dataset.k,this.dataset.m,this.checked)">
     <div style="flex:1;min-width:0;"><b>${esc(actLabel(it.activity))}</b> <span class="qsub" style="display:inline;">Bed ${esc(it.bedId)}${it.cohortId?' · '+esc(it.cohortId):''}</span>
     <div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(it.workerName)} · ${esc(rbWhen(it.endTime))}${it.minutes?' · '+esc(it.minutes)+' min':''}${qty}</div>
-    ${f?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(f.type)} · ${esc(f.brand)} · ${esc(f.quantity)} ${esc(f.unit)}${f.method?' · '+esc(f.method):''}</div>`:''}
+    ${f?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(f.type)} · ${esc(f.brand)} · ${esc(f.quantity)} ${esc(f.unit)}</div>`:''}
     ${it.notes?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(it.notes)}</div>`:''}</div></label>`;
-}
-function rbAuditRow(a){
-  return `<div class="row" style="align-items:flex-start;"><span><b>Bed ${esc(a.bedId)}</b> · ${esc(a.cropId||a.cohortId)} <span class="chip chip-danger">${a.reason==='CERT_STATUS_UNSET'?'Organic status not set':'Organic-certified crop'}</span>
-    <div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(a.type)} · ${esc(a.brand)} · ${esc(a.quantity)} ${esc(a.unit)} · applied by ${esc(a.workerName)} · ${esc(rbWhen(a.created))}</div></span>
-    <button class="dc-mini" onclick="openModal('brand-audit',{auditId:'${esc(a.auditId)}'})">Inspect &amp; resolve</button></div>`;
 }
 function rbPanel(){
   if(IS_DEMO||rb.hide) return '';
   const d=rb.data;
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
-  const open=(d.brandAudits&&d.brandAudits.open)||[], done=(d.brandAudits&&d.brandAudits.recentlyResolved)||[];
-  const nC=Object.keys(rb.sel).length, nV=Object.keys(rb.selV).length, total=open.length+d.toCheck.length+d.toVerify.length;
-  const audits=open.length?`<div style="border:2px solid var(--danger);border-radius:10px;padding:8px 10px;margin:8px 0;background:#FDF3F1;"><h2 style="font-size:13px;margin:0 0 6px;color:var(--danger);">Brand audit warnings (${open.length})</h2>${open.map(rbAuditRow).join('')}</div>`:'';
-  const unset=d.cropsWithoutOrganicStatus>0?`<div class="note" style="color:var(--warn);font-weight:600;">${d.cropsWithoutOrganicStatus} crop(s) have no ORGANIC_CERTIFIED value in CROP_REFERENCE. Set TRUE or FALSE for each so the brand check is exact.</div>`:'';
+  const nC=Object.keys(rb.sel).length, nV=Object.keys(rb.selV).length, total=d.toCheck.length+d.toVerify.length;
   const chk=d.toCheck.length?`<h2 style="font-size:13px;margin:10px 0 6px;">Checked activities to review (${d.toCheck.length}) <span class="chip chip-ok">non-blocking</span></h2>
     <div class="dp-tools"><button onclick="rbAll('check',true)">Select all</button><button onclick="rbAll('check',false)">Clear</button></div>
     <div class="ma-list" style="max-height:340px;">${d.toCheck.map(x=>rbRow(x,'check')).join('')}</div>
@@ -3793,27 +3814,10 @@ function rbPanel(){
     <div class="ma-list" style="max-height:300px;">${d.toVerify.map(x=>rbRow(x,'verify')).join('')}</div>
     <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="verify" ${nV?'':'disabled'} onclick="rbReview('verify')">Verify selected${nV?' ('+nV+')':''}</button>`:'';
   const recent=(d.recentlyChecked&&d.recentlyChecked.length)?`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;">Recently checked (${d.recentlyChecked.length})</summary>${d.recentlyChecked.map(x=>`<div class="qsub" style="text-transform:none;letter-spacing:0;padding:3px 0;">${esc(actLabel(x.activity))} · Bed ${esc(x.bedId)} · ${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</div>`).join('')}</details>`:'';
-  const resolved=done.length?`<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:12px;">Recently resolved brand audits (${done.length})</summary>${done.map(a=>`<div class="qsub" style="text-transform:none;letter-spacing:0;padding:3px 0;">Bed ${esc(a.bedId)} · ${esc(a.brand)} · ${esc(a.resolvedBy)} · ${esc(a.note)}</div>`).join('')}</details>`:'';
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
       <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span> <button class="dc-mini" onclick="openModal('new-activity',{})">+ New activity type</button></span></div>
-    ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}${unset}${audits}
-    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${chk}${ver}${recent}${resolved}</div>`;
-}
-function brandAuditModal(){
-  const a=((rb.data&&rb.data.brandAudits&&rb.data.brandAudits.open)||[]).find(x=>x.auditId===ui.modalDraft.auditId);
-  if(!a) return `<h2 style="font-size:15px;">Brand audit</h2><p style="font-size:12.5px;">This audit is no longer open.</p><button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
-  return `<h2 style="font-size:15px;color:var(--danger);">Brand audit warning</h2>
-  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">${esc(a.type)} input <b>${esc(a.brand)}</b>, ${esc(a.quantity)} ${esc(a.unit)}, applied by ${esc(a.workerName)} on bed ${esc(a.bedId)} (${esc(a.cropId||a.cohortId)}).
-   ${a.reason==='CERT_STATUS_UNSET'?'This crop has no organic status in CROP_REFERENCE, so the system cannot rule out a certification conflict.':'This crop is ORGANIC_CERTIFIED.'} Inspect the product and the bed before closing this.</p>
-  <div class="field"><label>What did you find, and what was done? (required)</label><textarea id="md-ba-note" rows="3" style="width:100%;" maxlength="500"></textarea></div>
-  <button class="btn btn-primary" onclick="doResolveAudit('${esc(a.auditId)}')">Resolve audit</button>
-  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
-}
-async function doResolveAudit(id){
-  const note=(document.getElementById('md-ba-note')||{}).value||'';
-  if(note.trim().length<5){ toast('Write a short note first: what you found and what was done.'); return; }
-  try{ await apiCall('resolve-brand-audit',{auditId:id,note:note.trim()}); toast('Brand audit resolved.'); closeModal(); await rbLoad(true); loadToday(); }
-  catch(e){ toast(e.message); }
+    ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
+    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${chk}${ver}${recent}</div>`;
 }
 /* New activity type: the manager must choose BOTH the domain and the governance class (there is no default). */
 function naSet(k,v){ ui.modalDraft[k]=v; if(k==='domain'&&v==='BED') ui.modalDraft.isFertilizer=false; render(); }
@@ -3829,7 +3833,7 @@ function newActivityModal(){
   <div class="field"><label>Governance class *</label>
     ${radio('na-cls','cls','VERIFIED','Verified','A manager verifies it after the worker finishes (stamped on the Review Board).')}
     ${radio('na-cls','cls','CHECKED','Checked','Appears on the Review Board for oversight. Never blocks a bed, cohort, schedule or assignment.')}</div>
-  ${d.domain==='CROP'?`<label class="dp-row ${d.isFertilizer?'on':''}"><input type="checkbox" ${d.isFertilizer?'checked':''} onchange="ui.modalDraft.isFertilizer=this.checked;render()"><span><b>Fertilizer activity</b><span class="d">Workers must enter type, brand and quantity to complete it. Non-organic input on an organic-certified crop raises a brand audit warning.</span></span></label>`:''}
+  ${d.domain==='CROP'?`<label class="dp-row ${d.isFertilizer?'on':''}"><input type="checkbox" ${d.isFertilizer?'checked':''} onchange="ui.modalDraft.isFertilizer=this.checked;render()"><span><b>Fertilizer activity</b><span class="d">When you assign it, you enter the fertilizer type, brand name and quantity (notes optional). The worker just does the task.</span></span></label>`:''}
   <div class="field"><label>Description (optional)</label><input id="na-desc" maxlength="300" value="${esc(d.description||'')}" oninput="ui.modalDraft.description=this.value"></div>
   <div class="qsub" style="text-transform:none;letter-spacing:0;">A new activity never changes a bed or cohort stage by itself. Adding a new stage transition is a code change.</div>
   <button id="na-go" class="btn btn-primary" ${ready?'':'disabled'} onclick="doCreateActivity()">Create activity</button>
