@@ -140,6 +140,20 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .cal-cell.today .d{background:var(--forest);color:#fff;}
 .cal-cell.sel{border:2px solid var(--forest);background:color-mix(in srgb,var(--forest) 10%,var(--paper));}
 .cal-cell .d{font-size:12px;font-weight:800;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;}
+.irr-tabs{display:flex;gap:6px;margin:0 0 10px;}
+.irr-mx{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:62vh;background:var(--paper);}
+.irr-mx table{border-collapse:separate;border-spacing:0;font-size:11px;}
+.irr-mx th,.irr-mx td{padding:2px;text-align:center;min-width:26px;border-bottom:1px solid var(--line);}
+.irr-mx thead th{position:sticky;top:0;background:var(--paper);z-index:2;font-weight:700;}
+.irr-mx th.b{position:sticky;left:0;z-index:1;background:var(--paper);text-align:left;white-space:nowrap;padding:3px 8px;border-left:4px solid var(--k);min-width:150px;}
+.irr-mx thead th.b{z-index:3;}
+.irr-mx th.tod{background:var(--forest);color:#fff;}
+.irr-dot{width:18px;height:18px;border-radius:5px;border:0;background:var(--c);cursor:pointer;padding:0;display:block;margin:0 auto;}
+.irr-dot:focus-visible,.cal-cell:focus-visible{outline:2px solid var(--forest);outline-offset:1px;}
+.irr-all{border:2px solid var(--forest);border-radius:10px;padding:10px 12px;margin:8px 0;background:color-mix(in srgb,var(--forest) 6%,var(--paper));}
+.cal-chip.k{color:var(--ink);background:color-mix(in srgb,var(--k) 22%,transparent);}
+.irr-key{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;margin:0 0 10px;}
+.irr-key i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px;}
 .cal-chip{font-size:10.5px;font-weight:700;line-height:1.25;padding:2px 5px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);border-left:3px solid var(--c);}
 .cal-more{font-size:10.5px;font-weight:800;color:var(--ink-soft);padding-left:2px;}
 .cal-day-h{font-size:15px;font-weight:800;margin:18px 0 8px;}
@@ -3286,7 +3300,7 @@ function calScreen(){
  * The manager then assigns workers: 'assign-irrigation' starts Irrigation sessions through the same path as start-sessions.
  * Crops with no irrigation profile are listed, never guessed. */
 const IRR_ST={OVERDUE:['Overdue','#B3261E'],DUE:['Due today','#C77700'],UPCOMING:['Upcoming','#6B6B5E'],ASSIGNED:['Assigned','#3A78C9'],IN_PROGRESS:['In progress','#2E7D32'],COMPLETED:['Done','#5B3F8C']};
-const irr={data:null,busy:false,error:null,month:null,day:null,loaded:null,pick:{},workers:null,sending:false};
+const irr={view:'month',dayWorkers:[],data:null,busy:false,error:null,month:null,day:null,loaded:null,pick:{},workers:null,sending:false};
 const irrToday=()=>calToday();
 function irrRange(){ const [y,m]=irr.month.split('-').map(Number); return {from:`${irr.month}-01`,to:`${irr.month}-${String(new Date(Date.UTC(y,m,0)).getUTCDate()).padStart(2,'0')}`}; }
 async function irrLoad(force){
@@ -3324,6 +3338,39 @@ async function irrAssign(i){
     irr.sending=false; await irrLoad(true);
   }catch(err){ irr.sending=false; toast(err.message||'Could not assign irrigation.'); render(); }
 }
+/* Crop colour = CROP_MASTER.category (botanical family is blank for most crops, so it cannot drive colour). Status colour stays on the chip's left edge. */
+const IRR_CAT={'Warm-Season Fruiting Crops':'#C0392B','African Leafy Greens':'#2E8B57','Cool-Season Brassicas & Greens':'#3F9AA8','Cool-Season Roots':'#D98E04','Bulb Crops':'#8E6BBF','Tropical Tubers & Perennials':'#A0522D','Grain Crops':'#A89A1B','Cover Crops':'#6B8E23','Perennial Crown':'#5B7C99'};
+function irrCat(cropId){ const c=(typeof CROP_MASTER!=='undefined'?CROP_MASTER:[]).find(x=>x.id===cropId); const cat=(c&&c.category)||''; return {cat:cat||'Other',color:IRR_CAT[cat]||'#6B6B5E'}; }
+function irrSetView(v){ irr.view=v; render(); }
+function irrMatrixHTML(items,dim,t){
+  const rows={}, rank=['OVERDUE','DUE','IN_PROGRESS','ASSIGNED','UPCOMING','COMPLETED'];
+  items.forEach(it=>it.beds.forEach(b=>{ const r=rows[b.bedId]=rows[b.bedId]||{bed:b.bedId,crop:it.cropName,id:it.cropId,cells:{}}; const o=r.cells[it.date];
+    if(!o||rank.indexOf(b.status)<rank.indexOf(o.status)) r.cells[it.date]={status:b.status,worker:b.workerName,depth:it.depthInches}; }));
+  const list=Object.values(rows).sort((a,b)=>bbBedCmp(a.bed,b.bed)); if(!list.length) return '<div class="card">No irrigation is scheduled this month.</div>';
+  const days=Array.from({length:dim},(_,i)=>i+1), iso=n=>`${irr.month}-${String(n).padStart(2,'0')}`;
+  const head=`<tr><th class="b" style="--k:transparent">Bed · crop</th>${days.map(n=>`<th class="${iso(n)===t?'tod':''}">${n}</th>`).join('')}</tr>`;
+  const body=list.map(r=>`<tr><th class="b" style="--k:${irrCat(r.id).color}">${esc(r.bed)} <span style="font-weight:500;color:var(--ink-soft)">${esc(r.crop)}</span></th>${days.map(n=>{ const c=r.cells[iso(n)];
+    return `<td>${c?`<button class="irr-dot" style="--c:${IRR_ST[c.status][1]}" onclick="irrPickDay('${iso(n)}')" aria-label="${esc(r.bed+' '+iso(n)+' '+IRR_ST[c.status][0])}" title="${esc(r.bed+' · '+IRR_ST[c.status][0]+(c.worker?' · '+c.worker:'')+(c.depth!=null?' · '+c.depth+' in':''))}"></button>`:''}</td>`; }).join('')}</tr>`).join('');
+  return `<div class="irr-mx"><table><thead>${head}</thead><tbody>${body}</tbody></table></div><div class="qsub" style="margin:6px 0 0">One row per bed, one column per day. Dot colour is the status. The bar on the left of each bed is the crop group. Tap a dot to open that day.</div>`;
+}
+function irrToggleDayW(id){ const a=irr.dayWorkers, i=a.indexOf(id); if(i<0) a.push(id); else a.splice(i,1); render(); }
+async function irrAssignAll(){
+  const its=irrDayItems().filter(it=>it.beds.some(irrAssignable)); if(!its.length||irr.sending) return;
+  if(!irr.dayWorkers.length){ toast('Choose at least one worker.'); return; }
+  const jobs=its.map(it=>({it,beds:irrSel(it).beds})).filter(j=>j.beds.length); if(!jobs.length){ toast('No beds are ticked.'); return; }
+  const nb=jobs.reduce((n,j)=>n+j.beds.length,0);
+  if(!confirm('Assign irrigation on '+irr.day+' for '+jobs.length+' cohort'+(jobs.length===1?'':'s')+' ('+nb+' bed'+(nb===1?'':'s')+')?')) return;
+  irr.sending=true; render(); let made=0, bad=0;
+  for(const j of jobs){ try{ const r=await apiCall('assign-irrigation',{cohortId:j.it.cohortId,date:j.it.date,bedIds:j.beds,workerIds:irr.dayWorkers},60000); made+=r.created||0; bad+=(r.failed||[]).length; }catch(e){ bad+=j.beds.length; } }
+  irr.sending=false; toast('Irrigation assigned: '+made+' task'+(made===1?'':'s')+(bad?'. '+bad+' failed.':'.')); await irrLoad(true);
+}
+function irrAllPanel(items){
+  const its=items.filter(it=>it.beds.some(irrAssignable)); if(!its.length) return '';
+  const nb=its.reduce((n,it)=>n+irrSel(it).beds.length,0), ws=irr.workers||[];
+  return `<div class="irr-all"><div><b>Assign everything for this day</b> · ${its.length} cohort${its.length===1?'':'s'}, ${nb} bed${nb===1?'':'s'} ticked below</div>
+    <div class="irr-w">${ws.length?ws.map(w=>`<label class="irr-chip"><input type="checkbox" ${irr.dayWorkers.includes(w.id)?'checked':''} onchange="irrToggleDayW('${esc(w.id)}')">${esc(w.name||w.id)}</label>`).join(''):'<span class="note">Loading workers…</span>'}</div>
+    <button class="btn" style="width:auto;margin:8px 0 0" ${irr.sending||!nb||!irr.dayWorkers.length?'disabled':''} onclick="irrAssignAll()">${irr.sending?'Assigning…':'Assign all'}</button></div>`;
+}
 function irrCardHTML(it,i){
   const st=irrWorst(it), c=IRR_ST[st], sel=irrSel(it), canAssign=it.beds.some(irrAssignable), workers=irr.workers||[];
   const beds=it.beds.map(b=>{ const a=irrAssignable(b), x=IRR_ST[b.status];
@@ -3345,9 +3392,9 @@ function irrScreen(){
   ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(n=>cells+=`<div class="cal-dow">${n}</div>`);
   for(let i=0;i<first;i++) cells+='<div class="cal-cell empty"></div>';
   for(let n=1;n<=dim;n++){ const iso=`${irr.month}-${String(n).padStart(2,'0')}`, ev=by[iso]||[];
-    cells+=`<button class="cal-cell ${ev.length?'has':''} ${iso===t?'today':''} ${iso===irr.day?'sel':''}" onclick="irrPickDay('${iso}')"><span class="d">${n}</span>${ev.slice(0,2).map(e=>`<div class="cal-chip" style="--c:${IRR_ST[irrWorst(e)][1]}" title="${esc(e.cropName+' · '+e.cohortId)}">💧 ${esc(e.cropName)}</div>`).join('')}${ev.length>2?`<div class="cal-more">+${ev.length-2} more</div>`:''}</button>`; }
+    cells+=`<button class="cal-cell ${ev.length?'has':''} ${iso===t?'today':''} ${iso===irr.day?'sel':''}" onclick="irrPickDay('${iso}')"><span class="d">${n}</span>${ev.slice(0,2).map(e=>`<div class="cal-chip k" style="--c:${IRR_ST[irrWorst(e)][1]};--k:${irrCat(e.cropId).color}" title="${esc(e.cropName+' · '+e.cohortId+' · '+IRR_ST[irrWorst(e)][0]+(e.depthInches!=null?' · '+e.depthInches+' in':''))}">💧 ${esc(e.cropName)}${e.depthInches!=null?' · '+e.depthInches+' in':''}</div>`).join('')}${ev.length>2?`<div class="cal-more">+${ev.length-2} more</div>`:''}</button>`; }
   const dayItems=irr.day?irrDayItems():[];
-  const dayBody=irr.day?`<div class="cal-day-h">${calLong(irr.day)}</div>${dayItems.length?dayItems.map(irrCardHTML).join(''):'<div class="card">No irrigation scheduled this day.</div>'}`:'';
+  const dayBody=irr.day?`<div class="cal-day-h">${calLong(irr.day)}</div>${irrAllPanel(dayItems)}${dayItems.length?dayItems.map(irrCardHTML).join(''):'<div class="card">No irrigation scheduled this day.</div>'}`:'';
   const over=items.filter(x=>x.beds.some(b=>b.status==='OVERDUE')).length, due=items.filter(x=>x.beds.some(b=>b.status==='DUE')).length;
   const cards=[['Verified cohorts',d.activeCohorts||0,'#2E7D32'],['Overdue this month',over,'#B3261E'],['Due today',due,'#C77700'],['Waiting for planting verification',d.waitingForVerification||0,'#6B6B5E']]
     .map(([k,v,c])=>`<div class="cal-card" style="--c:${c};cursor:default"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
@@ -3356,7 +3403,9 @@ function irrScreen(){
   const leg=Object.values(IRR_ST).map(([l,c])=>`<span><i style="background:${c}"></i>${l}</span>`).join('');
   return shell(`<div class="cal-cards">${cards}</div>${empty}${ns}<div class="cal-legend" style="margin-bottom:10px">${leg}</div>
   <div class="cal-nav"><button onclick="irrNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b>${mname}</b><span>${items.length} irrigation${items.length===1?'':'s'} scheduled${irr.busy?' · updating…':''}</span></div><button onclick="irrNav(1)" aria-label="Next month">›</button><button onclick="irrGoToday()">Today</button></div>
-  <div class="cal-grid">${cells}</div>${dayBody}
+  <div class="irr-tabs seg"><button class="${irr.view==='month'?'active':''}" onclick="irrSetView('month')">Calendar month</button><button class="${irr.view==='matrix'?'active':''}" onclick="irrSetView('matrix')">Bed matrix</button></div>
+  <div class="irr-key">${Array.from(new Set(items.map(x=>irrCat(x.cropId).cat))).sort().map(c=>`<span><i style="background:${IRR_CAT[c]||'#6B6B5E'}"></i>${esc(c)}</span>`).join('')}</div>
+  ${irr.view==='matrix'?irrMatrixHTML(items,dim,t):`<div class="cal-grid">${cells}</div>`}${dayBody}
   <div class="cal-note">Schedule starts on each cohort's verified planting date and repeats at its IRRIGATION_PROFILE frequency until harvest (dry-down rules applied). Assigning starts Irrigation tasks for the chosen beds and workers.</div>`);
 }
 
