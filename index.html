@@ -340,6 +340,14 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .urg-alarm{background:#fff;border-radius:12px;max-width:420px;width:100%;padding:18px;border-top:6px solid #1E6B2E;box-shadow:0 10px 40px rgba(0,0,0,.35);}
 .urg-alarm.bad{border-top-color:#B4231A;} .urg-alarm h3{margin:0 0 6px;font-size:16px;} .urg-alarm p{margin:6px 0;font-size:13px;}
 @media(max-width:640px){.urg-row{grid-template-columns:1fr 1fr;}}
+
+@keyframes vpSpin{to{transform:rotate(360deg)}}
+@keyframes vpSlide{0%{left:-40%}100%{left:100%}}
+.vp-spin{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:vpSpin .7s linear infinite;vertical-align:-2px;margin-right:6px}
+#vp-busy{position:fixed;left:0;right:0;top:0;z-index:99999;pointer-events:none;display:none}
+#vp-busy .bar{height:4px;background:rgba(0,0,0,.08);position:relative;overflow:hidden}
+#vp-busy .bar i{position:absolute;top:0;bottom:0;width:40%;background:#2f7d3a;animation:vpSlide 1.1s ease-in-out infinite}
+#vp-busy .msg{margin:8px auto 0;width:max-content;max-width:90vw;background:#1f2a1f;color:#fff;padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25)}
 </style>
 </head>
 <body><div id="app"></div>
@@ -639,12 +647,17 @@ function dpSyncGo(){ const b=document.getElementById('dp-go'); if(b) b.disabled=
 
 /* ============================== DISPATCH / TRIAGE ACTIONS ============================== */
 let _assignBusy=false;
+function busyShow(msg){ let e=document.getElementById('vp-busy'); if(!e){ e=document.createElement('div'); e.id='vp-busy'; document.body.appendChild(e); }
+  e.innerHTML='<div class="bar"><i></i></div><div class="msg"><span class="vp-spin"></span>'+esc(msg||'Working…')+'</div>'; e.style.display='block'; clearTimeout(busyShow._t);
+  busyShow._t=setTimeout(()=>{ e.querySelector('.msg').lastChild.textContent+=' (still working – the server is slow, please wait)'; },8000); }
+function busyHide(){ clearTimeout(busyShow._t); const e=document.getElementById('vp-busy'); if(e) e.style.display='none'; }
+function busyLock(on){ document.querySelectorAll('.overlay .sheet .btn').forEach(b=>{ if(on){ b.dataset.wasDis=b.disabled?'1':''; b.disabled=true; } else if(b.dataset.wasDis!==undefined){ b.disabled=b.dataset.wasDis==='1'; delete b.dataset.wasDis; } }); }
 async function startSessionFor(bedId, activity, workerId){
   if(_assignBusy) return;   /* a double-tap used to send two identical requests -> two identical Pending tasks */
-  _assignBusy=true;
-  try{ await apiCall('start-session', { bedId, activity, workerId }); toast('Task assigned.'); closeModal(); await loadToday(); }
+  _assignBusy=true; busyShow('Assigning '+activity+'… please wait'); busyLock(true);
+  try{ await apiCall('start-session', { bedId, activity, workerId }, 60000); busyShow('Assigned – refreshing…'); toast('Task assigned.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
-  finally{ _assignBusy=false; }
+  finally{ _assignBusy=false; busyHide(); busyLock(false); }
 }
 async function reassignSession(sessionId, toWorkerId, note){
   try{ await apiCall('reassign-session', { sessionId, toWorkerId, note }); toast('Session reassigned.'); closeModal(); await loadToday(); }
@@ -1057,6 +1070,14 @@ function fmtTs(v){ if(!v) return ''; const d=new Date(v); return isNaN(d.getTime
 function taskTimes(s){
   return { dispatched: s.assignedTime||s.assignedAt||s.dispatchedAt||s.createdAt||'', started: s.startTime||s.startedAt||s.start||'' };
 }
+function fertDetailHTML(f,compact){
+  if(!f) return '';
+  const org=f.organic==='ORGANIC'?'Organic':f.organic==='NON_ORGANIC'?'Non-organic':(f.organic||'');
+  const q=(f.quantity!==''&&f.quantity!=null)?(esc(f.quantity)+' '+esc(f.unit||'')):'';
+  const rows=[['Type',f.type],['Brand',f.brand],['Quantity',q,1],['Organic',org],['Method',f.method],['Notes',f.notes]].filter(r=>r[1]!==''&&r[1]!=null);
+  if(compact) return '<div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:2px;"><b>Fertilizer:</b> '+rows.map(r=>r[2]?r[1]:esc(r[1])).join(' \u00b7 ')+'</div>';
+  return '<div style="margin:4px 0;padding:6px 8px;border:1px solid #bcd6bf;border-radius:8px;background:#EEF5EE;"><div class="qsub" style="text-transform:none;letter-spacing:0;font-weight:700;">Fertilizer details</div>'+rows.map(r=>'<div class="row"><span>'+r[0]+'</span><span>'+(r[2]?r[1]:esc(r[1]))+'</span></div>').join('')+'</div>';
+}
 function liveTaskBlock(b,sess){
   const recent=((b&&b.activityLog)||[]).slice(0,2);
   const cards=sess.map(s=>{
@@ -1067,6 +1088,7 @@ function liveTaskBlock(b,sess){
       <div class="row"><span>Assigned to</span><span>${esc(who)}</span></div>
       ${t.dispatched?`<div class="row"><span>Dispatched</span><span>${esc(fmtTs(t.dispatched))}</span></div>`:''}
       <div class="row"><span>Started</span><span>${pending?'Waiting for worker to start':esc(fmtTs(t.started)||'—')}</span></div>
+      ${fertDetailHTML(s.fertilizer)}
       <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>
       <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`;
   }).join('');
@@ -1217,7 +1239,7 @@ function dpInner(b,sess){
   ${activeWorkSection(b,sess)}
   <div class="dp-foot">${res}${missing?`<div class="note" style="margin:0 0 6px;color:var(--warn);font-weight:600;">${missing} selected activit${missing===1?'y has':'ies have'} no worker.</div>`:''}
     <div id="dp-fertnote" class="note" style="margin:0 0 6px;color:var(--warn);font-weight:600;display:${fm?'block':'none'};">${fm} fertilizer task${fm===1?'':'s'} still need type, brand and quantity.</div>
-    <button id="dp-go" class="btn btn-primary" ${ok?'':'disabled'} onclick="dpSubmit()">${d.busy?'Dispatching…':`Dispatch selected tasks (${d.acts.length})${fresh&&fresh!==d.acts.length?' · '+fresh+' assignments':''}`}</button>
+    <button id="dp-go" class="btn btn-primary" ${ok?'':'disabled'} onclick="dpSubmit()">${d.busy?'<span class="vp-spin"></span>Dispatching…':`Dispatch selected tasks (${d.acts.length})${fresh&&fresh!==d.acts.length?' · '+fresh+' assignments':''}`}</button>
     ${dup?`<div class="note" style="margin:-2px 0 6px;">${dup} already open on this bed, will be skipped.</div>`:''}
     ${verify||verifyCloseBlock(b)}</div>`;
 }
@@ -1240,16 +1262,16 @@ async function dpSubmit(){
   const d=ui.dp; if(d.busy||!d.acts.length) return;
   if(d.acts.some(a=>!dpCrew(a).length)){ toast('Choose a worker for every selected activity.'); return; }
   if(d.acts.some(a=>isFertAct(a)&&!fertDone(fertOf(d,a)))){ toast('Enter the fertilizer type, brand name and quantity first.'); return; }
-  d.busy=true; dpRefresh();
+  d.busy=true; busyShow('Dispatching '+d.acts.length+' task'+(d.acts.length===1?'':'s')+'… please wait'); dpRefresh();
   try{
     const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments:fertAssignments(d,d.acts,dpCrew), scheduledDate:d.date }, 60000);
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] };
     if(d.result.created.length) toast(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' dispatched.');
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
     d.acts=d.acts.filter(a=>bad[a]); d.custom=d.acts.reduce((m,a)=>{ m[a]=bad[a]; return m; },{});
-    d.busy=false; await loadToday();
+    d.busy=false; busyShow('Dispatched – refreshing…'); await loadToday();
   }catch(e){ d.busy=false; toast(e.message); }
-  dpRefresh();
+  busyHide(); dpRefresh();
 }
 function setAwView(v){ ui.awView=v; render(); }
 function activeWorkSection(b,sess){
@@ -1262,7 +1284,7 @@ function activeWorkSection(b,sess){
     body=Object.keys(g).map(a=>{ const l=g[a], live=l.some(q=>['ACTIVE','PAUSED','EXCEPTION'].includes(String(q.status||'').toUpperCase()));
       return `<div class="dc-act"><div class="h"><span>${esc(actLabel(a,l[0]))}</span><span class="chip ${live?'chip-ok':'chip-warn'}">${live?'In progress':'Assigned'}</span></div>
         ${l.map(q=>`<div class="dc-w"><span>✓ ${esc(q.workerName||q.workerId)}${schedLabel(q)||q.assignedTime?` <span class="qsub">· ${esc(schedLabel(q)||'')}${q.assignedTime?' dispatched '+esc(fmtTs(q.assignedTime)):''}</span>`:''}</span><span>${sessStatusChip(q)}
-          <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'reassign'})">Reassign</button><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'close'})">Close</button></span></div>`).join('')}</div>`; }).join('');
+          <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'reassign'})">Reassign</button><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'close'})">Close</button></span></div>${fertDetailHTML(q.fertilizer,true)}`).join('')}</div>`; }).join('');
   } else {
     const ids=[...new Set(sess.map(q=>q.workerId))];
     body=ids.map(id=>{ const all=(state.sessions||[]).filter(q=>q.workerId===id&&String(q.status||'').toUpperCase()!=='COMPLETED');
@@ -1599,7 +1621,7 @@ function maFootHTML(){
   const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}</div>`;
   const ok=d.acts.length&&!c.missing&&!c.fertMissing&&c.fresh>0&&!d.busy;
   return `<div class="ma-sum">${sum}</div>${res}
-    <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
+    <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'<span class="vp-spin"></span>Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
     <button class="btn btn-outline" style="width:auto;padding:11px 16px;" onclick="maClear()">Clear</button>
     <button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
     <div class="note" style="margin:6px 0 0;">Each task shows as Pending until that worker taps Start. Server rules still apply to every task.</div>`;
@@ -1658,7 +1680,7 @@ function multiAssignModal(){
 function maSetDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; }
 async function submitMultiAssign(){
   const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||!c.fresh) return;
-  d.busy=true; maRefresh();
+  d.busy=true; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
   try{
     const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]);
     const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments, scheduledDate:d.date }, 60000);
@@ -1667,8 +1689,8 @@ async function submitMultiAssign(){
     /* keep only pairs that FAILED so the manager can adjust them; drop everything that went through or was already open */
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
     d.acts=d.acts.filter(a=>bad[a]); d.map=d.acts.reduce((m,a)=>{ m[a]=bad[a]; return m; },{});
-    d.busy=false; await loadToday(); maRefresh();
-  }catch(e){ d.busy=false; toast(e.message); maRefresh(); }
+    d.busy=false; busyShow('Assigned – refreshing…'); await loadToday(); busyHide(); maRefresh();
+  }catch(e){ d.busy=false; busyHide(); toast(e.message); maRefresh(); }
 }
 function fixedDispatchModal(d){
   const opt=d.fixedRequired===false;
@@ -3648,7 +3670,7 @@ function bedTasksBlock(bedId,opts){
     return `<div class="card" style="margin:0 0 8px;"><div class="row"><span><b>${esc(actLabel(s.activity,s))}</b></span><span class="chip ${st[1]}">${esc(st[0])}</span></div>
       <div class="qsub" style="margin:2px 0 4px;">${esc(sessDesc(s))}</div>
       <div class="row"><span>Worker</span><span>${esc(who)}</span></div>
-      ${s.fertilizer?`<div class="row"><span>Fertilizer</span><span>${esc(s.fertilizer.type)} · ${esc(s.fertilizer.brand)} · ${esc(s.fertilizer.quantity)} ${esc(s.fertilizer.unit||'')}</span></div>${s.fertilizer.notes?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(s.fertilizer.notes)}</div>`:''}`:''}
+      ${fertDetailHTML(s.fertilizer)}
       <div class="row"><span>${pending?'Dispatched':'Started'}</span><span>${pending?esc(fmtTs(t.dispatched)||'\u2014')+' \u00b7 waiting for worker to start':esc(fmtTs(t.started)||'\u2014')}</span></div>
       ${re}
       ${opts.buttons?`<div style="margin-top:6px;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button> <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`:''}</div>`; }).join('');
@@ -3721,7 +3743,7 @@ function bhLiveRows(bedId,req){
     const when=pending?'Dispatched '+esc(fmtTs(t.dispatched)||'\u2014')+' \u00b7 waiting for the worker to start':'Started '+esc(fmtTs(t.started)||'\u2014');
     return { id:s.activityId||c.id||'', name:s.activity, desc:sessDesc(s), worker:who, done:'', req:!!req[s.activity],
       chips:bhChips(bhScope(s.activity),c.domain||'',req[s.activity],`<span class="chip ${st[1]}">${esc(st[0])}</span>`),
-      note:re+when,
+      note:re+when+fertDetailHTML(s.fertilizer,true),
       btns:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button>` };
   };
   const live=list.filter(s=>String(s.status||'').toUpperCase()!=='ASSIGNED'), asg=list.filter(s=>String(s.status||'').toUpperCase()==='ASSIGNED');
