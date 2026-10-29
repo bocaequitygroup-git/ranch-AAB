@@ -3467,9 +3467,51 @@ async function bbLoad(force){
     try{ const r=await apiCall('get-physical-beds',{blockId:b}); bb.data[b]={beds:Array.isArray(r)?r:((r&&r.beds)||[])}; }
     catch(e){ bb.data[b]={error:errMsg(e)}; }
   }
+  render();   /* tiles appear first; the planting plan (crop + wave) fills in right after */
+  for(const b of PLAN_BLOCKS){
+    const k=ppKey(ui.pYear,b);
+    if(force||!state.pp[k]||state.pp[k].error){
+      try{ state.pp[k]=await apiCall('get-planning-context',{year:ui.pYear,blockId:b}); }
+      catch(e){ state.pp[k]={error:errMsg(e)}; }
+    }
+  }
   bb.busy=false; render();
 }
 function bbEnsure(){ if(!bb.busy&&!bb.tried) setTimeout(()=>bbLoad(),0); }
+/* Bed tiles: same SVG tile as Season Planning > Bed layout (ppBedGridSVG). Fill = live Bed_Status (this board's job);
+ * bottom bar = the wave color of the planned crop (same colors as Bed layout); lines = crop, status, cohort or wave + plan status. */
+const BB_SHORT={'UNVERIFIED':'Not verified','POST-HARVEST ACTIVITIES':'Post-harvest','AVAILABLE':'Available','RESERVED':'Reserved','PLANTED':'Planted','GROWING':'Growing','HARVEST READY':'Harvest ready','HARVESTING':'Harvesting','BLOCKED':'Blocked'};
+function bbGridSVG(beds){
+  if(!beds.length) return '';
+  const ctx=state.pp[ppKey(ui.pYear,bb.sel)], byBed={};
+  if(ctx&&!ctx.error&&ctx.plan&&ctx.plan.beds) ctx.plan.beds.forEach(pl=>{ byBed[pl.bedId]=pl; });
+  const cols=Math.min(8,beds.length)||1, cw=76, ch=56, gap=6, rows=Math.ceil(beds.length/cols);
+  let svg='';
+  beds.forEach((x,i)=>{
+    const col=i%cols, row=Math.floor(i/cols), bx=10+col*(cw+gap), by=10+row*(ch+gap);
+    const st=bbStatusOf(x), v=bbStyle(st), tc=v.tc, id=String(x.bedId);
+    const plan=byBed[id], planned=!!plan&&!isOpenPlan(plan);
+    let cv=null; try{ cv=bedViewById(id); }catch(e){ cv=null; }
+    const cohortId=String(x.currentCohortId||(cv&&cv.cohortId)||'').trim();
+    const crop=String((cv&&cv.cohortId&&cv.cropName)||(planned?plan.cropName:'')||'');
+    const l2=BB_SHORT[st]||v.label;
+    const l3=cohortId||(planned?waveTag(plan)+' \u00b7 '+(String(plan.status||'').toUpperCase()||'PENDING'):'');
+    const no=id.split('-').pop(), nSess=bedSessions(id).length;
+    const tip=id+' \u00b7 '+v.label+(cohortId?' \u00b7 '+cohortId:'')+(planned?' \u00b7 plan: '+plan.cropName+' '+waveTag(plan):'');
+    svg+=`<g class="badge" tabindex="0" role="button" style="cursor:pointer;" onclick="bbBedClick('${esc(id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();bbBedClick('${esc(id)}');}">
+      <title>${esc(tip)}</title>
+      <rect class="bed" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${v.fill}"></rect>
+      <text x="${bx+6}" y="${by+12}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${esc(no)}</text>
+      <text x="${bx+cw/2}" y="${by+26}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${tc}">${esc(crop?crop.slice(0,11):'Empty')}</text>
+      <text x="${bx+cw/2}" y="${by+37}" text-anchor="middle" font-size="7.5" font-weight="800" fill="${tc}">${esc(l2)}</text>
+      ${l3?`<text x="${bx+cw/2}" y="${by+47}" text-anchor="middle" font-size="6.5" font-weight="700" fill="${tc}" opacity=".85">${esc(l3)}</text>`:''}
+      ${planned?`<rect x="${bx+4}" y="${by+ch-5}" width="${cw-8}" height="3" rx="1.5" fill="${planFill(plan)}"></rect>`:''}
+      ${nSess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E" stroke="#fff" stroke-width="1"></circle>`:''}
+    </g>`;
+  });
+  const W=10+cols*(cw+gap), H=10+rows*(ch+gap);
+  return `<div style="overflow:auto;margin-bottom:14px;"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;">${svg}</svg></div>`;
+}
 function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; render(); }
 function bbForget(){ Object.keys(state.pp).forEach(k=>delete state.pp[k]); }
 /* Click a bed on the Bed Status Board -> Bed profile panel (info + the actions that make sense for that bed's status). */
@@ -3637,8 +3679,7 @@ function bbScreen(){
     return `<tr class="${b===bb.sel?'sel':''}" onclick="bbSelect('${b}')"><td><b>${esc(BLOCK_LABELS[b])}</b></td>${BB_STATUS.map(s=>`<td>${cnt[s[0]]||'<span style="opacity:.35;">0</span>'}</td>`).join('')}<td><b>${d.beds.length}</b></td></tr>`;
   }).join('');
   const cur=bb.data[bb.sel], beds=(cur&&cur.beds)||[];
-  const grid=beds.map(x=>{ const st=bbStatusOf(x), v=bbStyle(st), no=String(x.bedId).split('-').pop();
-    return `<button class="bb-bed" style="background:${v.fill};color:${v.tc};" title="${esc(x.bedId+' · '+v.label+(x.currentCohortId?' · '+x.currentCohortId:''))}" onclick="bbBedClick('${esc(x.bedId)}')"><b>${esc(no)}</b><span>${esc(x.currentCohortId||'')}</span></button>`; }).join('');
+  const grid=bbGridSVG(beds);
   const legend=BB_STATUS.map(s=>`<span><i class="sw" style="background:${s[2]};border:1px solid var(--line);"></i>${esc(s[1])}</span>`).join('');
   const eligible=beds.filter(x=>!x.currentCohortId&&['UNVERIFIED','POST-HARVEST ACTIVITIES'].includes(bbStatusOf(x))).length;
   const d=bb.dry, r=bb.res;
@@ -3660,7 +3701,8 @@ function bbScreen(){
     <div class="legend" style="padding:10px 0 4px;">${legend}</div>
     ${bbTasksPanel()}
     <h2 style="font-size:13px;margin:12px 0 6px;">${esc(BLOCK_LABELS[bb.sel])}</h2>
-    <div class="bb-grid">${grid||`<div class="empty">${bb.busy?'Loading…':'No beds loaded for this block.'}</div>`}</div>
+    ${grid||`<div class="empty">${bb.busy?'Loading…':'No beds loaded for this block.'}</div>`}
+    <div class="qsub" style="margin:-6px 0 14px;">Tile color = live bed status. Crop and wave come from the ${ui.pYear} planting plan (bar at the bottom = wave color, same as Bed layout). A dark dot means a task is assigned or running on that bed.</div>
     ${relPanel}</div></div></div>`;
 }
 function bbSyncRelease(){ const b=document.getElementById('bb-release'); if(b) b.disabled=!!(bb.relBusy||!bb.dry||!bb.dry.eligible||bb.reason.trim().length<5||!bb.confirm); }
