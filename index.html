@@ -1094,9 +1094,9 @@ function avBlock(b){
   const pend=avStepsOf(b,true), ver=avStepsOf(b,false); if(!pend.length&&!ver.length) return '';
   const d=avS(b), n=pend.filter(s=>d.sel[s.name]).length;
   const rows=pend.map(s=>`<label class="dp-row on" style="align-items:flex-start;"><input type="checkbox" ${d.sel[s.name]?'checked':''} data-v="${esc(s.name)}" onchange="avTog(this.dataset.v,this.checked)">
-    <div style="flex:1;min-width:0;"><b>${esc(s.name)}</b> <span class="chip chip-warn">Pending verification</span>${avLines(s)}</div></label>`).join('');
-  const done=ver.length?`<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:12px;">Verified activities (${ver.length})</summary>${ver.map(s=>`<div class="dp-row"><div style="flex:1;min-width:0;"><b>${esc(s.name)}</b> <span class="chip chip-ok">Verified</span>${avLines(s)}</div></div>`).join('')}</details>`:'';
-  return `<div class="dp-box"><div class="t"><span>Completed \u00b7 pending verification (${pend.length})</span></div>
+    <div style="flex:1;min-width:0;"><b>${esc(actLabel(s.name))}</b> <span class="chip chip-warn">Waiting for your verification</span><div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(sessDesc({activity:s.name}))}</div>${avLines(s)}</div></label>`).join('');
+  const done=ver.length?`<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:12px;">Verified activities (${ver.length})</summary>${ver.map(s=>`<div class="dp-row"><div style="flex:1;min-width:0;"><b>${esc(actLabel(s.name))}</b> <span class="chip chip-ok">Verified</span><div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(sessDesc({activity:s.name}))}</div>${avLines(s)}</div></div>`).join('')}</details>`:'';
+  return `<div class="dp-box"><div class="t"><span>Completed \u00b7 waiting for your verification (${pend.length})</span></div>
     ${pend.length?`<div class="dp-tools"><button onclick="avAll(true)">Select all</button><button onclick="avAll(false)">Clear</button></div>${rows}
       <button class="btn btn-primary" ${n?'':'disabled'} onclick="avVerifySelected()">${n?'Verify selected ('+n+')':'Verify selected'}</button>`
       :'<div class="note" style="margin:0;">Every completed activity is verified.</div>'}${done}</div>`;
@@ -3475,6 +3475,7 @@ function bbEnsure(){ if(!bb.busy&&!bb.tried) setTimeout(()=>bbLoad(),0); }
 const BB_SHORT={'UNVERIFIED':'Not verified','POST-HARVEST ACTIVITIES':'Post-harvest','AVAILABLE':'Available','RESERVED':'Reserved','PLANTED':'Planted','GROWING':'Growing','HARVEST READY':'Harvest ready','HARVESTING':'Harvesting','BLOCKED':'Blocked'};
 function bbGridSVG(beds){
   if(!beds.length) return '';
+  const pvc=pvCounts();
   const cols=Math.min(8,beds.length)||1, cw=76, ch=56, gap=6, rows=Math.ceil(beds.length/cols);
   let svg='';
   beds.forEach((x,i)=>{
@@ -3495,6 +3496,7 @@ function bbGridSVG(beds){
       <text x="${bx+cw/2}" y="${by+37}" text-anchor="middle" font-size="7.5" font-weight="800" fill="${tc}">${esc(l2)}</text>
       ${l3?`<text x="${bx+cw/2}" y="${by+47}" text-anchor="middle" font-size="6.5" font-weight="700" fill="${tc}" opacity=".85">${esc(l3)}</text>`:''}
       ${nSess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E" stroke="#fff" stroke-width="1"></circle>`:''}
+      ${pvc[id]?`<circle cx="${bx+cw-8}" cy="${by+ch-8}" r="6" fill="#E0A53D" stroke="#fff" stroke-width="1"></circle><text x="${bx+cw-8}" y="${by+ch-5.2}" text-anchor="middle" font-size="8" font-weight="800" fill="#1B1B18">${pvc[id]}</text>`:''}
     </g>`;
   });
   const W=10+cols*(cw+gap), H=10+rows*(ch+gap);
@@ -3584,6 +3586,7 @@ function bedInfoModal(){
       ${kv('Bed status',sty.label)}${kv('Current cohort',cohort)}${g&&g.cropName?kv('Crop',g.cropName):''}${g&&g.currentStage?kv('Stage',g.currentStage):''}
       ${kv('Last action',pick('Last_Action'))}${P.Last_Action_Date?kv('Last action date',when(P.Last_Action_Date)):''}</div>
     ${bedTasksBlock(d.bedId,{buttons:true})}
+    ${pvBedBlock(d.bedId)}
     ${action}`;
   return `<h2 style="font-size:15px;">Bed ${esc(d.bedId)}</h2>${body}
   <button class="btn btn-outline" onclick="closeModal();openBedEdit('${esc(d.bedId)}')">Edit bed</button>
@@ -3656,15 +3659,75 @@ function bbTasksPanel(){
             :`<div class="empty" style="padding:8px 0;">No post-harvest step has been overridden.</div>`}
     <div class="note">A step that still has a crew assigned or running cannot be overridden: use Clear on its assignment first (started tasks are handed over with Reassign instead).</div></div>`;
 }
+/* ---- Waiting for your verification: same three kinds of sign-off as the Daily board and the manager app ----
+ * 1) completed post-harvest activities (verify-activities), 2) plantings (verify-planting), 3) beds whose reset is finished (verify-bed-ready / complete-cohort). */
+const pv={ sel:{}, busy:false };
+function pvBlockOf(id){ const m=String(id).toUpperCase().match(/^([A-Z]+\d+)-/); return m?m[1]:''; }
+function pvActivities(){
+  const out=[]; (state.beds||[]).forEach(b=>{ const ph=b.postHarvest; if(!ph) return;
+    (ph.steps||[]).forEach(s=>{ if(s.work&&s.needsVerification) out.push({bed:b,step:s,key:b.id+'||'+s.name}); }); });
+  return out.sort((a,b)=>bbBedCmp(a.bed.id,b.bed.id)||String(a.step.name).localeCompare(String(b.step.name)));
+}
+function pvPlantings(){ return (state.beds||[]).filter(b=>b.cohortId&&String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING').sort((a,b)=>bbBedCmp(a.id,b.id)); }
+function pvReadyBeds(){ return (state.beds||[]).filter(b=>b.postHarvest&&b.postHarvest.readyToVerify===true).sort((a,b)=>bbBedCmp(a.id,b.id)); }
+function pvCounts(){ const c={}; const add=(id,n)=>{ const k=pvBlockOf(id); c[k]=(c[k]||0)+n; c[id]=(c[id]||0)+n; };
+  pvActivities().forEach(x=>add(x.bed.id,1)); pvPlantings().forEach(b=>add(b.id,1)); pvReadyBeds().forEach(b=>add(b.id,1)); return c; }
+function pvRow(x,withBed){
+  const s=x.step, desc=sessDesc({activity:s.name});
+  return `<label class="dp-row on" style="align-items:flex-start;"><input type="checkbox" ${pv.sel[x.key]?'checked':''} data-k="${esc(x.key)}" onchange="pvTog(this.dataset.k,this.checked)">
+    <div style="flex:1;min-width:0;"><b>${esc(actLabel(s.name))}</b>${withBed?` <span class="qsub" style="display:inline;">Bed ${esc(x.bed.id)}</span>`:''} <span class="chip chip-warn">Waiting for your verification</span>
+    ${desc?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(desc)}</div>`:''}${avLines(s)}</div></label>`;
+}
+function pvTog(k,on){ if(on) pv.sel[k]=true; else delete pv.sel[k]; pvSyncBtns(); }
+function pvAll(on){ pv.sel={}; if(on) pvActivities().forEach(x=>{ pv.sel[x.key]=true; }); render(); }
+function pvSyncBtns(){ document.querySelectorAll('[data-pvgo]').forEach(b=>{ const bed=b.dataset.pvgo; const n=pvActivities().filter(x=>pv.sel[x.key]&&(!bed||x.bed.id===bed)).length;
+  b.disabled=!n||pv.busy; b.textContent=n?'Verify selected ('+n+')':'Verify selected'; }); }
+async function pvVerify(bedId){
+  const items=pvActivities().filter(x=>pv.sel[x.key]&&(!bedId||x.bed.id===bedId)); if(!items.length||pv.busy) return;
+  const by={}; items.forEach(x=>{ (by[x.bed.id]=by[x.bed.id]||{bed:x.bed,names:[]}).names.push(x.step.name); });
+  if(!confirm('Verify '+items.length+' completed '+(items.length===1?'activity':'activities')+'?\n\n'+items.map(x=>x.bed.id+'  '+actLabel(x.step.name)).join('\n')+'\n\nThis is logged with your name and the time. It does not release any bed.')) return;
+  pv.busy=true; let n=0;
+  try{ for(const g of Object.values(by)){ const ph=g.bed.postHarvest;
+      await apiCall('verify-activities',{ scope:ph.bedLevel?'BED:'+g.bed.id:g.bed.cohortId, bedId:g.bed.id, cohortId:ph.bedLevel?'':g.bed.cohortId, activities:g.names }); n+=g.names.length; }
+    toast(n===1?'Activity verified.':n+' activities verified.'); }
+  catch(e){ toast((n?n+' verified, then: ':'')+e.message); }
+  pv.busy=false; pv.sel={}; if(ui.modal==='bed-info') closeModal(); await loadToday();
+}
+function pvPanel(){
+  if(!state.lastSync) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">Loading what is waiting for verification\u2026</div></div>`;
+  const acts=pvActivities(), plant=pvPlantings(), ready=pvReadyBeds(), total=acts.length+plant.length+ready.length;
+  const n=acts.filter(x=>pv.sel[x.key]).length, today=todayISO();
+  const actHtml=acts.length?`<h2 style="font-size:13px;margin:10px 0 6px;">Completed activities (${acts.length})</h2>
+    <div class="dp-tools"><button onclick="pvAll(true)">Select all</button><button onclick="pvAll(false)">Clear</button></div>
+    <div class="ma-list" style="max-height:340px;">${acts.map(x=>pvRow(x,true)).join('')}</div>
+    <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-pvgo="" ${n?'':'disabled'} onclick="pvVerify('')">${n?'Verify selected ('+n+')':'Verify selected'}</button>`:'';
+  const plHtml=plant.length?`<h2 style="font-size:13px;margin:14px 0 6px;">Plantings to confirm (${plant.length})</h2>`+plant.map(b=>`<div class="row"><span><b>Bed ${esc(b.id)}</b> \u00b7 ${esc(b.cropName||'')} <span class="qsub" style="display:inline;">${esc(b.cohortId)}</span></span>
+      <button class="dc-mini" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button></div>`).join(''):'';
+  const rdHtml=ready.length?`<h2 style="font-size:13px;margin:14px 0 6px;">Beds ready to release (${ready.length})</h2>`+ready.map(b=>{ const ph=b.postHarvest, scope=ph.bedLevel?'BED:'+b.id:b.cohortId; return `<div class="row"><span><b>Bed ${esc(b.id)}</b> <span class="qsub" style="display:inline;">every reset activity is done</span></span>
+      <button class="dc-mini" onclick="doVerifyTurnover('${esc(scope)}','${esc(b.id)}')">Verify bed ready</button></div>`; }).join(''):'';
+  return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Waiting for your verification</b></span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></div>
+    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing is waiting. Finished activities, plantings and ready beds appear here.</div>`}${actHtml}${plHtml}${rdHtml}</div>`;
+}
+/* Verify controls inside the bed pop-up (click a tile). */
+function pvBedBlock(bedId){
+  const b=(state.beds||[]).find(x=>String(x.id)===String(bedId)); if(!b) return '';
+  const acts=pvActivities().filter(x=>x.bed.id===bedId); let h='';
+  if(acts.length){ const n=acts.filter(x=>pv.sel[x.key]).length;
+    h+=`<h2 style="font-size:13px;margin:12px 0 6px;">Waiting for your verification (${acts.length})</h2>${acts.map(x=>pvRow(x,false)).join('')}
+      <button class="btn btn-primary" data-pvgo="${esc(bedId)}" ${n?'':'disabled'} onclick="pvVerify('${esc(bedId)}')">${n?'Verify selected ('+n+')':'Verify selected'}</button>`; }
+  if(b.cohortId&&String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING') h+=`<div class="note" style="margin:10px 0 6px;">${esc(b.cropName||'')} (${esc(b.cohortId)}) is assigned and reserved. Verify once the crop is in the ground.</div><button class="btn btn-primary" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(bedId)}'})">Verify planting</button>`;
+  return h;
+}
 function bbScreen(){
   bbEnsure();
-  const head=`<th>Block</th>${BB_STATUS.map(s=>`<th title="${esc(s[1])}">${esc(s[1])}</th>`).join('')}<th>Total</th>`;
+  const pvc=pvCounts();
+  const head=`<th>Block</th>${BB_STATUS.map(s=>`<th title="${esc(s[1])}">${esc(s[1])}</th>`).join('')}<th>Total</th><th title="Activities, plantings and beds waiting for your verification">Waiting for verification</th>`;
   const rows=PLAN_BLOCKS.map(b=>{
     const d=bb.data[b];
-    if(!d) return `<tr><td><b>${esc(BLOCK_LABELS[b])}</b></td><td colspan="${BB_STATUS.length+1}">${bb.busy?'Loading…':'Not loaded'}</td></tr>`;
+    if(!d) return `<tr><td><b>${esc(BLOCK_LABELS[b])}</b></td><td colspan="${BB_STATUS.length+2}">${bb.busy?'Loading…':'Not loaded'}</td></tr>`;
     if(d.error) return `<tr><td><b>${esc(BLOCK_LABELS[b])}</b></td><td colspan="${BB_STATUS.length+1}" style="color:var(--danger);">${esc(d.error)}</td></tr>`;
     const cnt={}; d.beds.forEach(x=>{ const s=bbStatusOf(x); cnt[s]=(cnt[s]||0)+1; });
-    return `<tr class="${b===bb.sel?'sel':''}" onclick="bbSelect('${b}')"><td><b>${esc(BLOCK_LABELS[b])}</b></td>${BB_STATUS.map(s=>`<td>${cnt[s[0]]||'<span style="opacity:.35;">0</span>'}</td>`).join('')}<td><b>${d.beds.length}</b></td></tr>`;
+    return `<tr class="${b===bb.sel?'sel':''}" onclick="bbSelect('${b}')"><td><b>${esc(BLOCK_LABELS[b])}</b></td>${BB_STATUS.map(s=>`<td>${cnt[s[0]]||'<span style="opacity:.35;">0</span>'}</td>`).join('')}<td><b>${d.beds.length}</b></td><td>${pvc[b]?`<span class="chip chip-warn">${pvc[b]}</span>`:'<span style="opacity:.35;">0</span>'}</td></tr>`;
   }).join('');
   const cur=bb.data[bb.sel], beds=(cur&&cur.beds)||[];
   const grid=bbGridSVG(beds);
@@ -3683,14 +3746,15 @@ function bbScreen(){
       <button id="bb-release" class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy||!d||!d.eligible||bb.reason.trim().length<5||!bb.confirm?'disabled':''} onclick="bbRelease()">Release ${d?d.eligible:''} bed${d&&d.eligible===1?'':'s'}</button></div></div>`;
   return `<div class="mapcol"><div class="mapscroll"><div style="max-width:1040px;margin:0 auto;">
     <h2 style="margin:0 0 4px;">Bed status board</h2>
-    <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Click a block row, then a bed: Not verified and Blocked beds can be verified ready here.</div>
+    <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Verify finished activities, plantings and ready beds in the first panel, or click a block row, then a bed: Not verified and Blocked beds can be verified ready there too.</div>
     ${bb.err?`<div class="error">${esc(bb.err)}</div>`:''}
     <div class="bb-wrap"><table class="bb-t"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
     <div class="legend" style="padding:10px 0 4px;">${legend}</div>
+    ${pvPanel()}
     ${bbTasksPanel()}
     <h2 style="font-size:13px;margin:12px 0 6px;">${esc(BLOCK_LABELS[bb.sel])}</h2>
     ${grid||`<div class="empty">${bb.busy?'Loading…':'No beds loaded for this block.'}</div>`}
-    <div class="qsub" style="margin:-6px 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed.</div>
+    <div class="qsub" style="margin:-6px 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed. An amber number means that many things on the bed are waiting for your verification.</div>
     ${relPanel}</div></div></div>`;
 }
 function bbSyncRelease(){ const b=document.getElementById('bb-release'); if(b) b.disabled=!!(bb.relBusy||!bb.dry||!bb.dry.eligible||bb.reason.trim().length<5||!bb.confirm); }
