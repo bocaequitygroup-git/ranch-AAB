@@ -3467,37 +3467,26 @@ async function bbLoad(force){
     try{ const r=await apiCall('get-physical-beds',{blockId:b}); bb.data[b]={beds:Array.isArray(r)?r:((r&&r.beds)||[])}; }
     catch(e){ bb.data[b]={error:errMsg(e)}; }
   }
-  render();   /* tiles appear first; the planting plan (crop + wave) fills in right after */
-  for(const b of PLAN_BLOCKS){
-    const k=ppKey(ui.pYear,b);
-    if(force||!state.pp[k]||state.pp[k].error){
-      try{ state.pp[k]=await apiCall('get-planning-context',{year:ui.pYear,blockId:b}); }
-      catch(e){ state.pp[k]={error:errMsg(e)}; }
-    }
-  }
   bb.busy=false; render();
 }
 function bbEnsure(){ if(!bb.busy&&!bb.tried) setTimeout(()=>bbLoad(),0); }
-/* Bed tiles: same SVG tile as Season Planning > Bed layout (ppBedGridSVG). Fill = live Bed_Status (this board's job);
- * bottom bar = the wave color of the planned crop (same colors as Bed layout); lines = crop, status, cohort or wave + plan status. */
+/* Bed tiles: same SVG tile shape as Season Planning > Bed layout (ppBedGridSVG), but ONLY live data: fill = Bed_Status,
+ * crop + cohort appear only when a cohort actually holds the bed. The planting plan is never shown here (it is not an assignment). */
 const BB_SHORT={'UNVERIFIED':'Not verified','POST-HARVEST ACTIVITIES':'Post-harvest','AVAILABLE':'Available','RESERVED':'Reserved','PLANTED':'Planted','GROWING':'Growing','HARVEST READY':'Harvest ready','HARVESTING':'Harvesting','BLOCKED':'Blocked'};
 function bbGridSVG(beds){
   if(!beds.length) return '';
-  const ctx=state.pp[ppKey(ui.pYear,bb.sel)], byBed={};
-  if(ctx&&!ctx.error&&ctx.plan&&ctx.plan.beds) ctx.plan.beds.forEach(pl=>{ byBed[pl.bedId]=pl; });
   const cols=Math.min(8,beds.length)||1, cw=76, ch=56, gap=6, rows=Math.ceil(beds.length/cols);
   let svg='';
   beds.forEach((x,i)=>{
     const col=i%cols, row=Math.floor(i/cols), bx=10+col*(cw+gap), by=10+row*(ch+gap);
     const st=bbStatusOf(x), v=bbStyle(st), tc=v.tc, id=String(x.bedId);
-    const plan=byBed[id], planned=!!plan&&!isOpenPlan(plan);
     let cv=null; try{ cv=bedViewById(id); }catch(e){ cv=null; }
     const cohortId=String(x.currentCohortId||(cv&&cv.cohortId)||'').trim();
-    const crop=String((cv&&cv.cohortId&&cv.cropName)||(planned?plan.cropName:'')||'');
+    const crop=String((cv&&cv.cohortId&&cv.cropName)||'');
     const l2=BB_SHORT[st]||v.label;
-    const l3=cohortId||(planned?waveTag(plan)+' \u00b7 '+(String(plan.status||'').toUpperCase()||'PENDING'):'');
+    const l3=cohortId;
     const no=id.split('-').pop(), nSess=bedSessions(id).length;
-    const tip=id+' \u00b7 '+v.label+(cohortId?' \u00b7 '+cohortId:'')+(planned?' \u00b7 plan: '+plan.cropName+' '+waveTag(plan):'');
+    const tip=id+' \u00b7 '+v.label+(cohortId?' \u00b7 '+cohortId:'');
     svg+=`<g class="badge" tabindex="0" role="button" style="cursor:pointer;" onclick="bbBedClick('${esc(id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();bbBedClick('${esc(id)}');}">
       <title>${esc(tip)}</title>
       <rect class="bed" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${v.fill}"></rect>
@@ -3505,7 +3494,6 @@ function bbGridSVG(beds){
       <text x="${bx+cw/2}" y="${by+26}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${tc}">${esc(crop?crop.slice(0,11):'Empty')}</text>
       <text x="${bx+cw/2}" y="${by+37}" text-anchor="middle" font-size="7.5" font-weight="800" fill="${tc}">${esc(l2)}</text>
       ${l3?`<text x="${bx+cw/2}" y="${by+47}" text-anchor="middle" font-size="6.5" font-weight="700" fill="${tc}" opacity=".85">${esc(l3)}</text>`:''}
-      ${planned?`<rect x="${bx+4}" y="${by+ch-5}" width="${cw-8}" height="3" rx="1.5" fill="${planFill(plan)}"></rect>`:''}
       ${nSess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E" stroke="#fff" stroke-width="1"></circle>`:''}
     </g>`;
   });
@@ -3702,7 +3690,7 @@ function bbScreen(){
     ${bbTasksPanel()}
     <h2 style="font-size:13px;margin:12px 0 6px;">${esc(BLOCK_LABELS[bb.sel])}</h2>
     ${grid||`<div class="empty">${bb.busy?'Loading…':'No beds loaded for this block.'}</div>`}
-    <div class="qsub" style="margin:-6px 0 14px;">Tile color = live bed status. Crop and wave come from the ${ui.pYear} planting plan (bar at the bottom = wave color, same as Bed layout). A dark dot means a task is assigned or running on that bed.</div>
+    <div class="qsub" style="margin:-6px 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed.</div>
     ${relPanel}</div></div></div>`;
 }
 function bbSyncRelease(){ const b=document.getElementById('bb-release'); if(b) b.disabled=!!(bb.relBusy||!bb.dry||!bb.dry.eligible||bb.reason.trim().length<5||!bb.confirm); }
