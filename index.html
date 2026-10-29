@@ -73,6 +73,20 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .bb-t tbody tr[onclick]{cursor:pointer;}
 .bb-t tr.sel td{background:color-mix(in srgb,var(--forest) 10%,var(--paper));}
 .bb-t .id{font-size:11px;color:var(--ink-soft);}
+.bh-sec{margin:14px 0 6px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+.bh-sec h2{font-size:13px;margin:0;}
+.bh-dom{font-size:11px;font-weight:700;color:var(--ink-soft);margin:10px 0 4px;}
+.bh-row{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:9px 10px;margin:0 0 6px;}
+.bh-row.req{border-left:4px solid var(--warn);}
+.bh-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+.bh-id{font-size:11px;font-weight:700;color:var(--ink-soft);background:var(--sand);border-radius:6px;padding:2px 6px;white-space:nowrap;}
+.bh-desc{font-size:12px;color:var(--ink-soft);margin:4px 0 0;}
+.bh-meta{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;margin:6px 0 0;}
+.bh-meta i{font-style:normal;color:var(--ink-soft);margin-right:4px;}
+.bh-note{font-size:11.5px;color:var(--ink-soft);margin:5px 0 0;}
+.bh-btns{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;}
+.bh-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 8px;}
+.bh-tools select{padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--paper);}
 .bb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px;margin-bottom:14px;}
 .bb-bed{border:1px solid var(--line);border-radius:8px;padding:6px 4px;min-height:48px;font-family:inherit;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;}
 .bb-bed span{font-size:9px;opacity:.85;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -1657,8 +1671,9 @@ async function submitMultiAssign(){
   }catch(e){ d.busy=false; toast(e.message); maRefresh(); }
 }
 function fixedDispatchModal(d){
-  return `<h2 style="font-size:15px;">Assign next required activity</h2>
-  <div class="note" style="margin-top:0;">Post-harvest turnover step. Steps can be done in any order; you verify the bed at the end.</div>
+  const opt=d.fixedRequired===false;
+  return `<h2 style="font-size:15px;">${opt?'Assign activity':'Assign next required activity'}</h2>
+  <div class="note" style="margin-top:0;">${opt?'Optional activity for this bed.':'Post-harvest turnover step. Steps can be done in any order; you verify the bed at the end.'}</div>
   <div class="field"><label>Activity</label><div style="font-weight:700;">${esc(d.fixedActivity)}</div></div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)"><option value="">Select a worker…</option>${state.workers.map(w=>`<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
   <button class="btn btn-primary" ${d.workerId?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.fixedActivity)}', document.getElementById('md-worker').value)">Assign</button>
@@ -3641,6 +3656,149 @@ function bedTasksBlock(bedId,opts){
   const body=`${sum?`<div class="qsub" style="margin:0 0 6px;">${esc(sum)}</div>`:''}${cards||`<div class="empty" style="padding:8px 0;">No task is assigned or running on this bed.</div>`}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}`;
   return `<div id="bed-tasks"><h2 style="font-size:13px;margin:12px 0 6px;">Assigned &amp; active tasks${list.length?' ('+list.length+')':''}</h2>${body}</div>`;
 }
+/* ---- Bed activities panel (bed pop-up on the Bed Status Board) ----
+ * Every row, whatever its state, shows: Activity ID, short description, worker, date complete.
+ * Sections: In progress / Assigned, not started / Can be assigned now / Required but not assignable yet / History.
+ * Two domains (ACTIVITY_REFERENCE.Domain = BED | CROP; when that cell is blank it is derived from the Activity_Domain group, the same
+ * lists the server uses in GovernanceEngine.gs):
+ *   Bed domain  = land prep, turnover, post-harvest reset. Active only while no living cohort is on the bed.
+ *   Crop domain = the living crop. Active only while a verified, living cohort is on the bed (planting-entry steps are exempt).
+ * Only activities that belong to this bed right now are listed: its live sessions, what dispatchListFor() allows for its status and stage
+ * (the same rule the Assign dialog and the server use), its required steps, and its own log.
+ * Required = an unfinished post-harvest reset step of this bed, or the planting activity of a cohort waiting to be planted. */
+const BH_BED_GROUPS=['field cleanup & prep','cover cropping','next-season prep','post-harvest','prep'], BH_CROP_GROUPS=['planting','cropcare','harvest','state','lifecycle'];
+function bhDate(v){ if(!v) return ''; const t=new Date(v); return isNaN(t.getTime())?String(v):t.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
+function bhCat(name){ return (state.activityCatalog||[]).find(x=>x.name===name)||{}; }
+/* Fallback helper: BED / CROP / '' for an activity (catalog scope, then the row's own scope, then its Activity_Domain group). */
+function bhScope(name,row){
+  const c=bhCat(name), sc=String((row&&row.scope)||c.scope||'').toUpperCase(); if(sc==='BED'||sc==='CROP') return sc;
+  const g=String((row&&(row.group||row.domain))||c.domain||'').trim().toLowerCase();
+  return BH_BED_GROUPS.includes(g)?'BED':BH_CROP_GROUPS.includes(g)?'CROP':'';
+}
+function bhScopeLabel(sc){ return sc==='BED'?'Bed domain':sc==='CROP'?'Crop domain':'Other'; }
+function bhDomainState(b){
+  const cs=String((b&&b.cohortStatus)||'').toUpperCase(), live=cs==='ACTIVE'||cs==='WAITING_NEXT_PICK';
+  if(live&&b.plantingDate) return {sc:'CROP',text:'Crop domain is active: a verified, living cohort ('+(b.cohortId||'')+') is on this bed. Bed activities are not available.'};
+  if(b&&b.cohortId&&cs==='PRE_PLANTING') return {sc:'BED',text:'Bed domain is active: '+(b.cohortId||'a cohort')+' is reserved and not planted yet. Only the planting step of the crop domain is available.'};
+  return {sc:'BED',text:'Bed domain is active: no living crop is on this bed. Crop activities are not available.'};
+}
+function bhRequired(b){
+  const req={}, p=b&&b.postHarvest;
+  ((p&&p.steps)||[]).forEach(x=>{ if(x.status!=='COMPLETE') req[x.name]='Required post-harvest step'; });
+  if(b&&b.cohortId&&String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING'){ const pa=plantingActivityFor(b); if(pa) req[pa]='Required to plant this cohort'; }
+  return req;
+}
+function bhChips(scope,group,req,extra){
+  return (scope?`<span class="chip chip-neutral" title="Activity domain">${esc(bhScopeLabel(scope))}</span>`:'')
+    +(group?`<span class="chip chip-neutral" title="Activity group">${esc(group)}</span>`:'')
+    +(req?`<span class="chip chip-warn" title="${esc(req)}">Required</span>`:`<span class="chip chip-neutral" title="Not required for this bed">Optional</span>`)+(extra||'');
+}
+function bhRow(o){
+  return `<div class="bh-row ${o.req?'req':''}"><div class="bh-top"><span class="bh-id">${esc(o.id||'No ID')}</span><b>${esc(o.name)}</b>${o.chips||''}</div>
+    ${o.desc?`<div class="bh-desc">${esc(o.desc)}</div>`:''}
+    <div class="bh-meta"><span><i>Worker</i>${esc(o.worker||'Not assigned')}</span><span><i>Date complete</i>${o.done?esc(o.done):'Not complete'}</span></div>
+    ${o.note?`<div class="bh-note">${o.note}</div>`:''}${o.btns?`<div class="bh-btns">${o.btns}</div>`:''}</div>`;
+}
+function bhSec(title,n,inner,empty){
+  return `<div class="bh-sec"><h2>${esc(title)}${n!=null?' ('+n+')':''}</h2></div>${inner||`<div class="empty" style="padding:6px 0;">${esc(empty||'')}</div>`}`;
+}
+/* Group rows under Bed domain / Crop domain (the group, e.g. CropCare, stays visible on each row). */
+function bhByScope(rows,render1){
+  const g={}; rows.forEach(r=>{ const k=r.scope||''; (g[k]=g[k]||[]).push(r); });
+  const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
+  return ['BED','CROP',''].filter(k=>g[k]).map(k=>`<div class="bh-dom">${esc(bhScopeLabel(k))}</div>${g[k].slice().sort((x,y)=>rank(x.group)-rank(y.group)||String(x.name).localeCompare(String(y.name))).map(render1).join('')}`).join('');
+}
+function bhSet(k,v){ const d=ui.modalDraft; d[k]=v; if(k!=='hl') d.hl=25; render(); }
+function bhAssign(bedId,hasCohort,name,required){ openModal('dispatch',{bedId,hasCohort,fixedActivity:name,fixedRequired:!!required}); }
+function bhLiveRows(bedId,req){
+  const rank=k=>({ACTIVE:0,IN_PROGRESS:0,PAUSED:1,EXCEPTION:1,ASSIGNED:2}[k]);
+  const list=bedSessions(bedId).slice().sort((a,b)=>{ const ka=String(a.status||'').toUpperCase(), kb=String(b.status||'').toUpperCase();
+    return ((rank(ka)===undefined?3:rank(ka))-(rank(kb)===undefined?3:rank(kb)))||String(a.activityId||a.activity).localeCompare(String(b.activityId||b.activity)); });
+  const row=s=>{
+    const st=taskStatus(s), t=taskTimes(s), c=bhCat(s.activity), pending=String(s.status||'').toUpperCase()==='ASSIGNED';
+    const who=(s.workerName||s.workerId||'Not assigned')+((s.workerName&&s.workerId&&s.workerName!==s.workerId)?' ('+s.workerId+')':'');
+    const re=s.reassignedFrom?`<span class="chip chip-warn">Reassigned</span> from <b>${esc(s.reassignedFromName||s.reassignedFrom)}</b>${s.reassignedBy?' by '+esc(s.reassignedBy):''}${s.reassignedAt?' \u00b7 '+esc(fmtTs(s.reassignedAt)):''}${s.reassignNote?'<br>Note: '+esc(s.reassignNote):''}<br>`:'';
+    const when=pending?'Dispatched '+esc(fmtTs(t.dispatched)||'\u2014')+' \u00b7 waiting for the worker to start':'Started '+esc(fmtTs(t.started)||'\u2014');
+    return { id:s.activityId||c.id||'', name:s.activity, desc:sessDesc(s), worker:who, done:'', req:!!req[s.activity],
+      chips:bhChips(bhScope(s.activity),c.domain||'',req[s.activity],`<span class="chip ${st[1]}">${esc(st[0])}</span>`),
+      note:re+when,
+      btns:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button>` };
+  };
+  const live=list.filter(s=>String(s.status||'').toUpperCase()!=='ASSIGNED'), asg=list.filter(s=>String(s.status||'').toUpperCase()==='ASSIGNED');
+  return { live:live.map(row), assigned:asg.map(row), n:{live:live.length,assigned:asg.length} };
+}
+function bhAssignRows(bedId,hasCohort,st,req,b){
+  const open={}; bedSessions(bedId).forEach(s=>{ open[s.activity]=1; });
+  const steps={}; ((b.postHarvest&&b.postHarvest.steps)||[]).forEach(x=>{ steps[x.name]=x; });
+  const can=[], wait=[];
+  if(st!=='BLOCKED'){
+    dispatchListFor(bedId,hasCohort).forEach(a=>{
+      if(open[a.name]) return;
+      const c=bhCat(a.name), step=steps[a.name], group=(step&&step.domain)||(a.wf?c.domain:a.domain)||c.domain||'';
+      const row={ id:a.id||c.id||'', name:a.name, desc:shortDesc(a.description||c.description||'',110), group, req:!!req[a.name], reqWhy:req[a.name]||'' };
+      row.scope=bhScope(a.name,row);
+      /* Same rule as the server (govDomainGate_): a crop-domain activity needs a verified living cohort, a bed-domain one needs none. Planting-entry steps are exempt. */
+      if(row.scope&&!govScopeOk(Object.assign({},c,{name:a.name,scope:row.scope}),b)) return;
+      can.push(row);
+    });
+  }
+  const have={}; can.forEach(r=>{ have[r.name]=1; });
+  Object.keys(req).forEach(name=>{
+    if(open[name]||have[name]) return;
+    const c=bhCat(name), step=steps[name], w=b.postHarvest&&b.postHarvest.waiting;
+    let why='Not assignable right now.';
+    if(st==='BLOCKED') why='This bed is blocked. Clear the block and verify it first.';
+    else if(step&&step.gate==='BUFFER') why='Automatic waiting period. It unlocks by itself'+(w&&w.eligibleDate?' on '+w.eligibleDate:'')+'.';
+    else if(step&&step.gate==='WINDOW') why='Seasonal window has not opened'+(w&&w.eligibleDate?' (opens '+w.eligibleDate+')':'')+'.';
+    else if(!step){ try{ why=startableActivities(bedId,hasCohort).why||why; }catch(e){} }
+    const group=(step&&step.domain)||c.domain||'';
+    wait.push({ id:c.id||'', name, desc:shortDesc(c.description||'',110), group, scope:bhScope(name,{group}), req:true, reqWhy:req[name], why });
+  });
+  return {can,wait};
+}
+function bhHistory(b,d){
+  const log=(b&&b.activityLog)||[], fS=d.hf||'ALL', fD=d.hd||'ALL', lim=d.hl||25;
+  const stOf=r=>String(r.reviewStatus||'COMPLETED').toUpperCase(), scOf=r=>bhScope(r.taskType,{scope:r.scope,group:r.domain});
+  const cnt={ALL:log.length,COMPLETED:0,CHECKED:0,VERIFIED:0}; log.forEach(r=>{ cnt[stOf(r)]=(cnt[stOf(r)]||0)+1; });
+  const rows=log.filter(r=>(fS==='ALL'||stOf(r)===fS)&&(fD==='ALL'||scOf(r)===fD));
+  const seg=[['ALL','All'],['COMPLETED','Completed'],['CHECKED','Checked'],['VERIFIED','Verified']];
+  const tools=`<div class="bh-tools"><div class="seg">${seg.map(([k,l])=>`<button class="${fS===k?'active':''}" onclick="bhSet('hf','${k}')">${l} (${cnt[k]||0})</button>`).join('')}</div>
+    <select aria-label="Filter history by domain" onchange="bhSet('hd',this.value)"><option value="ALL">Both domains</option><option value="BED" ${fD==='BED'?'selected':''}>Bed domain</option><option value="CROP" ${fD==='CROP'?'selected':''}>Crop domain</option></select></div>
+    <div class="qsub" style="margin:0 0 8px;text-transform:none;letter-spacing:0;">Completed = finished, not yet checked or verified. Checked = a manager reviewed it. Verified = a manager signed it off.</div>`;
+  const row=r=>{
+    const k=stOf(r), c=bhCat(r.taskType);
+    const chip=k==='VERIFIED'?'<span class="chip chip-ok">Verified</span>':k==='CHECKED'?'<span class="chip chip-neutral">Checked</span>'
+      :`<span class="chip chip-warn">Completed \u00b7 ${String(r.governance||'').toUpperCase()==='VERIFIED'?'awaiting verification':'awaiting check'}</span>`;
+    const by=k==='VERIFIED'?`Verified${r.verifiedBy?' by '+esc(r.verifiedBy):''}${r.verifiedDate?' \u00b7 '+esc(bhDate(r.verifiedDate)):''}`
+      :k==='CHECKED'?`Checked${r.checkedBy?' by '+esc(r.checkedBy):''}${r.checkedDate?' \u00b7 '+esc(bhDate(r.checkedDate)):''}`:'';
+    const grp=r.domain||c.domain||'', sc=scOf(r);
+    return bhRow({ id:r.activityId||c.id||'', name:r.taskType||'', desc:shortDesc(r.description||c.description||'',110), worker:r.workerName||r.workerId||'', done:bhDate(r.endTime),
+      chips:(sc?`<span class="chip chip-neutral" title="Activity domain">${esc(bhScopeLabel(sc))}</span>`:'')+(grp?`<span class="chip chip-neutral" title="Activity group">${esc(grp)}</span>`:'')+chip, note:by });
+  };
+  const more=rows.length>lim?`<button class="btn btn-outline" onclick="bhSet('hl',${lim+25})">Show more (${rows.length-lim} left)</button>`:'';
+  return bhSec('History',log.length?rows.length+(rows.length===log.length?'':' of '+log.length):0,
+    log.length?tools+(rows.slice(0,lim).map(row).join('')||`<div class="empty" style="padding:6px 0;">No history matches this filter.</div>`)+more:'',
+    'Nothing has been completed on this bed yet.');
+}
+function bedActivitiesPanel(d,st,cohort){
+  const bedId=d.bedId, b=(state.beds||[]).find(x=>String(x.id)===String(bedId))||{}, hasCohort=!!cohort;
+  const req=bhRequired(b), live=bhLiveRows(bedId,req), a=bhAssignRows(bedId,hasCohort,st,req,b), ds=bhDomainState(b);
+  const assignRow=r=>bhRow({ id:r.id, name:r.name, desc:r.desc, worker:'', done:'', req:r.req,
+    chips:bhChips(r.scope,r.group,r.reqWhy,'<span class="chip chip-ok">Assignable</span>'),
+    btns:`<button class="dc-mini" onclick="bhAssign('${esc(bedId)}',${hasCohort},'${esc(r.name)}',${r.req?'true':'false'})">Assign</button>` });
+  const waitRow=r=>bhRow({ id:r.id, name:r.name, desc:r.desc, worker:'', done:'', req:true,
+    chips:bhChips(r.scope,r.group,r.reqWhy,'<span class="chip chip-neutral">Not assignable yet</span>'), note:esc(r.why) });
+  const nReq=Object.keys(req).length, can=a.can.slice().sort((x,y)=>(y.req-x.req));
+  const sum=`${live.n.live} in progress \u00b7 ${live.n.assigned} assigned \u00b7 ${a.can.length} assignable \u00b7 ${nReq} required step${nReq===1?'':'s'} left`;
+  return `<div id="bed-acts"><h2 style="font-size:13px;margin:12px 0 2px;">Activities on this bed</h2>
+    <div class="qsub" style="margin:0 0 4px;text-transform:none;letter-spacing:0;">${esc(sum)}</div>
+    <div class="note" style="margin:0 0 4px;"><b>${esc(ds.sc==='CROP'?'Crop domain':'Bed domain')}.</b> ${esc(ds.text.replace(/^(Crop|Bed) domain is active: /,''))} Required = a post-harvest reset step still to do, or the planting step of a cohort waiting to be planted.</div>
+    ${bhSec('In progress',live.n.live,live.live.map(bhRow).join(''),'No activity is running on this bed.')}
+    ${bhSec('Assigned, not started',live.n.assigned,live.assigned.map(bhRow).join(''),'No activity is waiting for a worker to start.')}
+    ${bhSec('Can be assigned now',can.length,bhByScope(can,assignRow),st==='BLOCKED'?'This bed is blocked. Clear the block and verify it first.':'Nothing can be assigned to this bed right now.')}
+    ${a.wait.length?bhSec('Required, not assignable yet',a.wait.length,bhByScope(a.wait,waitRow)):''}
+    ${bhHistory(b,d)}</div>`;
+}
 function bedInfoModal(){
   const d=ui.modalDraft, row=d.row||{}, P=d.prof||{};
   const pick=(k,alt)=>{ const v=P[k]!=null&&P[k]!==''?P[k]:(alt!=null?alt:''); return v; };
@@ -3687,7 +3845,7 @@ function bedInfoModal(){
     <div class="card"><div class="row"><span><b style="color:var(--ink);">Current use</b></span></div>
       ${kv('Bed status',sty.label)}${kv('Current cohort',cohort)}${g&&g.cropName?kv('Crop',g.cropName):''}${g&&g.currentStage?kv('Stage',g.currentStage):''}
       ${kv('Last action',pick('Last_Action'))}${P.Last_Action_Date?kv('Last action date',when(P.Last_Action_Date)):''}</div>
-    ${bedTasksBlock(d.bedId,{buttons:true})}
+    ${bedActivitiesPanel(d,st,cohort)}
     ${pvBedBlock(d.bedId)}
     ${action}`;
   return `<h2 style="font-size:15px;">Bed ${esc(d.bedId)}</h2>${body}
