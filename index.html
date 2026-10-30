@@ -1016,10 +1016,11 @@ function panelHTML(){
 function overviewTab(b,sess){
   const cs=b.cohortStatus||'';
   return `${b.cohortId?`<div class="card">
-    <div class="row"><span>Status</span><span><span class="chip chip-ok">Occupied</span></span></div>
+    <div class="row"><span>Occupancy</span><span><span class="chip chip-ok">Occupied</span></span></div>
+    <div class="row"><span>Bed status</span><span><span class="chip chip-neutral">${esc(bedPanelStatus(b))}</span></span></div>
     <div class="row"><span>Crop</span><span>${esc(b.cropName)}${b.shortfall?' <span class="urg-badge">Shortfall crop year</span>':''}</span></div>
     <div class="row"><span>Cohort</span><span>${esc(b.cohortId)}</span></div>
-    <div class="row"><span>Current stage</span><span><span class="chip chip-neutral">${esc((b.currentStage||'—').replace(/_/g,' '))}</span></span></div>
+    <div class="row"><span>Crop stage</span><span><span class="chip chip-neutral">${esc((b.currentStage||'—').replace(/_/g,' '))}</span></span></div>
     <div class="row"><span>Cohort status</span><span><span class="chip chip-neutral">${esc(COHORT_STATUS_LABEL[cs]||cs||'—')}</span></span></div>
     <div class="row"><span>Planted</span><span>${esc(b.plantingDate||'—')}</span></div>
     ${b.plannedDob?`<div class="row"><span>DOB (planned)</span><span>${esc(b.plannedDob)}</span></div>`:''}
