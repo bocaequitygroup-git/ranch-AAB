@@ -1411,6 +1411,7 @@ function modalHTML(){
   if(ui.modal==='dispatch') inner=ui.modalDraft.fixedActivity?dispatchModal():multiAssignModal();
   else if(ui.modal==='reassign') inner=reassignModal();
   else if(ui.modal==='override') inner=overrideModal();
+  else if(ui.modal==='verifyResolve') inner=verifyResolveModal();
   else if(ui.modal==='resolve') inner=resolveModal();
   else if(ui.modal==='queue') inner=queueModal();
   else if(ui.modal==='change-loc') inner=changeLocModal();
@@ -1576,7 +1577,7 @@ function overrideModal(){
   const body=Object.entries(g).map(([k,l])=>`<label style="display:block;font-weight:700;margin:8px 0 2px;"><input type="checkbox" ${l.every(s=>d.selected.includes(s.name))?'checked':''} onchange="togglePhCategory('${esc(k)}',this.checked)"> ${esc(k)} (all)</label>
     ${l.map(s=>`<label style="display:block;margin-left:18px;"><input type="checkbox" ${d.selected.includes(s.name)?'checked':''} onchange="togglePhOverride('${esc(s.name)}',this.checked)"> ${esc(s.name)}</label>`).join('')}`).join('');
   return `<h2 style="font-size:15px;">Manager override</h2>
-  <div class="note" style="margin-top:0;">Selected steps count as done without being performed (e.g. no cover crop this year). Each override is logged with your name and explanation. The bed is still released only when you verify it.</div>
+  <div class="note" style="margin-top:0;">Selected steps count as done without being performed (e.g. no cover crop this year). Work already started or assigned on them is closed. Each override is logged with your name and explanation. An override never releases the bed: it is released only when you verify it.</div>
   <div class="field"><label>Steps to override</label>${body||'<div class="note">No remaining steps.</div>'}</div>
   <div class="field"><label>Explanation (required)</label><textarea style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;" oninput="ui.modalDraft.reason=this.value">${esc(d.reason||'')}</textarea></div>
   <button class="btn btn-primary" onclick="doOverridePostHarvest()">Override selected steps</button>
@@ -1597,14 +1598,33 @@ function phNotReadyText(ph,bedId){
   const why=!nx?'':nx.gate==='BUFFER'?' It is an automatic waiting period'+(w&&w.eligibleDate?' that ends '+w.eligibleDate:'')+'.':(nx.gate==='WINDOW'&&nx.status!=='OPEN')?' Its seasonal window has not opened'+(w&&w.eligibleDate?' (opens '+w.eligibleDate+')':'')+'.':' Assign it to a worker, or use Manager override with a written reason to skip it.';
   return 'Bed '+bedId+' cannot be released yet: '+left.length+' required step'+(left.length===1?'':'s')+' left ('+names+').'+(nx?' Next: '+nx.name+'.':'')+why;
 }
+function verifyResolveModal(){
+  const d=ui.modalDraft, p=PH_STEPS[d.scope]||{steps:[]}, left=p.steps.filter(s=>s.status!=='COMPLETE');
+  return `<h2 style="font-size:15px;">Verify bed ready</h2>
+  <div class="note" style="margin-top:0;">Bed ${esc(d.bedId)} still has ${left.length} required step${left.length===1?'':'s'} not marked complete. Verifying counts them as done without being performed. Work already started or assigned on them is closed. Each is logged with your name and explanation, and the bed is released to Available.</div>
+  <div class="field"><label>Steps that will be overridden</label>${left.map(s=>`<div style="margin-left:6px;">\u2022 ${esc(s.name)}</div>`).join('')||'<div class="note">None.</div>'}</div>
+  <div class="field"><label>Explanation (required)</label><textarea style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;" oninput="ui.modalDraft.reason=this.value">${esc(d.reason||'')}</textarea></div>
+  <button class="btn btn-primary" onclick="doVerifyResolve()">Verify bed ready &amp; release</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+async function doVerifyResolve(){
+  const d=ui.modalDraft, reason=String(d.reason||'').trim(), scope=d.scope, bedId=d.bedId;
+  if(reason.length<5){ toast('An explanation is required.'); return; }
+  closeModal();
+  const ok=await doVerifyTurnover(scope,bedId,{reason});
+  if(ok&&typeof bbForget==='function'){ try{ bbForget(); if(typeof bbLoad==='function') await bbLoad(true); }catch(e){} }
+}
 let _verBusy=false;
-async function doVerifyTurnover(scope,bedId){
+async function doVerifyTurnover(scope,bedId,opts){
+  opts=opts||{};
   if(_verBusy) return false;
   const bd=(state.beds||[]).find(x=>String(x.id)===String(bedId)), ph=bd&&bd.postHarvest;
-  if(ph&&!ph.readyToVerify){ toast(phNotReadyText(ph,bedId),9000); return false; }   /* never a silent no-op */
+  /* Steps still outstanding: the manager can verify anyway by explaining them (overridden and logged, then released in one action). */
+  if(ph&&!ph.readyToVerify&&!opts.reason){ PH_STEPS[scope]=ph; openModal('verifyResolve',{scope,bedId,reason:''}); return false; }
   _verBusy=true; busyShow('Verifying '+bedId+' and releasing it to Available\u2026');
   try{ /* requireVerified + verifyAll: any completed activity still awaiting verification is signed off with the release (BedStatusEngine.gs) */
-    if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',{ bedId, requireVerified:true, verifyAll:true }); else await apiCall('complete-cohort',{ cohortId:scope, requireVerified:true, verifyAll:true });
+    const extra=opts.reason?{ resolveOutstanding:true, reason:opts.reason }:{};
+    if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',Object.assign({ bedId, requireVerified:true, verifyAll:true },extra)); else await apiCall('complete-cohort',Object.assign({ cohortId:scope, requireVerified:true, verifyAll:true },extra));
     busyHide(); _verBusy=false; toast('Bed '+bedId+' verified and released to Available.',5000); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); return true; }
   catch(e){ busyHide(); _verBusy=false; toast('Could not release '+bedId+': '+((e&&e.message)||'the server did not accept it.'),9000); return false; }
 }
