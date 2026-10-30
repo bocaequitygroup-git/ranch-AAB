@@ -480,6 +480,7 @@ async function fetchTodayView(){
 }
 function applyTodayView(d){
   state.beds = d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
+  state.verification = d.verification||null;   /* server snapshot (VerificationSnapshot.gs): the one source for every 'waiting for verification' count */
   state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||[];
   state.activityCatalog=d.activityCatalog||[]; state.overrides=d.overrides||[];
   state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
@@ -1244,7 +1245,9 @@ function dpStChip(st){ const k={'DONE':'chip-ok','OVERRIDDEN':'chip-neutral','IN
 function avHM(h){ const m=Math.max(0,Math.round(Number(h||0)*60)); return Math.floor(m/60)+':'+String(m%60).padStart(2,'0'); }
 function avWhen(v){ if(!v) return ''; const d=new Date(v); return isNaN(d.getTime())?'':d.toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
 function avS(b){ if(!ui.av||ui.av.bedId!==b.id) ui.av={bedId:b.id,sel:{}}; return ui.av; }
-function avStepsOf(b,pending){ const p=b.postHarvest; return p?(p.steps||[]).filter(s=>s.work&&(pending?s.needsVerification:s.verified)):[]; }
+function avStepsOf(b,pending){
+  if(pending&&state.verification) return (state.verification.items||[]).filter(i=>String(i.bedId)===String(b.id)).map(i=>({name:i.activity, work:i.work, needsVerification:true}));
+  const p=b.postHarvest; return p?(p.steps||[]).filter(s=>s.work&&(pending?s.needsVerification:s.verified)):[]; }
 function avLines(s){
   const w=s.work, many=w.completedBy.length>1;
   const who=w.completedBy.map(x=>esc(x.name)+(many?' ('+avHM(x.hours)+')':'')).join(', ');
@@ -1272,8 +1275,8 @@ function avAll(on){ const b=dpBed(), d=avS(b); d.sel={}; if(on) avStepsOf(b,true
 async function avVerifySelected(){
   const b=dpBed(), d=avS(b), names=avStepsOf(b,true).map(s=>s.name).filter(n=>d.sel[n]); if(!names.length) return;
   if(!confirm('Verify '+names.length+' completed '+(names.length===1?'activity':'activities')+' on '+b.id+'?\n\n'+names.join('\n')+'\n\nThis is logged with your name and the time. It does not release the bed.')) return;
-  try{ const ph=b.postHarvest;
-    await apiCall('verify-activities',{ scope:ph.bedLevel?'BED:'+b.id:b.cohortId, bedId:b.id, cohortId:ph.bedLevel?'':b.cohortId, activities:names });
+  try{
+    await apiCall('verify-items',{ items:names.map(n=>({bedId:b.id, activity:n})) });
     toast(names.length===1?'Activity verified.':names.length+' activities verified.'); ui.av={bedId:b.id,sel:{}}; await loadToday(); }
   catch(e){ toast(e.message); }
 }
@@ -4236,6 +4239,9 @@ async function doCreateActivity(){
 const pv={ sel:{}, busy:false };
 function pvBlockOf(id){ const m=String(id).toUpperCase().match(/^([A-Z]+\d+)-/); return m?m[1]:''; }
 function pvActivities(){
+  const VS=state.verification;
+  if(VS) return (VS.items||[]).map(i=>({bed:(state.todayById||{})[i.bedId]||{id:i.bedId}, step:{name:i.activity, work:i.work}, key:i.bedId+'||'+i.activity}))
+    .sort((a,b)=>bbBedCmp(a.bed.id,b.bed.id)||String(a.step.name).localeCompare(String(b.step.name)));
   const out=[]; (state.beds||[]).forEach(b=>{ const ph=b.postHarvest; if(!ph) return;
     (ph.steps||[]).forEach(s=>{ if(s.work&&s.needsVerification) out.push({bed:b,step:s,key:b.id+'||'+s.name}); }); });
   return out.sort((a,b)=>bbBedCmp(a.bed.id,b.bed.id)||String(a.step.name).localeCompare(String(b.step.name)));
@@ -4256,11 +4262,9 @@ function pvSyncBtns(){ document.querySelectorAll('[data-pvgo]').forEach(b=>{ con
   b.disabled=!n||pv.busy; b.textContent=n?'Verify selected ('+n+')':'Verify selected'; }); }
 async function pvVerify(bedId){
   const items=pvActivities().filter(x=>pv.sel[x.key]&&(!bedId||x.bed.id===bedId)); if(!items.length||pv.busy) return;
-  const by={}; items.forEach(x=>{ (by[x.bed.id]=by[x.bed.id]||{bed:x.bed,names:[]}).names.push(x.step.name); });
   if(!confirm('Verify '+items.length+' completed '+(items.length===1?'activity':'activities')+'?\n\n'+items.map(x=>x.bed.id+'  '+actLabel(x.step.name)).join('\n')+'\n\nThis is logged with your name and the time. It does not release any bed.')) return;
   pv.busy=true; let n=0;
-  try{ for(const g of Object.values(by)){ const ph=g.bed.postHarvest;
-      await apiCall('verify-activities',{ scope:ph.bedLevel?'BED:'+g.bed.id:g.bed.cohortId, bedId:g.bed.id, cohortId:ph.bedLevel?'':g.bed.cohortId, activities:g.names }); n+=g.names.length; }
+  try{ await apiCall('verify-items',{ items:items.map(x=>({bedId:x.bed.id, activity:x.step.name})) }); n=items.length;
     toast(n===1?'Activity verified.':n+' activities verified.'); }
   catch(e){ toast((n?n+' verified, then: ':'')+e.message); }
   pv.busy=false; pv.sel={}; if(ui.modal==='bed-info') closeModal(); await loadToday();
