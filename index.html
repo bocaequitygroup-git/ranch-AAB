@@ -393,7 +393,7 @@ const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(
 /* Rule R01: readable text for PROPAGATION_NOT_VERIFIED (server message names the nursery batch); any other code is returned unchanged. */
 const propErrText=f=>f&&f.errorCode==='PROPAGATION_NOT_VERIFIED'?(f.message||'Transplanting blocked: the source nursery batch has not reached transplant readiness or lacks manager sign-off in SYS_PROP_BATCH.'):f&&f.errorCode==='PLANTING_OUTSIDE_WINDOW'?'blocked: the planned planting date is outside the allowable window (see the warning below)':f&&f.errorCode==='PLANTING_WINDOW_DATA_PROBLEM'?'blocked: the planting window cannot be checked (see the warning below)':null;
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
-function toast(msg){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},3200); }
+function toast(msg,ms){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},ms||3200); }
 
 /* ============================== API ============================== */
 function apiError(message, code){ const e=new Error(message); e.code=code; e.isApiError=true; return e; }
@@ -856,8 +856,9 @@ async function doCompleteCohort(cohortId){
   catch(e){ toast(e.message); }
 }
 async function doVerifyBedReady(bedId){
-  try{ await apiCall('verify-bed-ready', { bedId }); toast('Bed verified and released to Available.'); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); }
-  catch(e){ toast(e.message); }
+  busyShow('Verifying '+bedId+'\u2026');
+  try{ await apiCall('verify-bed-ready', { bedId }); busyHide(); toast('Bed '+bedId+' verified and released to Available.',5000); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); }
+  catch(e){ busyHide(); toast('Could not verify '+bedId+': '+((e&&e.message)||'the server did not accept it.'),9000); }
 }
 async function doTerminateCohort(cohortId, reason){
   try{ await apiCall('terminate-cohort', { cohortId, reason }); toast('Cohort terminated.'); closeModal(); closePanel(); await loadToday(); }
@@ -880,7 +881,10 @@ function bedExceptions(bedId){ return state.exceptions.filter(x=>x.bedId===bedId
 function bedSessions(bedId){ return state.sessions.filter(x=>x.bedId===bedId && x.status!=='COMPLETED'); }
 
 /* ============================== RENDER ============================== */
-function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0; ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : ui.screen==='planning' ? planningScreen() : ui.screen==='labor' ? laborScreen() : boardScreen(); attachMapEvents(); attachPlanningEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
+function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0;
+  const ms0=$('.mapscroll'), pb0=$('.panelbody'), kMap=ui.screen+'|'+(ui.pMode||''); let kPan=''; try{ kPan=(ui.selectedBed||'')+'|'+ui.tab+'|'+(bb.bedSel||'')+'|'+bb.tab; }catch(e){}
+  const msT=(ms0&&render._kMap===kMap&&!ui.resetScroll)?ms0.scrollTop:0, pbT=(pb0&&render._kPan===kPan)?pb0.scrollTop:0; render._kMap=kMap; render._kPan=kPan;
+  ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : ui.screen==='planning' ? planningScreen() : ui.screen==='labor' ? laborScreen() : boardScreen(); attachMapEvents(); attachPlanningEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const ms1=$('.mapscroll'); if(ms1&&msT) ms1.scrollTop=msT; const pb1=$('.panelbody'); if(pb1&&pbT) pb1.scrollTop=pbT; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
 function goPlanning(){ ui.screen='planning'; render(); }
 function goBoard(){ ui.screen='board'; render(); }
 
@@ -1302,7 +1306,7 @@ function dpInner(b,sess){
     <div class="note" style="margin:0 0 6px;">Skip required steps that will not be done (e.g. no cover crop this year, or end a waiting period early). A written explanation is required and is logged with your name.</div>
     <button class="btn btn-outline" ${remaining?'':'disabled'} onclick="openModal('override',{cohortId:'${esc(ovScope)}',selected:[],reason:''})">Manager override…</button>
     ${phOverrideNotes(ph)}</div>`:'';
-  const verify=ph?`<button class="btn btn-ok" ${ph.readyToVerify?'':'disabled'} onclick="doVerifyTurnover('${esc(ph.bedLevel?'BED:'+b.id:b.cohortId)}','${esc(b.id)}')">Verify Bed Ready &amp; Release to Available</button>${ph.readyToVerify?'':`<div class="note" style="margin:-2px 0 6px;">${remaining} required step${remaining===1?'':'s'} still to complete.</div>`}`:'';
+  const verify=ph?`<button class="btn btn-ok" ${ph.readyToVerify?'':'style="opacity:.55;"'} onclick="doVerifyTurnover('${esc(ph.bedLevel?'BED:'+b.id:b.cohortId)}','${esc(b.id)}')">Verify Bed Ready &amp; Release to Available</button>${ph.readyToVerify?'':`<div class="note" style="margin:-2px 0 6px;">${remaining} required step${remaining===1?'':'s'} still to complete.</div>`}`:'';
   const done=(ph?(ph.steps||[]).filter(x=>x.status==='COMPLETE').length:0), tot=ph?(ph.stepCount||(ph.steps||[]).length):0;
   return `
   <div class="dp-box"><div class="t"><span>Assign worker(s)</span><span class="qsub" style="text-transform:none;letter-spacing:0;">${d.workers.length} selected</span></div>
@@ -1415,7 +1419,6 @@ function modalHTML(){
   else if(ui.modal==='move') inner=moveModal();
   else if(ui.modal==='terminate') inner=terminateModal();
   else if(ui.modal==='bed-edit') inner=bedEditModal();
-  else if(ui.modal==='bed-info') inner=bedInfoModal();
   else if(ui.modal==='crop-edit') inner=cropEditModal();
   else if(ui.modal==='team') inner=teamModal();
   else if(ui.modal==='urgent') inner=urgentModal();
@@ -1586,10 +1589,24 @@ async function doOverridePostHarvest(){
   try{ await apiCall('override-post-harvest',{ cohortId:d.cohortId, activities:d.selected, reason }); toast('Override recorded.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
+/* Why a bed cannot be released yet, in plain words (remaining required steps, the next one and what it is waiting on). */
+function phNotReadyText(ph,bedId){
+  const left=(ph&&ph.steps||[]).filter(x=>x.status!=='COMPLETE'), nx=phNextStep(ph), w=ph&&ph.waiting;
+  if(!left.length) return 'Bed '+bedId+' cannot be released yet: the server has not marked every required step complete. Tap Refresh and try again.';
+  const names=left.slice(0,4).map(x=>x.name).join(', ')+(left.length>4?' +'+(left.length-4)+' more':'');
+  const why=!nx?'':nx.gate==='BUFFER'?' It is an automatic waiting period'+(w&&w.eligibleDate?' that ends '+w.eligibleDate:'')+'.':(nx.gate==='WINDOW'&&nx.status!=='OPEN')?' Its seasonal window has not opened'+(w&&w.eligibleDate?' (opens '+w.eligibleDate+')':'')+'.':' Assign it to a worker, or use Manager override with a written reason to skip it.';
+  return 'Bed '+bedId+' cannot be released yet: '+left.length+' required step'+(left.length===1?'':'s')+' left ('+names+').'+(nx?' Next: '+nx.name+'.':'')+why;
+}
+let _verBusy=false;
 async function doVerifyTurnover(scope,bedId){
+  if(_verBusy) return false;
+  const bd=(state.beds||[]).find(x=>String(x.id)===String(bedId)), ph=bd&&bd.postHarvest;
+  if(ph&&!ph.readyToVerify){ toast(phNotReadyText(ph,bedId),9000); return false; }   /* never a silent no-op */
+  _verBusy=true; busyShow('Verifying '+bedId+' and releasing it to Available\u2026');
   try{ /* requireVerified + verifyAll: any completed activity still awaiting verification is signed off with the release (BedStatusEngine.gs) */
-    if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',{ bedId, requireVerified:true, verifyAll:true }); else await apiCall('complete-cohort',{ cohortId:scope, requireVerified:true, verifyAll:true }); toast('Bed verified and released to Available.'); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); }
-  catch(e){ toast(e.message); }
+    if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',{ bedId, requireVerified:true, verifyAll:true }); else await apiCall('complete-cohort',{ cohortId:scope, requireVerified:true, verifyAll:true });
+    busyHide(); _verBusy=false; toast('Bed '+bedId+' verified and released to Available.',5000); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); return true; }
+  catch(e){ busyHide(); _verBusy=false; toast('Could not release '+bedId+': '+((e&&e.message)||'the server did not accept it.'),9000); return false; }
 }
 /* Bed-level turnover (BED_STATUS_RULES R14): a bed with NO cohort that was given Post-Harvest work. No crop, so no fixed
  * sequence - the manager assigns whichever Post-Harvest steps the bed needs (New Activity), workers complete them, and only
@@ -3679,7 +3696,8 @@ const BB_STATUS=[
   ['HARVESTING','Harvesting','#B07A1B','#fff'],
   ['BLOCKED','Blocked','#B3261E','#fff']
 ];
-const bb={data:{},busy:false,err:'',tried:false,sel:'B1',reason:'',confirm:false,dry:null,res:null,relBusy:false};
+const bb={data:{},busy:false,err:'',tried:false,sel:'B1',reason:'',confirm:false,dry:null,res:null,relBusy:false,
+  bedSel:null,info:null,tab:'overview',filter:'ALL',q:''};   /* bedSel/info/tab = the Daily-board style bed panel; filter/q = map filter and search */
 function bbStatusOf(b){ return String(b.bedStatus||'').trim().toUpperCase()||'UNVERIFIED'; }
 function bbStyle(st){ const x=BB_STATUS.find(s=>s[0]===st)||['','','#EEE','#1B1B18']; return {fill:x[2],tc:x[3],label:x[1]||st}; }
 async function bbLoad(force){
@@ -3692,51 +3710,96 @@ async function bbLoad(force){
   bb.busy=false; render();
 }
 function bbEnsure(){ if(!bb.busy&&!bb.tried) setTimeout(()=>bbLoad(),0); }
-/* Bed tiles: same SVG tile shape as Season Planning > Bed layout (ppBedGridSVG), but ONLY live data: fill = Bed_Status,
- * crop + cohort appear only when a cohort actually holds the bed. The planting plan is never shown here (it is not an assignment). */
+/* Bed tiles: ONLY live data. Fill = Bed_Status; crop + cohort appear only when a cohort actually holds the bed. The planting plan is never shown here (it is not an assignment). */
+function bbRowById(id){ for(const blk of PLAN_BLOCKS){ const d=bb.data[blk]; const r=d&&d.beds&&d.beds.find(x=>String(x.bedId)===String(id)); if(r) return r; } return {bedId:id}; }
+function bbAllBeds(){ const a=[]; PLAN_BLOCKS.forEach(blk=>{ const d=bb.data[blk]; if(d&&d.beds) d.beds.forEach(x=>a.push(x)); }); return a; }
+function bbMatches(x,cv){
+  const st=bbStatusOf(x);
+  if(bb.filter!=='ALL'&&st!==bb.filter) return false;
+  const q=String(bb.q||'').trim().toLowerCase(); if(!q) return true;
+  const id=String(x.bedId), hay=[id,BLOCK_LABELS[pvBlockOf(id)]||'',cv&&cv.cropName,x.currentCohortId||(cv&&cv.cohortId),bbStyle(st).label,x.locationType].join(' ').toLowerCase();
+  return q.split(/\s+/).every(t=>hay.includes(t));
+}
+function bbSetFilter(k){ bb.filter=k; render(); }
+function bbSetQ(v){ bb.q=v; render(); keepFocus('bb-search'); }
+/* Same strip as the Daily board's "Bed map status": total, one filter button per status with its count, and a bed search. */
+function bbFilterBar(){
+  const all=bbAllBeds(), cnt={}; all.forEach(x=>{ const k=bbStatusOf(x); cnt[k]=(cnt[k]||0)+1; });
+  const list=[['ALL','All']].concat(BB_STATUS.filter(x=>cnt[x[0]]||bb.filter===x[0]).map(x=>[x[0],BB_SHORT[x[0]]||x[1]]));
+  return `<div class="toolbar astrip"><span class="alabel">Bed map status</span><span class="qsub" style="margin-right:6px;"><b style="color:var(--ink);font-size:15px;">${all.length}</b> total beds</span>
+    <div class="seg" style="flex-wrap:wrap;">${list.map(([k,l])=>`<button class="${bb.filter===k?'active':''}" onclick="bbSetFilter('${k}')">${esc(l)}${k==='ALL'?'':`<span class="n">${cnt[k]||0}</span>`}</button>`).join('')}</div>
+    <input id="bb-search" placeholder="Search beds (ID, block, crop, cohort\u2026)" value="${esc(bb.q)}" oninput="bbSetQ(this.value)" style="min-width:220px;margin-left:auto;" aria-label="Search beds"></div>`;
+}
+/* All blocks on one map, laid out exactly like the Daily board (mapSVG): block label, 8 tiles per row, bed number top left,
+ * cohort / crop / status on the tile, dots for running tasks and open exceptions, dimmed when the filter or search does not match.
+ * Only live data is drawn: fill = Bed_Status, crop + cohort appear only on a bed a cohort actually holds (never the planting plan). */
 const BB_SHORT={'UNVERIFIED':'Not verified','POST-HARVEST ACTIVITIES':'Post-harvest','AVAILABLE':'Available','RESERVED':'Reserved','PLANTED':'Planted','GROWING':'Growing','HARVEST READY':'Harvest ready','HARVESTING':'Harvesting','BLOCKED':'Blocked'};
-function bbGridSVG(beds){
-  if(!beds.length) return '';
-  const pvc=pvCounts();
-  const cols=Math.min(8,beds.length)||1, cw=76, ch=56, gap=6, rows=Math.ceil(beds.length/cols);
-  let svg='';
-  beds.forEach((x,i)=>{
-    const col=i%cols, row=Math.floor(i/cols), bx=10+col*(cw+gap), by=10+row*(ch+gap);
-    const st=bbStatusOf(x), v=bbStyle(st), tc=v.tc, id=String(x.bedId);
-    let cv=null; try{ cv=bedViewById(id); }catch(e){ cv=null; }
-    const cohortId=String(x.currentCohortId||(cv&&cv.cohortId)||'').trim();
-    const crop=String((cv&&cv.cohortId&&cv.cropName)||'');
-    const l2=BB_SHORT[st]||v.label;
-    const l3=cohortId;
-    const no=id.split('-').pop(), nSess=bedSessions(id).length;
-    const tip=id+' \u00b7 '+v.label+(cohortId?' \u00b7 '+cohortId:'');
-    svg+=`<g class="badge" tabindex="0" role="button" style="cursor:pointer;" onclick="bbBedClick('${esc(id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();bbBedClick('${esc(id)}');}">
-      <title>${esc(tip)}</title>
-      <rect class="bed" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${v.fill}"></rect>
-      <text x="${bx+6}" y="${by+12}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${esc(no)}</text>
-      <text x="${bx+cw/2}" y="${by+26}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${tc}">${esc(crop?crop.slice(0,11):'Empty')}</text>
-      <text x="${bx+cw/2}" y="${by+37}" text-anchor="middle" font-size="7.5" font-weight="800" fill="${tc}">${esc(l2)}</text>
-      ${l3?`<text x="${bx+cw/2}" y="${by+47}" text-anchor="middle" font-size="6.5" font-weight="700" fill="${tc}" opacity=".85">${esc(l3)}</text>`:''}
-      ${nSess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E" stroke="#fff" stroke-width="1"></circle>`:''}
-      ${pvc[id]?`<circle cx="${bx+cw-8}" cy="${by+ch-8}" r="6" fill="#E0A53D" stroke="#fff" stroke-width="1"></circle><text x="${bx+cw-8}" y="${by+ch-5.2}" text-anchor="middle" font-size="8" font-weight="800" fill="#1B1B18">${pvc[id]}</text>`:''}
-    </g>`;
+function bbMapSVG(){
+  const cols=BEDS_PER_ROW, cw=84, ch=58, gap=6, blockGap=26, pvc=pvCounts();
+  let svg='', curY=16, any=false;
+  PLAN_BLOCKS.forEach(blk=>{
+    const d=bb.data[blk], isSel=bb.sel===blk;
+    const lab=extra=>`<text class="blocklabel" x="10" y="${curY-5}" style="cursor:pointer;${isSel?'fill:var(--forest);':''}" onclick="bbSelect('${blk}')"><title>Select ${esc(BLOCK_LABELS[blk])} for Start of operations</title>${esc(BLOCK_LABELS[blk])}${extra?' \u00b7 '+esc(extra):''}${isSel?' \u00b7 selected for release':''}</text>`;
+    if(!d||d.error||!d.beds){
+      svg+=lab('')+`<text class="blocklabel" x="10" y="${curY+14}" style="font-weight:600;${d&&d.error?'fill:var(--danger);':''}">${esc(d&&d.error?d.error:(bb.busy?'Loading\u2026':'Not loaded'))}</text>`;
+      curY+=30+blockGap; return;
+    }
+    any=true;
+    const beds=d.beds.slice().sort((a,b)=>bbBedCmp(a.bedId,b.bedId)), rows=Math.ceil(beds.length/cols);
+    svg+=lab(beds.length+' bed'+(beds.length===1?'':'s'));
+    beds.forEach((x,idx)=>{
+      const id=String(x.bedId), st=bbStatusOf(x), v=bbStyle(st), tc=v.tc;
+      let cv=null; try{ cv=bedViewById(id); }catch(e){ cv=null; }
+      const match=bbMatches(x,cv);
+      const cohortId=String(x.currentCohortId||(cv&&cv.cohortId)||'').trim();
+      const crop=String((cv&&cv.cohortId&&cv.cropName)||'');
+      const col=idx%cols, row=Math.floor(idx/cols), bx=10+col*(cw+gap), by=curY+row*(ch+gap);
+      const nSess=bedSessions(id).length, exc=bedExceptions(id).some(e=>e.status!=='RESOLVED');
+      const nOpen=(cv&&cv.postHarvest&&(cv.postHarvest.openSteps||[]).length)||0;
+      const l2=BB_SHORT[st]||v.label, no=id.split('-').pop();
+      const tip=id+' \u00b7 '+v.label+(cohortId?' \u00b7 '+cohortId:'');
+      let txt='';
+      if(match&&cohortId) txt=`<text x="${bx+cw/2}" y="${by+29}" text-anchor="middle" font-size="11" font-weight="800" fill="${tc}">${esc(cohortId)}</text>
+        <text x="${bx+cw/2}" y="${by+41}" text-anchor="middle" font-size="9" font-weight="600" fill="${tc}">${esc(crop.slice(0,13))}</text>
+        <text x="${bx+cw/2}" y="${by+52}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">${esc(l2)}</text>`;
+      else if(match) txt=`<text x="${bx+cw/2}" y="${by+(nOpen?30:33)}" text-anchor="middle" font-size="8" font-weight="700" fill="${tc}">No crop assigned</text>
+        <text x="${bx+cw/2}" y="${by+(nOpen?42:46)}" text-anchor="middle" font-size="8" font-weight="800" fill="${tc}">${esc(l2)}</text>
+        ${nOpen?`<text x="${bx+cw/2}" y="${by+52}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">${nOpen} open</text>`:''}`;
+      svg+=`<g class="badge" tabindex="0" role="button" opacity="${match?1:0.28}" style="cursor:pointer;" onclick="bbBedClick('${esc(id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();bbBedClick('${esc(id)}');}">
+        <title>${esc(tip)}</title>
+        <rect class="bed ${bb.bedSel===id?'selected':''}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${v.fill}"></rect>
+        <text x="${bx+6}" y="${by+11}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${esc(no)}</text>
+        ${txt}
+        ${nSess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E"></circle>`:''}
+        ${exc?`<circle cx="${bx+cw-19}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
+        ${pvc[id]?`<circle cx="${bx+cw-8}" cy="${by+ch-8}" r="6" fill="#E0A53D" stroke="#fff" stroke-width="1"></circle><text x="${bx+cw-8}" y="${by+ch-5.2}" text-anchor="middle" font-size="8" font-weight="800" fill="#1B1B18">${pvc[id]}</text>`:''}
+      </g>`;
+    });
+    curY+=rows*(ch+gap)+blockGap;
   });
-  const W=10+cols*(cw+gap), H=10+rows*(ch+gap);
-  return `<div style="overflow:auto;margin-bottom:14px;"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;">${svg}</svg></div>`;
+  if(!any&&!bb.busy) return `<div class="empty">No beds loaded.</div>`;
+  const W=10+cols*(cw+gap);
+  return `<svg viewBox="0 0 ${W} ${curY}" width="${W}" height="${curY}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;">${svg}</svg>`;
 }
 function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; render(); }
 function bbForget(){ Object.keys(state.pp).forEach(k=>delete state.pp[k]); }
-/* Click a bed on the Bed Status Board -> Bed profile panel (info + the actions that make sense for that bed's status). */
+/* Click a bed on the Bed Status Board -> Bed profile side panel (same layout as the Daily board's bed panel). */
 async function bbBedClick(bedId){
-  const rows=(bb.data[bb.sel]&&bb.data[bb.sel].beds)||[], row=rows.find(x=>x.bedId===bedId); if(!row) return;
-  openModal('bed-info',{bedId,row,block:bb.sel,loading:true,prof:null,err:'',busy:false});
+  bb.bedSel=bedId; bb.tab='overview'; bb.info={bedId,loading:true,prof:null,err:'',actErr:'',busy:false};
+  render(); await bbLoadInfo(bedId);
+}
+async function bbLoadInfo(bedId){
+  if(!bb.info||bb.info.bedId!==bedId) return;
   try{
     const r=await apiCall('get-bed-profile',{bedId}), prof=(r&&(r.profile||r.bed))||r||{};
-    if(ui.modal!=='bed-info'||ui.modalDraft.bedId!==bedId) return;
-    Object.assign(ui.modalDraft,{loading:false,prof});
-  }catch(e){ if(ui.modal==='bed-info'&&ui.modalDraft.bedId===bedId) Object.assign(ui.modalDraft,{loading:false,err:errMsg(e)}); }
+    if(bb.info&&bb.info.bedId===bedId) Object.assign(bb.info,{loading:false,prof,err:''});
+  }catch(e){ if(bb.info&&bb.info.bedId===bedId) Object.assign(bb.info,{loading:false,err:errMsg(e)}); }
   render();
 }
+function bbClosePanel(){ bb.bedSel=null; bb.info=null; render(); }
+function bbSetTab(t){ bb.tab=t; render(); }
+async function bbRefreshAll(){ bbForget(); await Promise.all([bbLoad(true),loadToday()]); if(bb.bedSel) bbLoadInfo(bb.bedSel); }
+async function bbVerifyTurnover(scope,bedId){ const ok=await doVerifyTurnover(scope,bedId); if(!ok) return; bbForget(); await bbLoad(true); if(bb.bedSel===bedId) bbLoadInfo(bedId); }
 /* ---- Live tasks on a bed: Active / Assigned / Reassigned (with note), each with Activity ID, name and a short description ---- */
 function shortDesc(t,n){ t=String(t||'').replace(/\s+/g,' ').trim(); const m=t.match(/^.*?[.;](\s|$)/); let x=m?m[0].trim():t; if(x.length>n) x=x.slice(0,n-1).trimEnd()+'\u2026'; return x; }
 function sessDesc(s){ const c=(state.activityCatalog||[]).find(x=>x.name===s.activity); return shortDesc((c&&c.description)||s.description||'',110); }
@@ -3814,7 +3877,7 @@ function bhByScope(rows,render1){
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
   return ['BED','CROP',''].filter(k=>g[k]).map(k=>`<div class="bh-dom">${esc(bhScopeLabel(k))}</div>${g[k].slice().sort((x,y)=>rank(x.group)-rank(y.group)||String(x.name).localeCompare(String(y.name))).map(render1).join('')}`).join('');
 }
-function bhSet(k,v){ const d=ui.modalDraft; d[k]=v; if(k!=='hl') d.hl=25; render(); }
+function bhSet(k,v){ const d=(bb.info&&ui.screen==='planning'&&ui.pMode==='bedboard'&&!ui.modal)?bb.info:ui.modalDraft; d[k]=v; if(k!=='hl') d.hl=25; render(); }
 function bhAssign(bedId,hasCohort,name,required){ openModal('dispatch',{bedId,hasCohort,fixedActivity:name,fixedRequired:!!required}); }
 function bhLiveRows(bedId,req){
   const rank=k=>({ACTIVE:0,IN_PROGRESS:0,PAUSED:1,EXCEPTION:1,ASSIGNED:2}[k]);
@@ -3886,8 +3949,9 @@ function bhHistory(b,d){
     log.length?tools+(rows.slice(0,lim).map(row).join('')||`<div class="empty" style="padding:6px 0;">No history matches this filter.</div>`)+more:'',
     'Nothing has been completed on this bed yet.');
 }
-function bedActivitiesPanel(d,st,cohort){
+function bedActivitiesPanel(d,st,cohort,part){
   const bedId=d.bedId, b=(state.beds||[]).find(x=>String(x.id)===String(bedId))||{}, hasCohort=!!cohort;
+  if(part==='history') return `<div id="bed-acts">${bhHistory(b,d)}</div>`;
   const req=bhRequired(b), live=bhLiveRows(bedId,req), a=bhAssignRows(bedId,hasCohort,st,req,b), ds=bhDomainState(b);
   const assignRow=r=>bhRow({ id:r.id, name:r.name, desc:r.desc, worker:'', done:'', req:r.req,
     chips:bhChips(r.scope,r.group,r.reqWhy,'<span class="chip chip-ok">Assignable</span>'),
@@ -3903,67 +3967,106 @@ function bedActivitiesPanel(d,st,cohort){
     ${bhSec('Assigned, not started',live.n.assigned,live.assigned.map(bhRow).join(''),'No activity is waiting for a worker to start.')}
     ${bhSec('Can be assigned now',can.length,bhByScope(can,assignRow),st==='BLOCKED'?'This bed is blocked. Clear the block and verify it first.':'Nothing can be assigned to this bed right now.')}
     ${a.wait.length?bhSec('Required, not assignable yet',a.wait.length,bhByScope(a.wait,waitRow)):''}
-    ${bhHistory(b,d)}</div>`;
+    ${part==='acts'?'':bhHistory(b,d)}</div>`;
 }
-function bedInfoModal(){
-  const d=ui.modalDraft, row=d.row||{}, P=d.prof||{};
-  const pick=(k,alt)=>{ const v=P[k]!=null&&P[k]!==''?P[k]:(alt!=null?alt:''); return v; };
+/* Bed profile as a side panel, laid out like the Daily board's: header (bed, block / crop / cohort, close), tabs, then cards.
+ * Overview = cohort + bed profile + current use + the action that fits the bed's status; Activities = in progress / assigned /
+ * can be assigned; History = completed / checked / verified with filters; Exceptions + Harvest appear when a cohort holds the bed. */
+function bbPanelHTML(){
+  const d=bb.info; if(!d) return '';
+  const id=d.bedId, row=bbRowById(id), P=d.prof||{};
+  const pick=(k,alt)=>(P[k]!=null&&P[k]!=='')?P[k]:(alt!=null?alt:'');
   const show=v=>(v===null||v===undefined||v==='')?'\u2014':esc(v);
   const kv=(l,v)=>`<div class="row"><span>${l}</span><span>${show(v)}</span></div>`;
-  const st=String(pick('Bed_Status',row.bedStatus)||'').trim().toUpperCase()||'UNVERIFIED', sty=bbStyle(st);
-  const cohort=String(pick('Current_Cohort_ID',row.currentCohortId)||'').trim();
-  let g=null; try{ g=gridBeds().find(x=>String(x.id)===String(d.bedId))||null; }catch(e){}
+  const chip=(t,c)=>`<span class="chip ${c||'chip-neutral'}">${esc(t)}</span>`;
+  const st=String(pick('Bed_Status',row.bedStatus)||'').trim().toUpperCase()||'UNVERIFIED', sty=bbStyle(st), short=BB_SHORT[st]||sty.label;
+  let b=null; try{ b=bedViewById(id); }catch(e){ b=null; }
+  const cohort=String(pick('Current_Cohort_ID',row.currentCohortId)||(b&&b.cohortId)||'').trim();
+  const blk=pvBlockOf(id), blockLabel=BLOCK_LABELS[blk]||pick('Block_ID',blk);
+  const locType=String(pick('Location_Type',row.locationType)||'');
+  const cropName=(b&&b.cohortId&&b.cropName)||'';
+  const exc=bedExceptions(id), sBed=(state.beds||[]).find(x=>String(x.id)===String(id))||{}, nHist=(sBed.activityLog||[]).length;
+  const when=v=>{ if(!v) return ''; const t=new Date(v); return isNaN(t.getTime())?String(v):t.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); };
   const len=Number(P.Bed_Length), sp=Number(P['Center-to-Center Spacing (in)']);
   const area=(len>0&&sp>0)?(len*sp/12):null;   /* sq ft = bed length (ft) x spacing (in) / 12 */
-  const areaTxt=area===null?'\u2014':Math.round(area).toLocaleString()+' sq ft \u00b7 '+(area/43560).toFixed(3)+' acres';
-  const when=v=>{ if(!v) return ''; const t=new Date(v); return isNaN(t.getTime())?String(v):t.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); };
-  /* What this bed may be given right now = the same rule the Daily board and the server use:
-   *   not unlocked (Not verified / Post-harvest) -> the required unlock steps (+ soil & bed prep)
-   *   unlocked (Available)                       -> all Crop Care + soil & bed prep
-   *   holds a cohort                             -> the activities its current stage allows */
-  let nAssign=0, why=''; try{ nAssign=dispatchListFor(d.bedId,!!cohort).length; if(!nAssign) why=startableActivities(d.bedId,!!cohort).why||''; }catch(e){}
-  const assignBtn=st==='BLOCKED'?`<div class="note">This bed is blocked. Clear the block and verify it first.</div>`
-    :nAssign?`<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(d.bedId)}',hasCohort:${cohort?'true':'false'}})">Assign activities (${nAssign} available)</button>`
-    :`<div class="note">${esc(why||'No activity can be assigned to this bed right now.')}</div>`;
-  /* Turnover status: when nothing can be assigned but required steps remain (automatic wait / seasonal window), say so and offer the
-   * manager override + verify here. Before this the panel only said "being reset" and the bed looked stuck with no way forward. */
-  const bedRow=(state.beds||[]).find(x=>String(x.id)===String(d.bedId))||{}, ph=bedRow.postHarvest;
-  let phBlock='';
-  if(ph&&!nAssign&&st==='POST-HARVEST ACTIVITIES'&&!cohort){
-    const nx=phNextStep(ph), w=ph.waiting, scope='BED:'+d.bedId; PH_STEPS[scope]=ph;
-    const left=(ph.steps||[]).filter(x=>x.status!=='COMPLETE').length;
-    const why1=!nx?'':nx.gate==='BUFFER'?'an automatic waiting period; it unlocks by itself'+(w&&w.eligibleDate?' on '+w.eligibleDate:''):(nx.gate==='WINDOW'&&nx.status!=='OPEN')?'a seasonal window that has not opened'+(w&&w.eligibleDate?' (opens '+w.eligibleDate+')':''):'not assignable yet';
-    phBlock=ph.readyToVerify
-      ?`<div class="note" style="margin:0 0 8px;">All required steps are complete or overridden. Verify the bed to release it to Available.</div><button class="btn btn-ok" onclick="closeModal();doVerifyTurnover('${esc(scope)}','${esc(d.bedId)}')">Verify Bed Ready &amp; Release to Available</button>`
-      :`<div class="note" style="margin:0 0 8px;"><b>${left} required step${left===1?'':'s'} left. Next: ${esc(nx?nx.name:'')}</b><br>${esc(why1)}. A manager can skip any step with an override and a written reason.</div>
-        <button class="btn btn-outline" onclick="openModal('override',{cohortId:'${esc(scope)}',selected:[],reason:''})">Manager override\u2026</button>`;
+  const areaTxt=area===null?'':Math.round(area).toLocaleString()+' sq ft \u00b7 '+(area/43560).toFixed(3)+' acres';
+  const withUnit=(k,u)=>P[k]!==undefined&&P[k]!==''?P[k]+' '+u:'';
+  const tabs=[['overview','Overview'],['activity','Activities'],['history','History'+(nHist?' ('+nHist+')':'')]];
+  if(cohort||exc.length) tabs.push(['exceptions','Exceptions'+(exc.length?' ('+exc.length+')':'')]);
+  if(cohort) tabs.push(['harvest','Harvest']);
+  const tab=tabs.some(t=>t[0]===bb.tab)?bb.tab:'overview';
+  const meta=cohort?`${esc(blockLabel)} \u00b7 ${esc(cropName||'Cohort')} \u00b7 ${esc(cohort)}`:`${esc(blockLabel)} \u00b7 ${esc((locType||'field').toLowerCase())} bed \u00b7 ${esc(short)}`;
+  const head=`<div class="panelhead"><div><h2>${esc(id)}</h2><div class="meta">${meta}</div></div><button onclick="bbClosePanel()" aria-label="Close bed panel">\u2715</button></div>
+    <div class="tabs">${tabs.map(t=>`<button class="${tab===t[0]?'active':''}" onclick="bbSetTab('${t[0]}')">${esc(t[1])}</button>`).join('')}</div>`;
+  let body='';
+  if(tab==='activity') body=bedActivitiesPanel(d,st,cohort,'acts');
+  else if(tab==='history') body=bedActivitiesPanel(d,st,cohort,'history');
+  else if(tab==='exceptions') body=b?exceptionsTab(b,exc):`<div class="empty">No exceptions on this bed.</div>`;
+  else if(tab==='harvest') body=b?harvestTab(b,(state.harvestReady||[]).find(h=>h.bedId===id)):`<div class="empty">This bed's cohort is not flagged harvest-ready.</div>`;
+  else {
+    /* What this bed may be given right now = the same rule the Daily board and the server use:
+     *   not unlocked (Not verified / Post-harvest) -> the required unlock steps (+ soil & bed prep)
+     *   unlocked (Available)                       -> all Crop Care + soil & bed prep
+     *   holds a cohort                             -> the activities its current stage allows */
+    let nAssign=0, why=''; try{ nAssign=dispatchListFor(id,!!cohort).length; if(!nAssign) why=startableActivities(id,!!cohort).why||''; }catch(e){}
+    const assignBtn=st==='BLOCKED'?`<div class="note">This bed is blocked. Clear the block and verify it first.</div>`
+      :nAssign?`<button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(id)}',hasCohort:${cohort?'true':'false'}})">Assign activities (${nAssign} available)</button>`
+      :`<div class="note">${esc(why||'No activity can be assigned to this bed right now.')}</div>`;
+    /* Turnover status: when nothing can be assigned but required steps remain (automatic wait / seasonal window), say so and offer the
+     * manager override + verify here, so the bed never looks stuck with no way forward. */
+    const ph=sBed.postHarvest;
+    let phBlock='';
+    if(ph&&!nAssign&&st==='POST-HARVEST ACTIVITIES'&&!cohort){
+      const nx=phNextStep(ph), w=ph.waiting, scope='BED:'+id; PH_STEPS[scope]=ph;
+      const left=(ph.steps||[]).filter(x=>x.status!=='COMPLETE').length;
+      const why1=!nx?'':nx.gate==='BUFFER'?'an automatic waiting period; it unlocks by itself'+(w&&w.eligibleDate?' on '+w.eligibleDate:''):(nx.gate==='WINDOW'&&nx.status!=='OPEN')?'a seasonal window that has not opened'+(w&&w.eligibleDate?' (opens '+w.eligibleDate+')':''):'not assignable yet';
+      phBlock=ph.readyToVerify
+        ?`<div class="note" style="margin:0 0 8px;">All required steps are complete or overridden. Verify the bed to release it to Available.</div><button class="btn btn-ok" onclick="bbVerifyTurnover('${esc(scope)}','${esc(id)}')">Verify Bed Ready &amp; Release to Available</button>`
+        :`<div class="note" style="margin:0 0 8px;"><b>${left} required step${left===1?'':'s'} left. Next: ${esc(nx?nx.name:'')}</b><br>${esc(why1)}. A manager can skip any step with an override and a written reason.</div>
+          <button class="btn btn-outline" onclick="openModal('override',{cohortId:'${esc(scope)}',selected:[],reason:''})">Manager override\u2026</button>
+          <button class="btn btn-ok" style="opacity:.55;" onclick="bbVerifyTurnover('${esc(scope)}','${esc(id)}')">Verify Bed Ready &amp; Release to Available</button>`;
+    }
+    const unlockNote=(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES')&&!cohort?`<div class="note" style="margin:0 0 8px;">Not unlocked yet. The list shows the steps required to make this bed ready; once it is verified Available, all Crop Care activities open up.</div>`:'';
+    const verifyBtn=(st==='UNVERIFIED'||st==='BLOCKED')&&!cohort?`<button class="btn btn-outline" ${d.busy?'disabled':''} onclick="bbVerifyFromInfo()">${d.busy?'Verifying\u2026':'Verify ready for production'}</button>`:'';
+    const lastRows=kv('Last action',pick('Last_Action'))+(P.Last_Action_Date?kv('Last action date',when(P.Last_Action_Date)):'');
+    const synced=state.lastSync?'Updated '+state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
+    const sync=`<div class="syncrow"><span>${esc(synced)}</span><button ${ui.loading||bb.busy?'disabled':''} onclick="bbRefreshAll()">${ui.loading||bb.busy?'Loading\u2026':'Refresh'}</button></div>`;
+    const hd=`<div class="dp-hd"><div><b>Bed ${esc(id)}</b><div class="loc">${esc(blockLabel)}${locType?' \u00b7 '+esc(locType)+' bed':''}</div></div><span class="chip" style="background:${sty.fill};color:${sty.tc};">${esc(short)}</span></div>`;
+    let cohortCard;
+    if(cohort){
+      const cs=(b&&b.cohortStatus)||'';
+      cohortCard=`<div class="card">
+        <div class="row"><span>Occupancy</span><span>${chip('Occupied','chip-ok')}</span></div>
+        <div class="row"><span>Bed status</span><span>${chip(sty.label)}</span></div>
+        ${kv('Crop',cropName)}${kv('Cohort',cohort)}
+        ${b?`<div class="row"><span>Crop stage</span><span>${chip(String(b.currentStage||'\u2014').replace(/_/g,' '))}</span></div>
+        <div class="row"><span>Cohort status</span><span>${chip(COHORT_STATUS_LABEL[cs]||cs||'\u2014')}</span></div>
+        ${kv('Planted',b.plantingDate)}${b.plannedDob?kv('DOB (planned)',b.plannedDob):''}${kv('Harvest window',b.harvestWindow)}`:''}
+        ${lastRows}</div>`;
+    } else {
+      cohortCard=`<div class="card">
+        <div class="row"><span>Status</span><span>${chip(sty.label)}</span></div>
+        ${kv('Current','No crop assigned')}${lastRows}</div>`;
+    }
+    const profCard=`<div class="card"><div class="row"><span><b style="color:var(--ink);">Bed profile</b></span><span><button class="dc-mini" onclick="openBedEdit('${esc(id)}')">Edit bed</button></span></div>
+      ${kv('Block',pick('Block_ID',blockLabel))}${kv('Location type',pick('Location_Type',row.locationType))}${kv('Zone',pick('Zone'))}
+      ${kv('Bed length',withUnit('Bed_Length','ft'))}${kv('Center-to-center spacing',withUnit('Center-to-Center Spacing (in)','in'))}
+      ${kv('Usable top width',withUnit('Usable Top Width (in)','in'))}${kv('Bed area',areaTxt)}
+      ${kv('Health status',pick('Bed_Health_Status'))}${kv('Irrigation status',pick('Bed_Irrigation_Status'))}</div>`;
+    body=sync+hd+(d.loading?`<div class="empty">Loading bed profile\u2026</div>`:`
+      ${d.err?`<div class="error">Full profile unavailable: ${esc(d.err)}. Showing what the board has.</div>`:''}
+      ${cohortCard}${unlockNote+(phBlock||assignBtn)+verifyBtn}
+      ${d.actErr?`<div class="error">${esc(d.actErr)}</div>`:''}
+      ${pvBedBlock(id)}${profCard}`);
   }
-  const unlockNote=(st==='UNVERIFIED'||st==='POST-HARVEST ACTIVITIES')&&!cohort?`<div class="note" style="margin:0 0 8px;">Not unlocked yet. The list shows the steps required to make this bed ready; once it is verified Available, all Crop Care activities open up.</div>`:'';
-  const verifyBtn=(st==='UNVERIFIED'||st==='BLOCKED')&&!cohort?`<button class="btn btn-outline" ${d.busy?'disabled':''} onclick="bbVerifyFromInfo()">${d.busy?'Verifying\u2026':'Verify ready for production'}</button>`:'';
-  const action=unlockNote+(phBlock||assignBtn)+verifyBtn;
-  const body=d.loading?`<div class="empty">Loading bed profile\u2026</div>`:`
-    ${d.err?`<div class="error">Full profile unavailable: ${esc(d.err)}. Showing what the board has.</div>`:''}
-    <div class="card"><div class="row"><span><b style="color:var(--ink);">Bed profile</b></span><span class="chip" style="background:${sty.fill};color:${sty.tc};">${esc(sty.label)}</span></div>
-      ${kv('Block',pick('Block_ID',BLOCK_LABELS[d.block]||d.block))}${kv('Location type',pick('Location_Type',row.locationType))}${kv('Zone',pick('Zone'))}
-      ${kv('Bed length',P.Bed_Length!==undefined&&P.Bed_Length!==''?P.Bed_Length+' ft':'')}${kv('Center-to-center spacing',P['Center-to-Center Spacing (in)']!==undefined&&P['Center-to-Center Spacing (in)']!==''?P['Center-to-Center Spacing (in)']+' in':'')}
-      ${kv('Usable top width',P['Usable Top Width (in)']!==undefined&&P['Usable Top Width (in)']!==''?P['Usable Top Width (in)']+' in':'')}${kv('Bed area',areaTxt==='\u2014'?'':areaTxt)}
-      ${kv('Health status',pick('Bed_Health_Status'))}${kv('Irrigation status',pick('Bed_Irrigation_Status'))}</div>
-    <div class="card"><div class="row"><span><b style="color:var(--ink);">Current use</b></span></div>
-      ${kv('Bed status',sty.label)}${kv('Current cohort',cohort)}${g&&g.cropName?kv('Crop',g.cropName):''}${g&&g.currentStage?kv('Stage',g.currentStage):''}
-      ${kv('Last action',pick('Last_Action'))}${P.Last_Action_Date?kv('Last action date',when(P.Last_Action_Date)):''}</div>
-    ${bedActivitiesPanel(d,st,cohort)}
-    ${pvBedBlock(d.bedId)}
-    ${action}`;
-  return `<h2 style="font-size:15px;">Bed ${esc(d.bedId)}</h2>${body}
-  <button class="btn btn-outline" onclick="closeModal();openBedEdit('${esc(d.bedId)}')">Edit bed</button>
-  <button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
+  return head+`<div class="panelbody">${body}</div>`;
 }
 async function bbVerifyFromInfo(){
-  const d=ui.modalDraft; if(!d||d.busy) return;
+  const d=bb.info; if(!d||d.busy) return;
   if(!confirm('Verify '+d.bedId+' is physically ready for production? It becomes Available and can be planted.')) return;
-  d.busy=true; render();
-  try{ await apiCall('verify-bed-ready',{bedId:d.bedId}); closeModal(); toast(d.bedId+' verified and released to Available.'); bbForget(); await bbLoad(true); }
-  catch(e){ d.busy=false; d.err=errMsg(e); render(); }
+  d.busy=true; d.actErr=''; render(); busyShow('Verifying '+d.bedId+'\u2026');
+  try{ await apiCall('verify-bed-ready',{bedId:d.bedId}); busyHide(); d.busy=false; toast(d.bedId+' verified and released to Available.',5000); bbForget(); await bbLoad(true); await loadToday(); bbLoadInfo(d.bedId); }
+  catch(e){ busyHide(); d.busy=false; d.actErr=errMsg(e); toast('Could not verify '+d.bedId+': '+errMsg(e),9000); }
 }
 async function bbCount(){
   if(bb.relBusy) return; bb.relBusy=true; bb.res=null; render();
@@ -4179,7 +4282,7 @@ function bbScreen(){
     return `<tr class="${b===bb.sel?'sel':''}" onclick="bbSelect('${b}')"><td><b>${esc(BLOCK_LABELS[b])}</b></td>${BB_STATUS.map(s=>`<td>${cnt[s[0]]||'<span style="opacity:.35;">0</span>'}</td>`).join('')}<td><b>${d.beds.length}</b></td><td>${pvc[b]?`<span class="chip chip-warn">${pvc[b]}</span>`:'<span style="opacity:.35;">0</span>'}</td></tr>`;
   }).join('');
   const cur=bb.data[bb.sel], beds=(cur&&cur.beds)||[];
-  const grid=bbGridSVG(beds);
+  const grid=bbMapSVG();
   const legend=BB_STATUS.map(s=>`<span><i class="sw" style="background:${s[2]};border:1px solid var(--line);"></i>${esc(s[1])}</span>`).join('');
   const eligible=beds.filter(x=>!x.currentCohortId&&['UNVERIFIED','POST-HARVEST ACTIVITIES'].includes(bbStatusOf(x))).length;
   const d=bb.dry, r=bb.res;
@@ -4193,19 +4296,21 @@ function bbScreen(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
       <button class="btn btn-outline" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy?'disabled':''} onclick="bbCount()">${bb.relBusy?'Working…':'Count beds'}</button>
       <button id="bb-release" class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy||!d||!d.eligible||bb.reason.trim().length<5||!bb.confirm?'disabled':''} onclick="bbRelease()">Release ${d?d.eligible:''} bed${d&&d.eligible===1?'':'s'}</button></div></div>`;
-  return `<div class="mapcol"><div class="mapscroll"><div style="max-width:1040px;margin:0 auto;">
+  return `<div class="mapcol">
+    ${bbFilterBar()}
+    <div class="legend">${legend}</div>
+    <div class="mapscroll"><div style="max-width:1040px;margin:0 auto;">
     <h2 style="margin:0 0 4px;">Bed status board</h2>
-    <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Verify finished activities, plantings and ready beds in the first panel, or click a block row, then a bed: Not verified and Blocked beds can be verified ready there too.</div>
+    <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Click a bed on the map to open its profile on the right. Verify finished activities, plantings and ready beds in the panels below the map, or click a bed: Not verified and Blocked beds can be verified ready there too.</div>
     ${bb.err?`<div class="error">${esc(bb.err)}</div>`:''}
     <div class="bb-wrap"><table class="bb-t"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="legend" style="padding:10px 0 4px;">${legend}</div>
+    <div style="margin:14px 0 6px;">${grid||`<div class="empty">${bb.busy?'Loading\u2026':'No beds loaded.'}</div>`}</div>
+    <div class="qsub" style="margin:0 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed, a red dot an open exception. An amber number means that many things on the bed are waiting for your verification. Click a block name to choose it for Start of operations.</div>
     ${pvPanel()}
     ${rbPanel()}
     ${bbTasksPanel()}
-    <h2 style="font-size:13px;margin:12px 0 6px;">${esc(BLOCK_LABELS[bb.sel])}</h2>
-    ${grid||`<div class="empty">${bb.busy?'Loading…':'No beds loaded for this block.'}</div>`}
-    <div class="qsub" style="margin:-6px 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed. An amber number means that many things on the bed are waiting for your verification.</div>
-    ${relPanel}</div></div></div>`;
+    ${relPanel}</div></div></div>
+    <div class="panel ${bb.bedSel?'':'closed'}">${bb.bedSel?bbPanelHTML():''}</div>`;
 }
 function bbSyncRelease(){ const b=document.getElementById('bb-release'); if(b) b.disabled=!!(bb.relBusy||!bb.dry||!bb.dry.eligible||bb.reason.trim().length<5||!bb.confirm); }
 
