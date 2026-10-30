@@ -375,7 +375,7 @@ const CROPS = [['Lettuce','LET'],['Kale','KAL'],['Arugula','ARU'],['Radish','RAD
 const CURRENT_STAGES = ['PRE_PLANTING','GROWING','HARVEST_READY','HARVEST_COMPLETE','TERMINATED'];
 const STAGE_COLOR = { PRE_PLANTING:'#D8CFAE', GROWING:'#8FBF8A', HARVEST_READY:'#2E7D32', HARVEST_COMPLETE:'#7C8B98', TERMINATED:'#C9C2AE' };
 const QUEUE_COLOR = { MUST_DO:'#B3261E', ATTENTION:'#C77700', ROUTINE:'#5B8FC9', NONE:'transparent' };
-const EXC_LABEL = { NO_BLOCK_RULE:'No block rule for this crop', NO_BED_AVAILABLE:'No suitable bed available', NO_LOCATIONS_OF_TYPE:'No beds of this type', MISSING_DATES:'Missing planting / harvest dates', OUTSIDE_PLANTING_WINDOW:'Outside planting window', NOT_IN_OPEN_FIELD_OPERATION:'Not in Open Field Operation' };
+const EXC_LABEL = { NO_BLOCK_RULE:'No block rule for this crop', NO_BED_AVAILABLE:'No suitable bed available', NO_LOCATIONS_OF_TYPE:'No beds of this type', MISSING_DATES:'Missing planting / harvest dates', OUTSIDE_PLANTING_WINDOW:'Outside planting window', PLAN_BED_UNAVAILABLE:'Waiting: plan bed is in post-harvest turnover', NOT_IN_OPEN_FIELD_OPERATION:'Not in Open Field Operation' };
 const APPROVE_CHUNK = 5;   // approvals per request: each one re-validates against the live sheets
 const COHORT_STATUS_LABEL = { PLANNED:'Planned', PRE_PLANTING:'Assigned · awaiting planting', ACTIVE:'Active', COMPLETE:'Complete', TERMINATED:'Terminated', CANCELLED:'Cancelled (not in Open Field Operation)' };
 
@@ -758,6 +758,20 @@ async function verifyHarvestComplete(cohortId){
 async function loadAssignmentQueue(){
   try{ const d=await apiCall('get-assignment-queue', { year: ui.year }); state.aq=Object.assign({ loaded:true, error:'' }, d); }
   catch(e){ state.aq.error=(e.code?('['+e.code+'] '):'')+e.message; throw e; }
+  /* Where EVERY cohort is and why (AssignmentReconcile.gs). Explanatory only, so a failure here never blocks the board. */
+  try{ state.aq.recon = IS_DEMO ? null : await apiCall('get-assignment-reconciliation', { year: ui.year }); }catch(e){ state.aq.recon=null; console.warn('reconciliation unavailable', e); }
+}
+/* One panel that adds up to the cohort total. Field exceptions (EXCEPTION_LOG) are a different list from assignment exceptions. */
+function reconPanel(){
+  const r=state.aq.recon; if(!r||!r.buckets) return '';
+  const order=['PLACED_ACTIVE','PLACED_PRE_PLANTING','PROPOSED','BLOCKED_BED_TURNOVER','BLOCKED_OTHER','NOT_YET_PROPOSED','REJECTED','CANCELLED','TERMINATED'];
+  const rows=order.filter(k=>r.buckets[k]).map(k=>`<tr><td style="padding:2px 10px 2px 0;">${esc(r.buckets[k].label)}</td><td style="text-align:right;font-weight:600;">${r.buckets[k].count}</td></tr>`).join('');
+  const bad=!r.reconciled;
+  return `<div class="notice" style="border-radius:8px;margin:10px 0;${bad?'border-color:var(--danger);':''}">
+    <div style="font-weight:600;margin-bottom:4px;">${r.totalCohorts} cohorts · ${bad?'DO NOT ADD UP — check the data':'every cohort accounted for'}</div>
+    <table style="font-size:12px;border-collapse:collapse;margin-bottom:6px;">${rows}</table>
+    <div style="font-size:12px;line-height:1.45;">${r.blockedByBedStatus&&r.buckets.BLOCKED_BED_TURNOVER?`<b>Why ${r.buckets.BLOCKED_BED_TURNOVER.count} are “blocked”:</b> the season plan puts each on its own bed (${r.blockedBedCount} beds) and that bed is still in post-harvest turnover. Verify the bed ready and the cohort becomes assignable; nothing is wrong with the cohort. `:''}
+    <b>These are not field exceptions.</b> Field exceptions (the dashboard's “Open Exceptions”, from the exception log): ${r.fieldExceptions.open} open.${r.eligibleNow?` ${r.eligibleNow} could be approved right now.`:''}</div></div>`;
 }
 function openQueue(tab, focusCohortId){
   ui.focusCohort=focusCohortId||null; ui.focusPending=!!focusCohortId;
@@ -947,7 +961,7 @@ function assignStrip(){
   if(!state.aq.loaded) return '';
   const c=state.aq.counts||{};
   const cell=(l,n,tab,warn)=>`<button class="astat ${warn&&n?'warn':''}" onclick="openQueue('${tab}')"><b>${n||0}</b><span>${l}</span></button>`;
-  return `<div class="toolbar astrip"><span class="alabel">Assignment status</span>${cell('Not yet proposed',c.notYetProposed,'proposed',true)}${cell('Recommended · awaiting approval',c.proposed,'proposed')}${cell('Exceptions',c.exceptions,'exceptions',true)}${cell('Approved · awaiting planting',c.plantingReady,'assigned')}</div>`;
+  return `<div class="toolbar astrip"><span class="alabel">Assignment status</span>${cell('Not yet proposed',c.notYetProposed,'proposed',true)}${cell('Recommended · awaiting approval',c.proposed,'proposed')}${cell('Blocked · not assignable yet',c.exceptions,'exceptions',true)}${cell('Approved · awaiting planting',c.plantingReady,'assigned')}</div>`;
 }
 function filterBar(){
   const n=filterCounts(gridBeds().map(bedView));
@@ -1840,7 +1854,7 @@ function resolveModal(){
 }
 function queueModal(){
   const a=state.aq, c=a.counts||{}, tab=ui.queueTab||'proposed', has=(c.proposed||0)+(c.exceptions||0)>0;
-  const tabs=[['proposed','Recommended',c.proposed||0],['exceptions','Exceptions',c.exceptions||0],['assigned','Assigned',c.plantingReady||0]];
+  const tabs=[['proposed','Recommended',c.proposed||0],['exceptions','Blocked',c.exceptions||0],['assigned','Assigned',c.plantingReady||0]];
   return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;">
       <div><h2 style="font-size:16px;margin:0;">Bed assignments · ${esc(ui.year)}</h2>
       <div style="font-size:12px;color:var(--ink-soft);margin-top:3px;">${c.unassigned||0} unassigned cohorts${c.rejected?` · ${c.rejected} rejected`:''}${a.generatedDate?` · recommendations generated ${esc(a.generatedDate)}`:''}</div></div>
@@ -1849,6 +1863,7 @@ function queueModal(){
     <button class="btn btn-primary" ${ui.generating?'disabled':''} onclick="doGenerate()">${ui.generating?'Generating…':(has?'Regenerate assignments':'Generate assignments')}</button>
     ${(c.notYetProposed>0&&has)?`<div class="notice" style="border-radius:8px;margin-bottom:10px;">${c.notYetProposed} cohort(s) have no recommendation yet. Regenerate to include them.</div>`:''}
     <div class="seg" style="margin-bottom:6px;">${tabs.map(([k,l,n])=>`<button class="${tab===k?'active':''}" onclick="setQueueTab('${k}')">${l} (${n})</button>`).join('')}</div>
+    ${reconPanel()}
     ${tab==='proposed'?proposedList():tab==='exceptions'?exceptionList():assignedList()}`;
 }
 /* Approval dashboard: turns the queue row's Reason lines into the four validation checks the manager needs to see. */
@@ -1902,7 +1917,7 @@ function proposedList(){
 }
 function exceptionList(){
   const list=state.aq.exceptions||[];
-  if(!list.length) return `<div class="empty">No exceptions. Every cohort has a recommendation.</div>`;
+  if(!list.length) return `<div class="empty">Nothing blocked. Every cohort has a recommendation.</div>`;
   return list.map(p=>`<div class="card qwarn">${cohortHead(p)}
     <div class="qrec"><span class="chip chip-danger">${esc(EXC_LABEL[p.exceptionType]||p.exceptionType||'Exception')}</span></div>
     <ul class="checks">${(p.reasons||[]).map(r=>`<li class="w">${esc(r)}</li>`).join('')}</ul>
