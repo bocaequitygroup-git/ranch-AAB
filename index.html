@@ -223,6 +223,12 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .qrec{margin:10px 0 6px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;} .qrec>span:first-child{color:var(--ink-soft);font-size:11.5px;} .qrec b{font-size:19px;color:var(--forest);}
 .checks{list-style:none;margin:6px 0 10px;padding:0;font-size:12px;} .checks li{padding:2px 0;} .checks li.ok{color:var(--ok);} .checks li.w{color:var(--warn);font-weight:600;}
 .qbtns{display:flex;gap:8px;} .qbtns .btn{margin:0;} .qwarn{border-color:var(--warn);}
+.pw-box{border:1.5px solid var(--danger);background:color-mix(in srgb,var(--danger) 8%,var(--paper));border-radius:10px;padding:10px 12px;margin:8px 0;font-size:12.5px;line-height:1.4;}
+.pw-box.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--paper));} .pw-box.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,var(--paper));}
+.pw-box .pw-t{font-weight:800;font-size:13px;margin-bottom:4px;} .pw-box .pw-flag{font-size:10.5px;font-weight:800;letter-spacing:.04em;margin:0 0 6px;}
+.pw-box .pw-r{display:flex;justify-content:space-between;gap:10px;padding:2px 0;} .pw-box .pw-r span:first-child{color:var(--ink-soft);} .pw-box .pw-r span:last-child{text-align:right;font-weight:600;}
+.pw-box .pw-why{margin:6px 0 2px;} .pw-box textarea{width:100%;min-height:56px;margin-top:6px;padding:8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12.5px;}
+.pw-box .btn{margin:8px 0 0;}
 .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0 10px;} .vcell{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:11.5px;line-height:1.3;} .vcell .vh{display:flex;justify-content:space-between;align-items:center;gap:6px;font-weight:700;font-size:12px;margin-bottom:2px;} .vcell .vd{color:var(--ink-soft);} .vcell.ok{border-color:#B9D9BC;background:#F3FAF3;} .vcell.w{border-color:var(--warn);background:#FFF8EE;}
 .leftpanel{width:280px;max-width:80vw;overflow-y:auto;padding:12px;border-right:1px solid var(--line);background:var(--paper);}
 .leftpanel .card{cursor:pointer;}
@@ -385,7 +391,7 @@ const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab
   calTab:'prop', calView:'month', calMonth:null, calDay:null, crSelectedId:null, crFilter:'', bedSearch:'' /* Crop Reference mode: selected crop id, list search text */ };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* Rule R01: readable text for PROPAGATION_NOT_VERIFIED (server message names the nursery batch); any other code is returned unchanged. */
-const propErrText=f=>f&&f.errorCode==='PROPAGATION_NOT_VERIFIED'?(f.message||'Transplanting blocked: the source nursery batch has not reached transplant readiness or lacks manager sign-off in SYS_PROP_BATCH.'):null;
+const propErrText=f=>f&&f.errorCode==='PROPAGATION_NOT_VERIFIED'?(f.message||'Transplanting blocked: the source nursery batch has not reached transplant readiness or lacks manager sign-off in SYS_PROP_BATCH.'):f&&f.errorCode==='PLANTING_OUTSIDE_WINDOW'?'blocked: the planned planting date is outside the allowable window (see the warning below)':f&&f.errorCode==='PLANTING_WINDOW_DATA_PROBLEM'?'blocked: the planting window cannot be checked (see the warning below)':null;
 const deviceLabel=()=>String(navigator.userAgent||'unknown').slice(0,120);
 function toast(msg){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t=setTimeout(()=>{ui.toast='';render();},3200); }
 
@@ -572,9 +578,9 @@ function bedView(b){
   const p=parseLocationId(b.id), c = p ? pickCohort(state.board.byKey[locKey(p)]) : null;
   if(c){
     Object.assign(v, { cohortId:c.cohortId, cropId:c.cropId, cropName:c.cropName, shortfall:!!c.shortfall, cohortStatus:c.cohortStatus, currentStage:cohortStage(c),
-      plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'' });
+      plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'', plantingWindow:c.plantingWindow||null });
   }else{
-    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'' });
+    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'', plantingWindow:null });
   }
   return v;
 }
@@ -644,6 +650,66 @@ function dpCanGo(){ const d=ui.dp, b=dpBed(), open=maOpenSet2(b.id); let total=0
   d.acts.forEach(a=>{ const cr=dpCrew(a); if(!cr.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fm++; cr.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
   return !!d.acts.length&&!missing&&!fm&&total-dup>0&&!d.busy; }
 function dpSyncGo(){ const b=document.getElementById('dp-go'); if(b) b.disabled=!dpCanGo(); const n=document.getElementById('dp-fertnote'); if(n){ const d=ui.dp, fm=d.acts.filter(a=>isFertAct(a)&&!fertDone(fertOf(d,a))).length; n.style.display=fm?'block':'none'; n.textContent=fm+' fertilizer task'+(fm===1?'':'s')+' still need type, brand and quantity.'; } }
+
+/* ============================== PLANTING WINDOW (PlantingWindow.gs) ==============================
+ * Checks the ACTUAL planting date (the date a planting task is scheduled for, and the date entered at Verify Planting) against the crop's
+ * allowable planting window. Planned DOB and the planned harvest window are never touched.
+ * plantingWindow = {state, cohortId, cropName, checkedDate, rangeText, basis, flag, authorizedBy/Date/Reason, planted, harvestFromPlanting}
+ *   OUTSIDE_AUTH_REQUIRED : date is outside the window -> warn, show the allowable dates, manager must accept with a written explanation
+ *   OUTSIDE_AUTHORIZED    : manager accepted this date -> allowed; once verified the cohort is stamped PLANTED OUTSIDE ALLOWABLE WINDOW
+ * It arrives (1) on board cohorts that were PLANTED outside the window, (2) on a refused assignment (start-sessions failed[].plantingWindow),
+ * (3) from 'check-planting-window' when the manager presses Verify planting. Reason text lives in ui.pwReasons so a re-render never wipes it. */
+const PW_WHY_PROBLEM = { WINDOW_MISSING:'No allowable planting window is on file for this crop (RANCH_ALLOWABLE_PLANTING_CAL has no row and the cohort has none). A manager cannot authorize an unknown window: add the window first.',
+  PLANNED_DOB_MISSING:'This cohort has no planned planting date.', PLANNED_DOB_YEAR_MISMATCH:'The planned planting date is not in the cohort\'s planning year, so the planning record looks stale or mistyped. Correct it at its source (Open Field Operation / BED_PLANTING_PLAN). It cannot be authorized.' };
+const PW_BASIS_LABEL = { CALENDAR:'Oregon Region 2 allowable calendar', COHORT_FALLBACK:'FALLBACK: cohort\'s own window columns (not the authoritative calendar)' };
+function pwSetReason(id,v){ (ui.pwReasons=ui.pwReasons||{})[id]=v; }
+function pwForCohort(cohortId){ const c=((state.board&&state.board.cohorts)||[]).find(x=>x.cohortId===cohortId); return (c&&c.plantingWindow)||null; }
+function pwBox(pw,o){
+  o=o||{}; if(!pw||!pw.state||pw.state==='IN_WINDOW'||pw.state==='NO_WINDOW'||pw.state==='NOT_CHECKED') return '';
+  const st=pw.state, cls=st==='OUTSIDE_AUTHORIZED'?' ok':'';
+  const title=st==='OUTSIDE_AUTHORIZED'?(pw.planted?'Planted outside allowable window - manager accepted':'Planting date outside allowable window - manager accepted')
+    :(pw.planted?'Planted outside allowable window - no acceptance on record':'Planting date is outside the allowable window');
+  const row=(k,v)=>v?`<div class="pw-r"><span>${esc(k)}</span><span>${esc(v)}</span></div>`:'';
+  const h=pw.harvestFromPlanting;
+  const detail=(pw.cropName||pw.cohortId||pw.checkedDate)
+    ? row('Crop',pw.cropName)+row('Cohort',pw.cohortId)+row(pw.planted?'Planted (actual)':'Planting date',pw.checkedDate)+row('Allowable planting dates',pw.rangeText)
+      +(h?row('Harvest (from planting date)',h.earliest+' \u2192 '+h.latest)+row('Based on',h.basis):'')+row('Window source',PW_BASIS_LABEL[pw.basis]||pw.basis)
+    : `<div>${esc(pw.message||'')}</div>`;
+  const why=st==='OUTSIDE_AUTH_REQUIRED'?(pw.planted?'This cohort was planted on a date outside the allowable window and no manager acceptance is on record.'
+      :'Review the allowable dates. To plant on this date, accept it with a written explanation. The date is not changed.')
+    :'Accepted by '+(pw.authorizedBy||'a manager')+(pw.authorizedDate?' on '+String(pw.authorizedDate).slice(0,10):'')+(pw.authorizedReason?': '+pw.authorizedReason:'')+'. The planting date was not changed.';
+  const flag=pw.flag?`<div class="pw-flag">${esc(pw.flag)}</div>`:'';
+  let ask='';
+  if(st==='OUTSIDE_AUTH_REQUIRED' && !pw.planted && (o.reason||o.retry) && pw.cohortId){
+    const id=esc(pw.cohortId);
+    ask=`<textarea placeholder="Explanation for accepting this planting date (required)" oninput="pwSetReason('${id}',this.value)">${esc((ui.pwReasons||{})[pw.cohortId]||'')}</textarea>`
+      +(o.retry?`<button class="btn btn-danger" onclick="pwAuthorizeAndRetry('${id}','${esc(o.retry)}','${esc(pw.checkedDate||'')}')">Accept date and retry</button>`:'');
+  }
+  return `<div class="pw-box${cls}"><div class="pw-t">${esc(title)}</div>${flag}${detail}${why?`<div class="pw-why">${esc(why)}</div>`:''}${ask}</div>`;
+}
+function pwWarnHTML(failed,kind){
+  const seen={}, out=[];
+  (failed||[]).forEach(f=>{
+    let pw=f&&f.plantingWindow;
+    if(!pw && f && (f.errorCode==='PLANTING_OUTSIDE_WINDOW'||f.errorCode==='PLANTING_WINDOW_DATA_PROBLEM')) pw={ state:f.errorCode==='PLANTING_WINDOW_DATA_PROBLEM'?'DATA_PROBLEM':'OUTSIDE_AUTH_REQUIRED', message:f.message||'' };
+    if(!pw) return; const key=pw.cohortId||pw.message; if(seen[key]) return; seen[key]=1;
+    out.push(pwBox(pw,{ retry:kind }));
+  });
+  return out.join('');
+}
+async function pwAuthorizeAndRetry(cohortId,kind,date){
+  const reason=String((ui.pwReasons||{})[cohortId]||'').trim();
+  if(reason.length<5){ toast('Enter an explanation of at least 5 characters to accept this planting date.'); return; }
+  try{ await apiCall('authorize-planting-window',{ cohortId, date, reason },60000); toast('Accepted and recorded. Retrying the assignment…'); }
+  catch(e){ toast(e.message); return; }
+  if(ui.pwReasons) delete ui.pwReasons[cohortId];
+  return kind==='dp' ? dpSubmit() : submitMultiAssign();
+}
+function pwTileMark(pw,bx,by,ch){
+  if(!pw||!pw.state||pw.state==='IN_WINDOW'||pw.state==='NOT_CHECKED') return '';
+  const fill=pw.state==='OUTSIDE_AUTH_REQUIRED'?'var(--danger)':pw.state==='DATA_PROBLEM'?'var(--warn)':'var(--ok)', txt=pw.state==='OUTSIDE_AUTHORIZED'?'✓':'!';
+  return `<circle cx="${bx+8}" cy="${by+ch-8}" r="6" fill="${fill}"><title>${esc(pw.title||'')}</title></circle><text x="${bx+8}" y="${by+ch-5}" text-anchor="middle" font-size="9" font-weight="900" fill="#fff" pointer-events="none">${txt}</text>`;
+}
 
 /* ============================== DISPATCH / TRIAGE ACTIONS ============================== */
 let _assignBusy=false;
@@ -757,7 +823,20 @@ async function doVerifyPlanting(cohortId, actualDob){
   if(!actualDob){ toast('Enter the actual planting date.'); return; }
   if(!/^\d{4}-\d{2}-\d{2}$/.test(actualDob)){ toast('That is not a valid planting date.'); return; }
   if(actualDob>todayISO()){ toast('The planting date cannot be in the future.'); return; }   // server enforces this too (verifyPlanting_hardened.gs)
-  try{ await apiCall('verify-planting', { cohortId, actualDob }); toast('Planting verified. Cohort is now ACTIVE.'); closeModal(); await loadToday(); }
+  /* Warn first: is the date the manager entered inside the crop's allowable planting window? */
+  let reason='';
+  try{
+    const chk=await apiCall('check-planting-window',{ cohortId, date:actualDob });
+    const pw=chk&&chk.plantingWindow;
+    if(pw&&pw.state==='OUTSIDE_AUTH_REQUIRED'){
+      reason=String((ui.pwReasons||{})[cohortId]||'').trim();
+      if(ui.modalDraft.pwDate!==actualDob || reason.length<5){   /* show the warning + allowable dates; the manager accepts by explaining and pressing the button again */
+        ui.modalDraft.pw=pw; ui.modalDraft.pwDate=actualDob; ui.modalDraft.dob=actualDob; render();
+        toast('Outside the allowable planting window. Review the dates, enter an explanation, then accept.'); return;
+      }
+    } else { ui.modalDraft.pw=null; ui.modalDraft.pwDate=''; }
+  }catch(e){ toast(e.message); return; }
+  try{ await apiCall('verify-planting', Object.assign({ cohortId, actualDob }, reason?{ windowOverrideReason:reason }:{})); if(ui.pwReasons) delete ui.pwReasons[cohortId]; toast('Planting verified. Cohort is now ACTIVE.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
 async function openMoveModal(cohortId){
@@ -907,6 +986,7 @@ function mapSVG(){
         ${sess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E"></circle>`:''}
         ${exc?`<circle cx="${bx+cw-19}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
         ${hr?`<circle cx="${bx+cw-7}" cy="${by+ch-7}" r="4" fill="var(--ok)"></circle>`:''}
+        ${has&&match?pwTileMark(v.plantingWindow,bx,by,ch):''}
       </g>`;
     });
     curY += rows*(ch+gap) + blockGap;
@@ -945,6 +1025,7 @@ function overviewTab(b,sess){
     ${b.plannedDob?`<div class="row"><span>DOB (planned)</span><span>${esc(b.plannedDob)}</span></div>`:''}
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>`:''}
+  ${b.cohortId?pwBox(b.plantingWindow):''}
   ${b.cohortId?cohortActionButtons(b)+pendingBlock(b,true):emptyBedBlock(b,sess)}
   ${actionsPanel(b,sess)}
   ${bedProfileCard(b)}`;
@@ -1213,7 +1294,7 @@ function dpInner(b,sess){
       <div style="flex:1;min-width:0;"><b>${esc(r.name)}</b>${r.id?` (${esc(r.id)})`:''}${r.desc?`<span class="d">${esc(r.desc)}</span>`:''}${crew}${on&&isFertAct(r.name)?fertBox('dp',r.name):''}</div><span class="st">${dpStChip(r.st)}</span></div>`; }).join('')).join('');
   let total=0,dup=0,missing=0,fm=0; d.acts.forEach(a=>{ const cr=dpCrew(a); if(!cr.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fm++; cr.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
   const fresh=total-dup, ok=d.acts.length&&!missing&&!fm&&fresh>0&&!d.busy;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} dispatched.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||f.errorCode)}</div>`).join('')}</div>`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} dispatched.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||f.errorCode)}</div>`).join('')}${pwWarnHTML(r.failed,'dp')}</div>`;
   const ph=b.postHarvest, remaining=ph?(ph.steps||[]).filter(x=>x.status!=='COMPLETE').length:0;
   const ovScope=ph?(ph.bedLevel?'BED:'+b.id:b.cohortId):''; if(ph) PH_STEPS[ovScope]=ph;   /* the override modal lists the remaining steps from here */
   const ovBlock=ph?`<div class="dp-box"><div class="t"><span>Manager override</span></div>
@@ -1618,7 +1699,7 @@ function maFootHTML(){
     : c.missing?`<span style="color:var(--warn);font-weight:600;">${c.missing} selected activit${c.missing===1?'y has':'ies have'} no worker yet.</span> Choose a worker for each, or remove it.`
     : c.fertMissing?`<span style="color:var(--warn);font-weight:600;">${c.fertMissing} fertilizer task${c.fertMissing===1?'':'s'} still need type, brand and quantity.</span> Fill in the green box on each.`
     : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}</div>`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}${pwWarnHTML(r.failed,'ma')}</div>`;
   const ok=d.acts.length&&!c.missing&&!c.fertMissing&&c.fresh>0&&!d.busy;
   return `<div class="ma-sum">${sum}</div>${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'<span class="vp-spin"></span>Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
@@ -1817,10 +1898,12 @@ function rejectModal(){
 function verifyPlantingModal(){
   const d=ui.modalDraft;
   const today=todayISO();   /* local date: toISOString() is UTC and offered tomorrow's date in the evening */
+  const pw=d.pw, outside=!!pw&&pw.state==='OUTSIDE_AUTH_REQUIRED';
   return `<h2 style="font-size:15px;">Verify planting</h2>
-  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock.</p>
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(today)}" max="${esc(today)}"></div>
-  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">Verify planting</button>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock. The planned DOB is not changed.</p>
+  ${pwBox(pw,{ reason:true })}
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||today)}" max="${esc(today)}"></div>
+  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':'Verify planting'}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function moveModal(){
