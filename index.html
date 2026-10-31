@@ -4291,7 +4291,7 @@ function bbPanelHTML(){
   const area=(len>0&&sp>0)?(len*sp/12):null;   /* sq ft = bed length (ft) x spacing (in) / 12 */
   const areaTxt=area===null?'':Math.round(area).toLocaleString()+' sq ft \u00b7 '+(area/43560).toFixed(3)+' acres';
   const withUnit=(k,u)=>P[k]!==undefined&&P[k]!==''?P[k]+' '+u:'';
-  const tabs=[['overview','Overview'],['activity','Activities'],['history','History'+(nHist?' ('+nHist+')':'')]];
+  const tabs=[['overview','Bed readiness'],['history','History'+(nHist?' ('+nHist+')':'')]];   /* the 4-tab readiness gate (Overview / Required / Verify & release / Activities) lives inside Bed readiness */
   if(cohort||exc.length) tabs.push(['exceptions','Exceptions'+(exc.length?' ('+exc.length+')':'')]);
   if(cohort) tabs.push(['harvest','Harvest']);
   const tab=tabs.some(t=>t[0]===bb.tab)?bb.tab:'overview';
@@ -4353,11 +4353,15 @@ function bbPanelHTML(){
       ${kv('Bed length',withUnit('Bed_Length','ft'))}${kv('Center-to-center spacing',withUnit('Center-to-Center Spacing (in)','in'))}
       ${kv('Usable top width',withUnit('Usable Top Width (in)','in'))}${kv('Bed area',areaTxt)}
       ${kv('Health status',pick('Bed_Health_Status'))}${kv('Irrigation status',pick('Bed_Irrigation_Status'))}</div>`;
-    body=sync+hd+(d.loading?`<div class="empty">Loading bed profile\u2026</div>`:`
+    /* Same four-tab gate the Daily board uses. bedViewById() is null for a bed outside the grid, so fall back to the board row. */
+    let gateBed=null; try{ gateBed=bedViewById(id); }catch(e){ gateBed=null; }
+    if(!gateBed) gateBed=Object.assign({}, sBed, state.todayById[id]||{}, {id:id, blockId:(sBed&&sBed.blockId)||blk, locationType:locType});
+    if(st!=='UNVERIFIED' || !gateBed.bedStatus) gateBed.bedStatus=st;   /* the board row is fresher than the 30s live read */
+    body=(d.loading?`<div class="empty">Loading bed profile\u2026</div>`:`
       ${d.err?`<div class="error">Full profile unavailable: ${esc(d.err)}. Showing what the board has.</div>`:''}
-      ${cohortCard}${unlockNote+(phBlock||assignBtn)+verifyBtn}
+      ${actionsPanel(gateBed,bedSessions(id))}
       ${d.actErr?`<div class="error">${esc(d.actErr)}</div>`:''}
-      ${pvBedBlock(id)}${profCard}`);
+      ${cohortCard}${pvBedBlock(id)}${profCard}`);
   }
   return head+`<div class="panelbody">${body}</div>`;
 }
