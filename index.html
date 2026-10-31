@@ -354,6 +354,33 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 #vp-busy .bar{height:4px;background:rgba(0,0,0,.08);position:relative;overflow:hidden}
 #vp-busy .bar i{position:absolute;top:0;bottom:0;width:40%;background:#2f7d3a;animation:vpSlide 1.1s ease-in-out infinite}
 #vp-busy .msg{margin:8px auto 0;width:max-content;max-width:90vw;background:#1f2a1f;color:#fff;padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+
+/* ---- bed readiness gate (four tabs) ---- */
+.gt-tabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--line);margin:0 0 10px;}
+.gt-tabs button{flex:1 0 auto;background:none;border:none;border-bottom:2px solid transparent;padding:8px 8px;font-family:inherit;font-size:11.5px;font-weight:700;color:var(--ink-soft);cursor:pointer;white-space:nowrap;}
+.gt-tabs button.active{color:var(--forest);border-color:var(--forest);}
+.gt-tabs button:focus-visible,.gt-link:focus-visible,.gt-btn:focus-visible{outline:2px solid var(--forest);outline-offset:2px;}
+.gt-status{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px;background:var(--paper);}
+.gt-big{font-size:12px;padding:4px 10px;letter-spacing:.02em;}
+.gt-count{margin:8px 0 0;font-size:13px;font-variant-numeric:tabular-nums;} .gt-count b{font-size:16px;}
+.gt-lead{font-size:12.5px;color:var(--ink-soft);line-height:1.4;}
+.gt-grp{margin:0 0 12px;} .gt-grp-h{font-size:12.5px;font-weight:800;color:var(--forest);margin:0 0 4px;}
+.gt-row{display:flex;gap:8px;align-items:flex-start;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);}
+.gt-row:last-child{border-bottom:none;}
+.gt-box{font-size:15px;line-height:1.2;color:var(--ink-soft);} .gt-main{flex:1;min-width:0;font-size:12.5px;}
+.gt-sub{font-size:11.5px;color:var(--ink-soft);margin-top:2px;line-height:1.35;}
+.gt-tag{margin-left:4px;font-size:10px;} .gt-row .gt-box + .gt-main{margin-left:0;}
+.gt-link{border:none;background:none;padding:0;color:var(--forest);font-family:inherit;font-size:11.5px;font-weight:700;text-decoration:underline;cursor:pointer;}
+.gt-btn{width:auto;margin:0;padding:5px 9px;font-size:11.5px;white-space:nowrap;flex:none;}
+.gt-crew{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--ink-soft);margin-top:3px;}
+.gt-row.is-done .gt-main,.gt-row.is-grey .gt-main{color:var(--ink-soft);opacity:.75;} .gt-strike{text-decoration:line-through;}
+.gt-row.is-na .gt-main{opacity:.65;}
+/* two buttons side by side */
+.gt-actions{display:flex;gap:6px;flex-wrap:wrap;} .gt-actions .btn{width:auto;flex:1 1 120px;margin:6px 0 0;}
+.gt-row.is-pend .gt-main{opacity:1;}
+.gt-next{border-top:2px solid var(--forest);padding-top:8px;margin-top:6px;}
+.gt-next-h{font-size:11px;font-weight:800;color:var(--ink-soft);} .gt-next-s{font-size:13.5px;font-weight:800;margin-top:2px;}
+@media (prefers-reduced-motion:reduce){.gt-tabs button{transition:none;}}
 </style>
 </head>
 <body><div id="app"></div>
@@ -1271,6 +1298,7 @@ function avLines(s){
   else hrs=`Time taken <b>${avHM(w.actualHours)}</b> \u00b7 budget unavailable${w.budgetReason?' ('+esc(w.budgetReason)+')':''}`;
   return `<div class="qsub" style="text-transform:none;letter-spacing:0;">Completed by <b>${who}</b> \u00b7 ${esc(avWhen(w.completedAt))}${w.sessions>1?' \u00b7 '+w.sessions+' sessions':''}</div>
     <div class="qsub" style="text-transform:none;letter-spacing:0;">${hrs}${w.budgetRule?' <span style="opacity:.7">('+esc(w.budgetRule)+')</span>':''}</div>`
+    +(w.checked&&!w.verified?`<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(w.checkedByName||w.checkedBy)} \u00b7 ${esc(avWhen(w.checkedAt))} \u00b7 not verified yet</div>`:'')
     +(w.verified?`<div class="qsub" style="text-transform:none;letter-spacing:0;">Verified by ${esc(w.verifiedByName||w.verifiedBy)} \u00b7 ${esc(avWhen(w.verifiedAt))}</div>`:'');
 }
 function avBlock(b){
@@ -1294,7 +1322,8 @@ async function avVerifySelected(){
     toast(names.length===1?'Activity verified.':names.length+' activities verified.'); ui.av={bedId:b.id,sel:{}}; await loadToday(); }
   catch(e){ toast(e.message); }
 }
-function dpInner(b,sess){
+/* Replaced by the four-tab readiness gate (dpInner, below). Kept for reference only; nothing calls it. */
+function dpInnerLegacy(b,sess){
   const d=dpS(b), rows=dpRows(b), sel=rows.filter(r=>!r.off), selNames=sel.map(r=>r.name), open=maOpenSet2(b.id);
   d.acts=d.acts.filter(n=>selNames.includes(n));
   if(!d.cat) d.cat='ALL';
@@ -1346,6 +1375,236 @@ function dpInner(b,sess){
     ${dup?`<div class="note" style="margin:-2px 0 6px;">${dup} already open on this bed, will be skipped.</div>`:''}
     ${verify||verifyCloseBlock(b)}</div>`;
 }
+/* ============ BED READINESS GATE — four tabs per bed ============
+ * Overview (3-step checklist) · Required activities (bed domain) · Verified & release gate · Activities (crop domain).
+ * Every number and state comes from data the server already sends (bed.postHarvest / bed.reset, state.sessions, state.verification,
+ * state.activityCatalog). Nothing here releases a bed: only Verify Bed Ready does (doVerifyTurnover). The 14-step count is the SOP
+ * reset sequence (ACT_037…ACT_051, ACT_053); change GATE_INFRA_FROM_SEQ if the sequence numbers in ACTIVITY_REFERENCE move. */
+const GATE_INFRA_FROM_SEQ=11;
+const GATE_INFRA_NAMES=['Deep Till Root Beds','Bed Reshaping','Install New Drip','Lay Plastic Mulch'];
+const GATE_LABEL={ 'TerminateCohort':'Terminate Cohort / Harvest Complete', 'Till Field':'Till Field / Incorporation' };
+const GATE_GROUPS=[
+  {k:'base', title:'Step 1: Bed base reset (post-harvest and clean-up)', tag:'Post-Harvest'},
+  {k:'infra',title:'Step 2: Infrastructure prep (pre-planting)', tag:'Pre-Planting'},
+  {k:'plant',title:'Step 3: Plant material check (ready to transplant / ready to seed)', tag:'Pre-Planting'}
+];
+const GATE_NOT_RELEASED=['UNVERIFIED','POST-HARVEST ACTIVITIES','BLOCKED'];
+function gtS(b){ if(!ui.gt||ui.gt.bedId!==b.id) ui.gt={bedId:b.id,tab:'overview'}; return ui.gt; }
+function setGateTab(t){ ui.gt.tab=t; dpRefresh(); }
+function gateLive(q){ return ['ACTIVE','PAUSED','EXCEPTION'].includes(String(q.status||'').toUpperCase()); }
+function gateModel(b){
+  const cat=state.activityCatalog||[], meta=n=>cat.find(c=>c.name===n)||{}, sess=bedSessions(b.id);
+  const st=String(b.bedStatus||'').toUpperCase()||'UNVERIFIED';
+  const ph=b.postHarvest||b.reset||null;
+  const released=!b.postHarvest && !GATE_NOT_RELEASED.includes(st);
+  const cohortScope=!!(b.postHarvest && !b.postHarvest.bedLevel);
+  const scope=cohortScope?b.cohortId:'BED:'+b.id;
+  const cs=String(b.cohortStatus||'').toUpperCase();
+  let src;
+  if(ph) src=(ph.steps||[]).map(x=>Object.assign({},x));
+  else src=cat.filter(a=>a.postHarvestSequence>0).sort((x,y)=>x.postHarvestSequence-y.postHarvestSequence)
+        .map(a=>({name:a.name,status:released?'COMPLETE':'PENDING',gate:'',domain:a.domain}));
+  const rows=src.map((x,i)=>{
+    const m=meta(x.name), seq=m.postHarvestSequence||0, mine=sess.filter(q=>q.activity===x.name);
+    const done=x.status==='COMPLETE', w=x.work||null;
+    const waiting=!done&&(x.gate==='BUFFER'||(x.gate==='WINDOW'&&x.status!=='OPEN'));
+    const verified=done&&(x.overridden||!!(w&&w.verified)||released&&!w);
+    return { name:x.name, id:m.id||'', label:GATE_LABEL[x.name]||x.name, domain:x.domain||m.domain||'', seq:seq||i+1,
+      group:(seq>=GATE_INFRA_FROM_SEQ||GATE_INFRA_NAMES.includes(x.name))?'infra':'base',
+      checked:!!(w&&w.checked&&!(w&&w.verified)), checkedBy:(w&&w.checkedByName)||'', checkedAt:(w&&w.checkedAt)||'', done, overridden:!!x.overridden, hov:(ph&&ph.overrides||[]).find(o=>o.name===x.name)||null, verified, work:w, needsVerification:!!x.needsVerification,
+      waiting, waitText:x.gate==='BUFFER'?'Automatic wait: no one needs to be assigned':(waiting?'Waiting for its seasonal window'+(x.windowOpens?' (opens '+x.windowOpens+')':''):''),
+      sessions:mine, live:mine.filter(gateLive), assigned:mine.filter(q=>!gateLive(q)), worker:true };
+  });
+  /* ACT_053 is a lifecycle step, not part of the SOP sequence: it is done when this bed's cohort was terminated (harvest complete). */
+  const harvested=cohortScope||['TERMINATED','COMPLETE'].includes(cs);
+  const hov=ph&&ph.harvestOverride||null;
+  const t53={ name:'TerminateCohort', id:(meta('TerminateCohort').id||'ACT_053'), label:GATE_LABEL.TerminateCohort, domain:'Lifecycle', seq:0, group:'base',
+    done:released||harvested||!!hov, overridden:!!hov&&!harvested&&!released, verified:released||harvested||!!hov, work:null, needsVerification:false, waiting:false, waitText:'',
+    sessions:[], live:[], assigned:[], worker:false, harvested, hov,
+    note:harvested?'cohort terminated and harvest closed':hov?'overridden by '+(hov.by||'a manager')+(hov.date?' on '+hov.date:'')+(hov.reason?': '+hov.reason:''):'no previous harvest — this bed has not been harvested yet' };
+  rows.unshift(t53);
+  const total=rows.length, done=rows.filter(r=>r.done).length, verified=rows.filter(r=>r.verified).length;
+  const planted=!!b.plantingDate, method=plantingActivityFor(b);
+  const plant=[['DirectSeeding','ACT_007','Direct Seeding'],['Transplanting','ACT_008','Transplanting']].map(([n,id,label])=>{
+    const m=meta(n), applies=!!b.cohortId&&method===n;
+    return { name:n, id:m.id||id, label, applies, done:planted&&applies, note:!b.cohortId?'not for this crop — applies once a crop is assigned':applies?(planted?'done — planting verified':'applies to '+(b.cropName||'this crop')+' — happens after the bed is released'):'not for this crop' };
+  });
+  const open=rows.filter(r=>!r.done);
+  const unassigned=open.filter(r=>r.worker&&!r.waiting&&!r.sessions.length);
+  const busy=open.filter(r=>r.sessions.length);
+  const pending=rows.filter(r=>r.done&&!r.verified);   /* completed but not verified: a CHECK does not change this */
+  return { rows, plant, total, done, verified, open, unassigned, busy, pending, released, scope, st, cohortScope,
+           ready:released||(verified===total&&total>0), cleared:verified===total&&total>0 };
+}
+function gateOverrideSteps(m){   /* the override modal lists these (PH_STEPS[scope].steps) */
+  PH_STEPS[m.scope]={ steps:m.rows.filter(r=>!r.done).map(r=>({name:r.name,domain:r.domain||'Other',status:'OPEN'})) };
+}
+function gateRowLabel(r){ return (r.id?r.id+': ':'')+r.label; }
+function gateStateLine(m,b){
+  if(m.released) return b.plantingDate?'Cleared before planting. This bed is now in production.':'Bed verified ready. Planting can start once a cohort is assigned.';
+  if(m.cleared) return 'All '+m.total+' required steps are verified. Release the bed to make it available.';
+  if(!m.open.length) return 'All required steps are done, but '+m.pending.length+' still need'+(m.pending.length===1?'s':'')+' manager verification. Checking a step does not count; verify it.';
+  if(!m.pending.length) return m.open.length+' of '+m.total+' required step'+(m.total===1?'':'s')+' still open. Planting is blocked until all are done and a manager verifies the bed ready.';
+  return m.open.length+' step'+(m.open.length===1?'':'s')+' still open and '+m.pending.length+' completed step'+(m.pending.length===1?'':'s')+' awaiting verification. Planting is blocked until all '+m.total+' are verified and the bed is released.';
+}
+function gateHeadChip(m,b){
+  if(m.released) return b.plantingDate?['CLEARED · IN PRODUCTION','chip-ok']:['READY TO PLANT','chip-ok'];
+  if(m.cleared) return ['READY TO RELEASE','chip-ok'];
+  return ['NOT READY TO PLANT','chip-warn'];
+}
+/* ---- actions ---- */
+function gateAssign(names){
+  const b=dpBed(), ok=dispatchListFor(b.id,!!b.cohortId).map(a=>a.name), use=(names||[]).filter(n=>ok.includes(n));
+  if(!use.length){ toast('Nothing here can be assigned to a worker right now.'); return; }
+  const map={}; use.forEach(n=>{ map[n]=[]; });
+  openModal('dispatch',{bedId:b.id,hasCohort:!!b.cohortId,acts:use.slice(),map});
+}
+function gateAssignOne(el){ gateAssign([el.dataset.a]); }
+function gateAssignOpen(){ const m=gateModel(dpBed()); gateAssign(m.unassigned.map(r=>r.name)); }
+function gateOverride(el){ const b=dpBed(), m=gateModel(b); gateOverrideSteps(m); openModal('override',{cohortId:m.scope,selected:[el.dataset.a],reason:''}); }
+function gateReassign(id){ openModal('reassign',{sessionId:id,mode:'reassign'}); }
+function gateReassignCrew(){
+  const m=gateModel(dpBed()), all=[]; m.busy.forEach(r=>r.sessions.forEach(q=>all.push(q)));
+  if(all.length===1) return gateReassign(all[0].id);
+  setGateTab('required'); toast('Tap Reassign next to the person you want to replace.');
+}
+async function gateCheckSelected(){
+  const b=dpBed(), d=avS(b), names=avStepsOf(b,true).filter(s=>d.sel[s.name]&&!(s.work&&s.work.checked)).map(s=>s.name); if(!names.length) return;
+  try{
+    await apiCall('check-items',{ items:names.map(n=>({bedId:b.id, activity:n})) });
+    toast(names.length===1?'Marked checked. Still needs verification.':names.length+' marked checked. They still need verification.'); ui.av={bedId:b.id,sel:{}}; await loadToday(); }
+  catch(e){ toast(e.message); }
+}
+function gateRelease(){ const b=dpBed(), m=gateModel(b); if(!m.cleared) return; doVerifyTurnover(m.scope,b.id); }
+function gateAssignCohort(){ closeModal(); goPlanning(); setPMode('assigncohort'); }
+/* ---- pieces ---- */
+function gateProgress(m,kind){ const n=kind==='done'?m.done:m.verified;
+  return `<div class="gt-count"><b>${n} / ${m.total}</b> ${kind==='done'?'required done':'verified'}${kind==='done'&&m.verified!==m.done?` <span class="gt-sub" style="display:inline;">· ${m.verified} verified</span>`:''}</div><div class="dc-bar"><i style="width:${m.total?Math.round(n/m.total*100):0}%"></i></div>`; }
+function gateNext(m,b){
+  const btn=(label,fn,cls)=>`<button class="btn ${cls||'btn-primary'}" style="width:auto;margin:6px 6px 0 0;" onclick="${fn}">${label}</button>`;
+  let state_='', acts='';
+  if(m.released){
+    if(b.cohortId){ state_='Crop work is open'; acts=btn('Open Activities',"setGateTab('crop')"); }
+    else { state_='✔ Bed is available'; acts=btn('Assign Cohort','gateAssignCohort()'); }
+  } else if(m.cleared){ state_='✔ Required activities are cleared'; acts=btn('Verify Bed Ready &amp; Release to Available','gateRelease()'); }
+  else if(!m.open.length){ state_='Waiting for manager sign-off'; acts=btn('Review sign-offs',"setGateTab('verify')"); }
+  else if(m.busy.length){ state_='Work in progress'; acts=btn('Reassign Crew','gateReassignCrew()','btn-outline')+(m.unassigned.length?btn('Dispatch Remaining Tasks','gateAssignOpen()'):''); }
+  else if(m.unassigned.length){ state_='Required activities incomplete'; acts=btn('Assign Open Steps','gateAssignOpen()'); }
+  else { state_='Waiting on an automatic step or the manager'; acts=''; }
+  return `<div class="gt-next"><div class="gt-next-h">What to do next</div><div class="gt-next-s">${state_}</div>${acts}</div>`;
+}
+function gateChipTag(g){ return `<span class="chip chip-neutral gt-tag">${esc(g.tag)}</span>`; }
+function gateOverrideBtn(r,m){
+  if(r.done||m.released||(m.st!=='UNVERIFIED'&&m.st!=='POST-HARVEST ACTIVITIES')) return '';
+  return `<button class="gt-link" data-a="${esc(r.name)}" onclick="gateOverride(this)">override</button>`;
+}
+function gateOverrideLink(r,m){ const x=gateOverrideBtn(r,m); return x?' — '+x:''; }
+/* ---- TAB 1 ---- */
+function gateOverviewTab(b,m){
+  const chip=gateHeadChip(m,b);
+  const rowHTML=(r,g)=>{
+    const crew=r.sessions.length?' · '+esc(r.sessions.map(q=>q.workerName||q.workerId).join(', '))+(r.live.length?' (in progress)':' (assigned)'):'';
+    const line=r.done?(r.overridden?'overridden'+(r.note?' — '+esc(r.note.replace(/^overridden by /,'by ')):''):r.verified?(r.work&&r.work.verifiedByName?'verified by '+esc(r.work.verifiedByName):(r.note?esc(r.note):'verified')):(r.checked?'checked by '+esc(r.checkedBy||'a manager')+' — still pending verification':'completed — pending verification'))
+      :r.note?esc(r.note):r.waiting?esc(r.waitText):(r.sessions.length?(r.live.length?'in progress':'assigned, not started')+crew:'open');
+    return `<div class="gt-row ${r.verified?'is-done':''}"><span class="gt-box" aria-hidden="true">${r.verified?'☑':'☐'}</span><div class="gt-main">
+      <div><b>${esc(gateRowLabel(r))}</b> ${gateChipTag(g)}</div><div class="gt-sub">${line}${gateOverrideLink(r,m)}</div></div></div>`;
+  };
+  const g1=GATE_GROUPS[0], g2=GATE_GROUPS[1], g3=GATE_GROUPS[2];
+  const plantRows=m.plant.map(p=>`<div class="gt-row ${p.done?'is-done':''} ${p.applies?'':'is-na'}"><span class="gt-box" aria-hidden="true">${p.done?'☑':'☐'}</span><div class="gt-main">
+      <div><b>${esc(gateRowLabel(p))}</b> ${gateChipTag(g3)}</div><div class="gt-sub">${esc(p.note)}</div></div></div>`).join('');
+  return `<div class="gt-status"><span class="chip ${chip[1]} gt-big">${esc(chip[0])}</span>${gateProgress(m)}<div class="gt-lead">${esc(gateStateLine(m,b))}</div></div>
+    <div class="gt-grp"><div class="gt-grp-h">${esc(g1.title)}</div>${m.rows.filter(r=>r.group==='base').map(r=>rowHTML(r,g1)).join('')||'<div class="gt-sub">No steps apply.</div>'}</div>
+    <div class="gt-grp"><div class="gt-grp-h">${esc(g2.title)}</div>${m.rows.filter(r=>r.group==='infra').map(r=>rowHTML(r,g2)).join('')||'<div class="gt-sub">No steps apply to this bed.</div>'}</div>
+    <div class="gt-grp"><div class="gt-grp-h">${esc(g3.title)}</div>${plantRows}</div>
+    ${gateNext(m,b)}`;
+}
+/* ---- TAB 2 ---- */
+function gateRequiredTab(b,m){
+  const lead=`<div class="dp-box"><div class="t"><span>Must be complete first</span></div>${gateProgress(m,'done')}
+    <div class="gt-sub" style="margin:0;"><b>Before:</b> Verify bed ready to plant. ${b.cohortId?esc((b.cropName||'The assigned crop')+' ('+b.cohortId+') is waiting on these steps.'):'No cohort on this bed yet: these steps are the gate for the next cohort.'} <b>Any order:</b> the crew does them as they are able, and every box must be checked.</div>
+    ${b.cohortId?'':'<div class="note" style="margin:8px 0 0;">Preview: these steps become the gate once a cohort is approved for this bed.</div>'}</div>`;
+  const label=r=>`<b>${esc(gateRowLabel(r))}</b> ${gateChipTag(GATE_GROUPS[r.group==='infra'?1:0])}`;
+  const openRows=m.rows.filter(r=>!r.done&&!r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
+      ${r.waiting?`<div class="gt-sub">${esc(r.waitText)}</div>`:r.worker?'':`<div class="gt-sub">${esc(r.note)}. Closed by the manager’s Terminate cohort action${gateOverrideBtn(r,m)?', or ':''}${gateOverrideBtn(r,m)}</div>`}</div>
+      ${r.worker&&!r.waiting?`<button class="btn btn-outline gt-btn" data-a="${esc(r.name)}" onclick="gateAssignOne(this)">Assign to Worker(s)</button>`:''}</div>`).join('');
+  const prog=m.rows.filter(r=>!r.done&&r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
+      ${r.sessions.map(q=>{ const t=taskTimes(q), live=gateLive(q);
+        return `<div class="gt-crew"><span>${esc(q.workerName||q.workerId)} · ${live?'started '+esc(fmtTs(t.started)||'—'):'assigned'+(t.dispatched?' '+esc(fmtTs(t.dispatched)):'')+', not started'}</span><button class="gt-link" onclick="gateReassign('${esc(q.id)}')">Reassign</button></div>`; }).join('')}</div></div>`).join('');
+  const doneRows=m.rows.filter(r=>r.done).map(r=>`<div class="gt-row is-done"><div class="gt-main"><div class="gt-strike">${esc(gateRowLabel(r))}</div><div class="gt-sub">${r.overridden?'overridden':r.verified?'verified':'done, waiting for verification'}</div></div></div>`).join('');
+  const sec=(t,n,body)=>body?`<div class="gt-grp"><div class="gt-grp-h">${t} (${n})</div>${body}</div>`:'';
+  const sessB=bedSessions(b.id);
+  return lead
+    +sec('Unassigned / open steps',m.rows.filter(r=>!r.done&&!r.sessions.length).length,openRows)
+    +sec('In progress',m.rows.filter(r=>!r.done&&r.sessions.length).length,prog)
+    +sec('Completed',m.done,doneRows)
+    +gateNext(m,b)
+    +(sessB.length?activeWorkSection(b,sessB):'');
+}
+/* ---- TAB 3 ---- */
+function gateVerifyTab(b,m){
+  const d=avS(b), pend=avStepsOf(b,true), n=pend.filter(s=>d.sel[s.name]).length, nChk=pend.filter(s=>d.sel[s.name]&&!(s.work&&s.work.checked)).length;
+  const pendHTML=pend.length?`<div class="dp-tools"><button onclick="avAll(true)">Select all</button><button onclick="avAll(false)">Clear</button></div>`
+    +pend.map(s=>`<label class="dp-row on" style="align-items:flex-start;"><input type="checkbox" ${d.sel[s.name]?'checked':''} data-v="${esc(s.name)}" onchange="avTog(this.dataset.v,this.checked)">
+      <div style="flex:1;min-width:0;"><b>${esc(actLabel(s.name))}</b> ${s.work&&s.work.checked?'<span class="chip chip-neutral">Checked · still needs verification</span>':'<span class="chip chip-warn">Waiting for your verification</span>'}${avLines(s)}</div></label>`).join('')
+    +`<div class="gt-actions"><button class="btn btn-outline" ${nChk?'':'disabled'} onclick="gateCheckSelected()" title="Logs that you reviewed it. The step stays pending and the bed stays locked.">${nChk?'Mark Checked ('+nChk+')':'Mark Checked'}</button>
+      <button class="btn btn-primary" ${n?'':'disabled'} onclick="avVerifySelected()">${n?'Verify Selected ('+n+')':'Verify Selected'}</button></div>
+      <div class="gt-sub">Mark Checked only records your review. Only Verify Selected counts toward the ${m.total} required.</div>`
+    :`<div class="note" style="margin:0;">${m.done?'Every completed step is signed off.':'Nothing has been completed yet.'}</div>`;
+  const verRows=m.rows.filter(r=>r.verified);
+  const ver=verRows.map(r=>{
+    const w=r.work, hov=r.hov;
+    const stamp=r.overridden?`Overridden by ${esc((hov&&hov.by)||'manager')}${hov&&hov.date?' · '+esc(hov.date):''}`
+      :w&&w.verified?`Verified by ${esc(w.verifiedByName||w.verifiedBy||'manager')} · ${esc(avWhen(w.verifiedAt))}`
+      :r.harvested?'Harvest closed by manager (Terminate cohort)':'Verified when the bed was released';
+    return `<div class="gt-row is-done is-grey"><div class="gt-main"><div>${esc(gateRowLabel(r))}</div><div class="gt-sub">${stamp}</div>${w&&w.completedBy&&w.completedBy.length?`<div class="gt-sub">Done by ${w.completedBy.map(x=>esc(x.name)).join(', ')}${w.budgetHours!=null?' · '+avHM(w.actualHours)+' of '+avHM(w.budgetHours)+' budget':''}</div>`:''}</div></div>`; }).join('');
+  const gate=m.released?`<div class="gt-next"><div class="gt-next-h">What to do next</div><div class="gt-next-s">✔ Bed released to Available</div>${b.cohortId?'':'<button class="btn btn-primary" style="width:auto;margin:6px 0 0;" onclick="gateAssignCohort()">Assign Cohort</button>'}</div>`
+    :`<div class="gt-next"><div class="gt-next-h">What to do next</div>
+      <div class="gt-next-s">${m.cleared?'✔ Required activities are cleared':m.verified+' of '+m.total+' required steps verified'}</div>
+      <button class="btn btn-ok" style="width:auto;margin:6px 6px 0 0;" ${m.cleared?'':'disabled'} onclick="gateRelease()">Verify Bed Ready &amp; Release to Available</button>
+      <button class="btn btn-outline" style="width:auto;margin:6px 0 0;" disabled title="Available after the bed is released">Assign Cohort</button>
+      ${m.cleared?'':`<div class="gt-sub" style="margin-top:6px;">Locked until all ${m.total} required steps are verified.</div>`}</div>`;
+  const other=(b.cohortId||m.st==='BLOCKED')?verifyCloseBlock(b):'';
+  return `<div class="dp-box"><div class="t"><span>Pending sign-off (${pend.length})</span></div>${pendHTML}</div>
+    <div class="dp-box"><div class="t"><span>Verified (${verRows.length})</span></div>${ver||'<div class="note" style="margin:0;">No step has been verified yet.</div>'}</div>
+    ${gate}${other}`;
+}
+/* ---- TAB 4 ---- */
+function gateCropLock(b,m){
+  const cs=String(b.cohortStatus||'').toUpperCase();
+  if(!b.cohortId) return 'Assign a cohort to this bed first. Crop activities open once the bed is Available and a cohort is assigned.';
+  if(!m.released) return 'Locked until the bed is verified ready and released to Available. Finish the required activities first.';
+  if(!['PRE_PLANTING','ACTIVE','WAITING_NEXT_PICK'].includes(cs)) return 'This cohort is finished. Turnover steps for the next crop are on the Required tab.';
+  return '';
+}
+function gateActivitiesTab(b,m){
+  const why=gateCropLock(b,m);
+  if(why) return `<div class="dp-box"><div class="t"><span>Activities · crop domain</span><span>🔒</span></div><div class="note" style="margin:0;">${esc(why)}</div>
+    ${m.released&&!b.cohortId?'<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="gateAssignCohort()">Assign Cohort</button>':''}</div>`;
+  const r=startableActivities(b.id,true), list=r.list, sessB=bedSessions(b.id);
+  const statusOf=n=>{ const q=sessB.filter(s=>s.activity===n); return !q.length?'':q.some(gateLive)?'<span class="chip chip-ok">In progress</span>':'<span class="chip chip-warn">Assigned</span>'; };
+  const row=a=>`<div class="gt-row"><div class="gt-main"><div><b>${esc((a.id?a.id+': ':'')+(GATE_LABEL[a.name]||a.name))}</b> ${statusOf(a.name)}</div>${a.description?`<div class="gt-sub">${esc(shortDesc(a.description,100))}</div>`:''}</div>
+    <button class="btn btn-outline gt-btn" data-a="${esc(a.name)}" onclick="gateAssignOne(this)">Assign</button></div>`;
+  const planting=list.filter(a=>a.plantingRole==='method'), care=list.filter(a=>a.plantingRole!=='method');
+  const other=m.plant.filter(p=>!planting.some(a=>a.name===p.name));
+  const verifyBtn=String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING'?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`:'';
+  const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
+  const g={}; care.forEach(a=>{ const k=a.plantingRole==='recovery'?'Recovery':(a.domain||'Other'); (g[k]=g[k]||[]).push(a); });
+  const careHTML=Object.keys(g).sort((x,y)=>rank(x)-rank(y)).map(k=>`<div class="ma-grp">${esc(k)}</div>`+g[k].map(row).join('')).join('');
+  return `<div class="dp-box"><div class="t"><span>Planting execution</span></div>
+      ${planting.map(row).join('')||`<div class="note" style="margin:0;">${esc(r.why||'No planting activity is open at this stage.')}</div>`}
+      ${other.map(p=>`<div class="gt-row is-na"><div class="gt-main"><div>${esc(gateRowLabel(p))}</div><div class="gt-sub">not for this crop</div></div></div>`).join('')}${verifyBtn}</div>
+    <div class="dp-box"><div class="t"><span>Crop care &amp; maintenance</span></div>${careHTML||`<div class="note" style="margin:0;">${esc(planting.length||!r.why?'Crop care opens after planting is verified.':r.why)}</div>`}
+      <button class="btn btn-outline" style="width:auto;margin:8px 0 0;" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:true})">Assign several activities…</button></div>
+    ${sessB.length?activeWorkSection(b,sessB):''}`;
+}
+function dpInner(b,sess){
+  dpS(b); const g=gtS(b), m=gateModel(b); gateOverrideSteps(m);
+  const locked=!!gateCropLock(b,m);
+  const tabs=[['overview','Overview'],['required','Required '+m.done+'/'+m.total],['verify','Verify & release'+(m.pending.length?' ('+m.pending.length+')':'')],['crop','Activities'+(locked?' 🔒':'')]];
+  const body=g.tab==='required'?gateRequiredTab(b,m):g.tab==='verify'?gateVerifyTab(b,m):g.tab==='crop'?gateActivitiesTab(b,m):gateOverviewTab(b,m);
+  return `<div class="gt-tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${g.tab===k}" class="${g.tab===k?'active':''}" onclick="setGateTab('${k}')">${esc(l)}</button>`).join('')}</div>${body}`;
+}
+
 function maOpenSet2(bedId){ const o={}; bedSessions(bedId).forEach(s=>{ o[String(s.workerId||'').toUpperCase()+'|'+s.activity]=1; }); return o; }
 /* Partial redraw so ticking a box never resets the sidebar's scroll position. */
 function dpRefresh(){ const root=document.getElementById('dp-root'), b=dpBed(); if(!root||!b.id) return render(); const pb=root.closest('.panelbody')||root.parentElement; const t=pb?pb.scrollTop:0; root.innerHTML=dpInner(b,bedSessions(b.id)); if(pb) pb.scrollTop=t; }
@@ -1639,9 +1898,9 @@ async function doVerifyTurnover(scope,bedId,opts){
   /* Steps still outstanding: the manager can verify anyway by explaining them (overridden and logged, then released in one action). */
   if(ph&&!ph.readyToVerify&&!opts.reason){ PH_STEPS[scope]=ph; openModal('verifyResolve',{scope,bedId,reason:''}); return false; }
   _verBusy=true; busyShow('Verifying '+bedId+' and releasing it to Available\u2026');
-  try{ /* requireVerified + verifyAll: any completed activity still awaiting verification is signed off with the release (BedStatusEngine.gs) */
+  try{ /* The server refuses the release (BED_RELEASE_REFUSED) while any completed step is unverified; a release never signs work off for you. */
     const extra=opts.reason?{ resolveOutstanding:true, reason:opts.reason }:{};
-    if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',Object.assign({ bedId, requireVerified:true, verifyAll:true },extra)); else await apiCall('complete-cohort',Object.assign({ cohortId:scope, requireVerified:true, verifyAll:true },extra));
+    if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',Object.assign({ bedId, requireVerified:true },extra)); else await apiCall('complete-cohort',Object.assign({ cohortId:scope, requireVerified:true },extra));
     busyHide(); _verBusy=false; toast('Bed '+bedId+' verified and released to Available.',5000); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); return true; }
   catch(e){ busyHide(); _verBusy=false; toast('Could not release '+bedId+': '+((e&&e.message)||'the server did not accept it.'),9000); return false; }
 }
@@ -1701,7 +1960,10 @@ function dispatchListFor(bedId,hasCohort){
   const b=(state.beds||[]).find(x=>x.id===bedId)||{}, cat=state.activityCatalog||[];
   const wf=wfAssignable(b).map(x=>{ const c=cat.find(y=>y.name===x.name)||{}; return {id:c.id||'',name:x.name,domain:'Required workflow',description:c.description||'',postHarvestSequence:x.idx+1,wf:true}; });
   const reg=startableActivities(bedId,hasCohort).list.filter(a=>!(Number(a.postHarvestSequence)>0));
-  return wf.concat(reg);
+  /* An UNVERIFIED bed has no reset view yet, but the server starts the reset the moment its first step is assigned (R14). */
+  const unv=(!hasCohort && !b.postHarvest && (String(b.bedStatus||'').toUpperCase()||'UNVERIFIED')==='UNVERIFIED')
+    ? cat.filter(a=>a.postHarvestSequence>0).sort((x,y)=>x.postHarvestSequence-y.postHarvestSequence).map(a=>({id:a.id||'',name:a.name,domain:'Required workflow',description:a.description||'',postHarvestSequence:a.postHarvestSequence,wf:true})) : [];
+  return wf.concat(unv,reg);
 }
 function maList(){ const d=maD(); return dispatchListFor(d.bedId,d.hasCohort); }
 function maVisible(){ const d=maD(), q=d.q.trim().toLowerCase();
