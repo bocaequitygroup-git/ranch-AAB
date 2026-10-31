@@ -1493,31 +1493,37 @@ function gateModel(b){
   const st=String(b.bedStatus||'').toUpperCase()||'UNVERIFIED';
   const ph=b.postHarvest||b.reset||null;
   const released=!b.postHarvest && !GATE_NOT_RELEASED.includes(st);
+  /* READ THE STORED RECORD, never invent one. ph.steps = the bed's real MANAGER_QUEUE state (b.reset is sent for every released bed that has turnover history);
+   * ph.release = the bed's stored Verify Bed Ready stamp (latest RESOLVED VerifyBedReady queue row). A released bed's step with no stored completion is LEGACY:
+   * shown as 'not on record' (released under an earlier SOP, or before step tracking), never counted done or verified, and never offered for assignment. */
+  const stamp=(ph&&ph.release)||null;
   const cohortScope=!!(b.postHarvest && !b.postHarvest.bedLevel);
   const scope=cohortScope?b.cohortId:'BED:'+b.id;
   const cs=String(b.cohortStatus||'').toUpperCase();
   let src;
   if(ph) src=(ph.steps||[]).map(x=>Object.assign({},x));
   else src=cat.filter(a=>a.postHarvestSequence>0).sort((x,y)=>x.postHarvestSequence-y.postHarvestSequence)
-        .map(a=>({name:a.name,status:released?'COMPLETE':'PENDING',gate:'',domain:a.domain}));
+        .map(a=>({name:a.name,status:released?'UNRECORDED':'PENDING',gate:'',domain:a.domain}));   /* no stored record at all: unrecorded, not complete */
   const rows=src.map((x,i)=>{
     const m=meta(x.name), seq=m.postHarvestSequence||0, mine=sess.filter(q=>q.activity===x.name);
     const done=x.status==='COMPLETE', w=x.work||null;
-    const waiting=!done&&(x.gate==='BUFFER'||(x.gate==='WINDOW'&&x.status!=='OPEN'));
-    const verified=done&&(x.overridden||!!(w&&w.verified)||released&&!w);
+    const legacy=released&&!done&&(x.status==='UNRECORDED'||x.status==='PENDING');
+    const waiting=!done&&!legacy&&(x.gate==='BUFFER'||(x.gate==='WINDOW'&&x.status!=='OPEN'));
+    const verified=done&&(x.overridden||!!(w&&w.verified)||(released&&!w&&!!stamp));   /* a step with no work record counts as verified only when the bed carries a stored release stamp */
     return { name:x.name, id:m.id||'', label:GATE_LABEL[x.name]||x.name, domain:x.domain||m.domain||'', seq:seq||i+1,
       group:(seq>=GATE_INFRA_FROM_SEQ||GATE_INFRA_NAMES.includes(x.name))?'infra':'base',
       checked:!!(w&&w.checked&&!(w&&w.verified)), checkedBy:(w&&w.checkedByName)||'', checkedAt:(w&&w.checkedAt)||'', done, overridden:!!x.overridden, hov:(ph&&ph.overrides||[]).find(o=>o.name===x.name)||null, verified, work:w, needsVerification:!!x.needsVerification,
-      waiting, waitText:x.gate==='BUFFER'?'Automatic wait: no one needs to be assigned':(waiting?'Waiting for its seasonal window'+(x.windowOpens?' (opens '+x.windowOpens+')':''):''),
-      sessions:mine, live:mine.filter(gateLive), assigned:mine.filter(q=>!gateLive(q)), worker:true };
+      legacy, note:legacy?'not on record: this bed was released'+(stamp?' on '+stamp.date:'')+' before this step was tracked':'', waiting, windowGate:!done&&!legacy&&x.gate==='WINDOW'&&x.status!=='OPEN', waitText:x.gate==='BUFFER'?'Automatic wait: no one needs to be assigned':(waiting?'Waiting for its seasonal window'+(x.windowOpens?' (opens '+x.windowOpens+')':'')+'. You can assign it early with a reason.':''),
+      sessions:mine, live:mine.filter(gateLive), assigned:mine.filter(q=>!gateLive(q)), worker:!legacy };
   });
   /* ACT_053 is a lifecycle step, not part of the SOP sequence: it is done when this bed's cohort was terminated (harvest complete). */
   const harvested=cohortScope||['TERMINATED','COMPLETE'].includes(cs);
   const hov=ph&&ph.harvestOverride||null;
+  const t53done=harvested||!!hov||(released&&!!stamp), t53legacy=released&&!t53done;   /* released with no stored stamp and no termination record = not on record */
   const t53={ name:'TerminateCohort', id:(meta('TerminateCohort').id||'ACT_053'), label:GATE_LABEL.TerminateCohort, domain:'Lifecycle', seq:0, group:'base',
-    done:released||harvested||!!hov, overridden:!!hov&&!harvested&&!released, verified:released||harvested||!!hov, work:null, needsVerification:false, waiting:false, waitText:'',
+    done:t53done, overridden:!!hov&&!harvested, verified:t53done, legacy:t53legacy, work:null, needsVerification:false, waiting:false, waitText:'',
     sessions:[], live:[], assigned:[], worker:false, harvested, hov,
-    note:harvested?'cohort terminated and harvest closed':hov?'overridden by '+(hov.by||'a manager')+(hov.date?' on '+hov.date:'')+(hov.reason?': '+hov.reason:''):'no previous harvest — this bed has not been harvested yet' };
+    note:t53legacy?'not on record: this bed was released before harvest closure was tracked':harvested?'cohort terminated and harvest closed':hov?'overridden by '+(hov.by||'a manager')+(hov.date?' on '+hov.date:'')+(hov.reason?': '+hov.reason:''):'no previous harvest — this bed has not been harvested yet' };
   rows.unshift(t53);
   const total=rows.length, done=rows.filter(r=>r.done).length, verified=rows.filter(r=>r.verified).length;
   const planted=!!b.plantingDate, method=plantingActivityFor(b);
@@ -1525,25 +1531,30 @@ function gateModel(b){
     const m=meta(n), applies=!!b.cohortId&&method===n;
     return { name:n, id:m.id||id, label, applies, done:planted&&applies, note:!b.cohortId?'not for this crop — applies once a crop is assigned':applies?(planted?'done — planting verified':'applies to '+(b.cropName||'this crop')+' — happens after the bed is released'):'not for this crop' };
   });
-  const open=rows.filter(r=>!r.done);
+  const legacyN=rows.filter(r=>r.legacy).length;
+  const open=rows.filter(r=>!r.done&&!r.legacy);
   const unassigned=open.filter(r=>r.worker&&!r.waiting&&!r.sessions.length);
   const busy=open.filter(r=>r.sessions.length);
   const pending=rows.filter(r=>r.done&&!r.verified);   /* completed but not verified: a CHECK does not change this */
-  return { rows, plant, prop:gatePropagationInfo(b), total, done, verified, open, unassigned, busy, pending, released, scope, st, cohortScope,
+  return { rows, plant, prop:gatePropagationInfo(b), total, done, verified, open, unassigned, busy, pending, released, scope, st, cohortScope, legacy:legacyN, releasedAt:stamp?stamp.date:'',
            ready:released||(verified===total&&total>0), cleared:verified===total&&total>0 };
 }
 function gateOverrideSteps(m){   /* the override modal lists these (PH_STEPS[scope].steps) */
-  PH_STEPS[m.scope]={ steps:m.rows.filter(r=>!r.done).map(r=>({name:r.name,domain:r.domain||'Other',status:'OPEN'})) };
+  PH_STEPS[m.scope]={ steps:m.rows.filter(r=>!r.done&&!r.legacy).map(r=>({name:r.name,domain:r.domain||'Other',status:'OPEN'})) };
 }
 function gateRowLabel(r){ return (r.id?r.id+': ':'')+r.label; }
 function gateStateLine(m,b){
-  if(m.released) return b.plantingDate?'Cleared before planting. This bed is now in production.':'Bed verified ready. Planting can start once a cohort is assigned.';
+  if(m.released){
+    const base=b.plantingDate?'Cleared before planting. This bed is now in production.':'Bed verified ready. Planting can start once a cohort is assigned.';
+    return m.legacy?base+' Partial record: '+(m.total-m.legacy)+' of '+m.total+' current steps are on file'+(m.releasedAt?' (released '+m.releasedAt+')':'')+'; the other '+m.legacy+' predate this SOP or were never logged, so they are shown as not on record rather than done.':base;
+  }
   if(m.cleared) return 'All '+m.total+' required steps are verified. Release the bed to make it available.';
   if(!m.open.length) return 'All required steps are done, but '+m.pending.length+' still need'+(m.pending.length===1?'s':'')+' manager verification. Checking a step does not count; verify it.';
   if(!m.pending.length) return m.open.length+' of '+m.total+' required step'+(m.total===1?'':'s')+' still open. Planting is blocked until all are done and a manager verifies the bed ready.';
   return m.open.length+' step'+(m.open.length===1?'':'s')+' still open and '+m.pending.length+' completed step'+(m.pending.length===1?'':'s')+' awaiting verification. Planting is blocked until all '+m.total+' are verified and the bed is released.';
 }
 function gateHeadChip(m,b){
+  if(m.released&&m.legacy) return ['RELEASED · PARTIAL RECORD','chip-neutral'];
   if(m.released) return b.plantingDate?['CLEARED · IN PRODUCTION','chip-ok']:['READY TO PLANT','chip-ok'];
   if(m.cleared) return ['READY TO RELEASE','chip-ok'];
   return ['NOT READY TO PLANT','chip-warn'];
@@ -1602,7 +1613,7 @@ function gateOverviewTab(b,m){
     const crew=r.sessions.length?' · '+esc(r.sessions.map(q=>q.workerName||q.workerId).join(', '))+(r.live.length?' (in progress)':' (assigned)'):'';
     const line=r.done?(r.overridden?'overridden'+(r.note?' — '+esc(r.note.replace(/^overridden by /,'by ')):''):r.verified?(r.work&&r.work.verifiedByName?'verified by '+esc(r.work.verifiedByName):(r.note?esc(r.note):'verified')):(r.checked?'checked by '+esc(r.checkedBy||'a manager')+' — still pending verification':'completed — pending verification'))
       :r.note?esc(r.note):r.waiting?esc(r.waitText):(r.sessions.length?(r.live.length?'in progress':'assigned, not started')+crew:'open');
-    return `<div class="gt-row ${r.verified?'is-done':''}"><span class="gt-box" aria-hidden="true">${r.verified?'☑':'☐'}</span><div class="gt-main">
+    return `<div class="gt-row ${r.verified?'is-done':''}"><span class="gt-box" aria-hidden="true">${r.verified?'☑':r.legacy?'–':'☐'}</span><div class="gt-main">
       <div><b>${esc(gateRowLabel(r))}</b> ${gateChipTag(g)}</div><div class="gt-sub">${line}${gateOverrideLink(r,m)}</div></div></div>`;
   };
   const g1=GATE_GROUPS[0], g2=GATE_GROUPS[1], g3=GATE_GROUPS[2];
@@ -1620,19 +1631,21 @@ function gateRequiredTab(b,m){
     <div class="gt-sub" style="margin:0;"><b>Before:</b> Verify bed ready to plant. ${b.cohortId?esc((b.cropName||'The assigned crop')+' ('+b.cohortId+') is waiting on these steps.'):'No cohort on this bed yet: these steps are the gate for the next cohort.'} <b>Any order:</b> the crew does them as they are able, and every box must be checked.</div>
     ${b.cohortId?'':'<div class="note" style="margin:8px 0 0;">Preview: these steps become the gate once a cohort is approved for this bed.</div>'}</div>`;
   const label=r=>`<b>${esc(gateRowLabel(r))}</b> ${gateChipTag(GATE_GROUPS[r.group==='infra'?1:0])}`;
-  const openRows=m.rows.filter(r=>!r.done&&!r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
+  const openRows=m.rows.filter(r=>!r.done&&!r.legacy&&!r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
       ${r.waiting?`<div class="gt-sub">${esc(r.waitText)}</div>`:r.worker?'':`<div class="gt-sub">${esc(r.note)}. Closed by the manager’s Terminate cohort action${gateOverrideBtn(r,m)?', or ':''}${gateOverrideBtn(r,m)}</div>`}</div>
-      ${r.worker&&!r.waiting?`<button class="btn btn-outline gt-btn" data-a="${esc(r.name)}" onclick="gateAssignOne(this)">Assign to Worker(s)</button>`:''}</div>`).join('');
+      ${r.worker&&!r.waiting?`<button class="btn btn-outline gt-btn" data-a="${esc(r.name)}" onclick="gateAssignOne(this)">Assign to Worker(s)</button>`:r.windowGate?`<button class="btn btn-outline gt-btn" data-a="${esc(r.name)}" onclick="gateAssignOne(this)">Assign early…</button>`:''}</div>`).join('');
   const prog=m.rows.filter(r=>!r.done&&r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
       ${r.sessions.map(q=>{ const t=taskTimes(q), live=gateLive(q);
         return `<div class="gt-crew"><span>${esc(q.workerName||q.workerId)} · ${live?'started '+esc(fmtTs(t.started)||'—'):'assigned'+(t.dispatched?' '+esc(fmtTs(t.dispatched)):'')+', not started'}</span><button class="gt-link" onclick="gateReassign('${esc(q.id)}')">Reassign</button></div>`; }).join('')}</div></div>`).join('');
+  const legacyRows=m.rows.filter(r=>r.legacy).map(r=>`<div class="gt-row is-grey"><div class="gt-main"><div>${esc(gateRowLabel(r))}</div><div class="gt-sub">${esc(r.note)}</div></div></div>`).join('');
   const doneRows=m.rows.filter(r=>r.done).map(r=>`<div class="gt-row is-done"><div class="gt-main"><div class="gt-strike">${esc(gateRowLabel(r))}</div><div class="gt-sub">${r.overridden?'overridden':r.verified?'verified':'done, waiting for verification'}</div></div></div>`).join('');
   const sec=(t,n,body)=>body?`<div class="gt-grp"><div class="gt-grp-h">${t} (${n})</div>${body}</div>`:'';
   const sessB=bedSessions(b.id);
   return lead
-    +sec('Unassigned / open steps',m.rows.filter(r=>!r.done&&!r.sessions.length).length,openRows)
+    +sec('Unassigned / open steps',m.rows.filter(r=>!r.done&&!r.legacy&&!r.sessions.length).length,openRows)
     +sec('In progress',m.rows.filter(r=>!r.done&&r.sessions.length).length,prog)
     +sec('Completed',m.done,doneRows)
+    +sec('Not on record (legacy)',m.legacy,legacyRows)
     +gateNext(m,b)
     +(sessB.length?activeWorkSection(b,sessB):'');
 }
@@ -2032,21 +2045,27 @@ function dispatchModal(){
  * Every (activity, worker) pair is its own ASSIGNED session validated by validateActivity_(). Post-harvest turnover is NOT here:
  * it stays a controlled one-step-at-a-time sequence (turnoverBlock / fixedDispatchModal). */
 function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.fert) d.fert={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
+function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.fert) d.fert={}; if(!d.early) d.early={}; if(!d.earlyForce) d.earlyForce={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
 /* Required-workflow steps this bed can be given right now (any order): not complete, not an automatic buffer, window open. */
 /* Any order: every unfinished step that is not an automatic wait / closed window can be assigned. The bed is released only by the manager's Verify Bed Ready. */
 function phNextStep(p){ return p?(p.steps||[]).find(x=>x.status!=='COMPLETE')||null:null; }
 function phStepOpen(x){ return !!x&&x.gate!=='BUFFER'&&!(x.gate==='WINDOW'&&x.status!=='OPEN'); }
 function phStepAssignable(x){ return !!x&&x.status!=='COMPLETE'&&phStepOpen(x); }
+/* A seasonal-window step whose date has not arrived (e.g. ACT_045, 3/25). Not assignable normally, but a manager may ASSIGN EARLY with a logged reason
+ * (>= EARLY_MIN chars). The server (validateActivity_ / earlyAssignCheck_) enforces it; this only offers it. Automatic buffers are never offered. */
+const EARLY_MIN=5;
+function phStepEarly(x){ return !!x&&x.status!=='COMPLETE'&&x.gate==='WINDOW'&&x.status!=='OPEN'; }
+function wfEarly(b){ const p=b&&b.postHarvest; return p?(p.steps||[]).map((x,i)=>Object.assign({idx:i},x)).filter(phStepEarly):[]; }
 function wfAssignable(b){ const p=b&&b.postHarvest; return p?(p.steps||[]).map((x,i)=>Object.assign({idx:i},x)).filter(phStepAssignable):[]; }
 function dispatchListFor(bedId,hasCohort){
   const b=(state.beds||[]).find(x=>x.id===bedId)||{}, cat=state.activityCatalog||[];
   const wf=wfAssignable(b).map(x=>{ const c=cat.find(y=>y.name===x.name)||{}; return {id:c.id||'',name:x.name,domain:'Required workflow',description:c.description||'',postHarvestSequence:x.idx+1,wf:true}; });
+  const early=wfEarly(b).map(x=>{ const c=cat.find(y=>y.name===x.name)||{}; return {id:c.id||'',name:x.name,domain:'Required workflow',description:c.description||'',postHarvestSequence:x.idx+1,wf:true,early:true,windowOpens:x.windowOpens||''}; });
   const reg=startableActivities(bedId,hasCohort).list.filter(a=>!(Number(a.postHarvestSequence)>0));
   /* An UNVERIFIED bed has no reset view yet, but the server starts the reset the moment its first step is assigned (R14). */
   const unv=(!hasCohort && !b.postHarvest && (String(b.bedStatus||'').toUpperCase()||'UNVERIFIED')==='UNVERIFIED')
     ? cat.filter(a=>a.postHarvestSequence>0).sort((x,y)=>x.postHarvestSequence-y.postHarvestSequence).map(a=>({id:a.id||'',name:a.name,domain:'Required workflow',description:a.description||'',postHarvestSequence:a.postHarvestSequence,wf:true})) : [];
-  return wf.concat(unv,reg);
+  return wf.concat(early,unv,reg);
 }
 function maList(){ const d=maD(); return dispatchListFor(d.bedId,d.hasCohort); }
 function maVisible(){ const d=maD(), q=d.q.trim().toLowerCase();
@@ -2073,7 +2092,16 @@ function maRowsActs(){
   if(!vis.length) return `<div class="empty">${maList().length?'No activity matches this filter.':esc(startableActivities(d.bedId,d.hasCohort).why||'No activity is allowed on this bed right now.')}</div>`;
   return Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<div class="ma-grp">${esc(g)}</div>`+groups[g].map(a=>{
     const on=d.acts.includes(a.name), live=bedSessions(d.bedId).filter(s=>s.activity===a.name).length;
-    return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="maToggleAct(this.dataset.v,this.checked)" data-v="${esc(a.name)}"><span><b style="font-weight:700;">${esc(actLabel(a.name))}</b>${govChips(a)}${a.description?`<span class="d">${esc(a.description)}</span>`:''}</span>${live?`<span class="r">${live} open</span>`:''}</label>`; }).join('')).join('');
+    return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="maToggleAct(this.dataset.v,this.checked)" data-v="${esc(a.name)}"><span><b style="font-weight:700;">${esc(actLabel(a.name))}</b>${govChips(a)}${a.early?`<span class="chip chip-warn" style="margin-left:6px;">Assign early${a.windowOpens?' · opens '+esc(a.windowOpens):''}</span>`:''}${a.description?`<span class="d">${esc(a.description)}</span>`:''}</span>${live?`<span class="r">${live} open</span>`:''}</label>`; }).join('')).join('');
+}
+function maIsEarly(a){ const d=maD(); return !!d.earlyForce[a]||maList().some(x=>x.name===a&&x.early); }
+function maEarlyOk(a){ return String((maD().early||{})[a]||'').replace(/\s+/g,' ').trim().length>=EARLY_MIN; }
+function maEarly(a,v){ const d=maD(); d.early[a]=v; d.result=null; const f=document.getElementById('ma-foot'); if(f) f.innerHTML=maFootHTML(); }
+function earlyBox(a){
+  const ok=maEarlyOk(a);
+  return `<div style="margin-top:6px;padding:6px 8px;border:1px solid #e0c98a;border-radius:8px;background:#FFF8E6;">
+    <div class="qsub" style="text-transform:none;letter-spacing:0;font-weight:700;">Assign early: its seasonal window has not opened${ok?'':' <span style="color:var(--warn);">· reason required (at least '+EARLY_MIN+' characters)</span>'}</div>
+    <input type="text" maxlength="200" value="${esc((maD().early||{})[a]||'')}" placeholder="Why assign this before its window opens? (logged) *" data-a="${esc(a)}" oninput="maEarly(this.dataset.a,this.value)" style="width:100%;margin-top:4px;"></div>`;
 }
 function maPlanHTML(){
   const d=maD();
@@ -2083,24 +2111,25 @@ function maPlanHTML(){
   const cards=d.acts.map(a=>{ const ws=d.map[a]||[];
     return `<div class="ma-pcard ${ws.length?'':'need'}"><div class="ma-ptop"><span>${esc(actLabel(a))}</span><button title="Remove activity" onclick="maToggleAct(this.dataset.v,false)" data-v="${esc(a)}">×</button></div>
       ${ws.length?`<div class="ma-chips" style="margin:6px 0 0;">${ws.map(w=>`<span class="ma-chip" style="background:#E4F1E5;">${esc(maWName(w))}${open[String(w).toUpperCase()+'|'+a]?' <span style="color:var(--warn);font-size:10.5px;">(already open)</span>':''}<button title="Remove" onclick="maDelWorker(this.dataset.a,this.dataset.w)" data-a="${esc(a)}" data-w="${esc(w)}">×</button></span>`).join('')}</div>`:`<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">No worker yet</div>`}
-      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select>${isFertAct(a)?fertBox('ma',a):''}</div>`; }).join('');
+      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select>${isFertAct(a)?fertBox('ma',a):''}${maIsEarly(a)?earlyBox(a):''}</div>`; }).join('');
   return bulk+`<div class="ma-plan" style="padding-top:8px;">${cards}</div>`;
 }
 function maCatTabs(){ const d=maD(), list=maList(), cnt=k=>k==='ALL'?list.length:list.filter(a=>actCatOf(a)===k).length;
   return ACTION_CATS.filter(([k])=>k==='ALL'||cnt(k)>0).map(([k,l])=>`<button class="${d.cat===k?'active':''}" onclick="maSetCat('${k}')">${esc(l)}<span class="n">${cnt(k)}</span></button>`).join(''); }
 function maCounts(){
-  const d=maD(), open=maOpenSet(); let total=0, dup=0, missing=0, fertMissing=0;
-  d.acts.forEach(a=>{ const ws=d.map[a]||[]; if(!ws.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fertMissing++; ws.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
-  return {total,dup,missing,fertMissing,fresh:total-dup};
+  const d=maD(), open=maOpenSet(); let total=0, dup=0, missing=0, fertMissing=0, earlyMissing=0;
+  d.acts.forEach(a=>{ const ws=d.map[a]||[]; if(!ws.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fertMissing++; if(maIsEarly(a)&&!maEarlyOk(a)) earlyMissing++; ws.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
+  return {total,dup,missing,fertMissing,earlyMissing,fresh:total-dup};
 }
 function maFootHTML(){
   const d=maD(), c=maCounts();
   const sum=!d.acts.length?`<span style="color:var(--ink-soft);">Pick the activities, then choose who does each one.</span>`
     : c.missing?`<span style="color:var(--warn);font-weight:600;">${c.missing} selected activit${c.missing===1?'y has':'ies have'} no worker yet.</span> Choose a worker for each, or remove it.`
     : c.fertMissing?`<span style="color:var(--warn);font-weight:600;">${c.fertMissing} fertilizer task${c.fertMissing===1?'':'s'} still need type, brand and quantity.</span> Fill in the green box on each.`
+    : c.earlyMissing?`<span style="color:var(--warn);font-weight:600;">${c.earlyMissing} early assignment${c.earlyMissing===1?'':'s'} still need a reason.</span> Type at least ${EARLY_MIN} characters in the yellow box.`
     : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}${pwWarnHTML(r.failed,'ma')}</div>`;
-  const ok=d.acts.length&&!c.missing&&!c.fertMissing&&c.fresh>0&&!d.busy;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':f.errorCode==='EARLY_ASSIGN_REASON_REQUIRED'?(f.message||'its seasonal window has not opened: enter a reason to assign it early'):(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}${pwWarnHTML(r.failed,'ma')}</div>`;
+  const ok=d.acts.length&&!c.missing&&!c.fertMissing&&!c.earlyMissing&&c.fresh>0&&!d.busy;
   return `<div class="ma-sum">${sum}</div>${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'<span class="vp-spin"></span>Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
     <button class="btn btn-outline" style="width:auto;padding:11px 16px;" onclick="maClear()">Clear</button>
@@ -2160,12 +2189,13 @@ function multiAssignModal(){
 }
 function maSetDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; }
 async function submitMultiAssign(){
-  const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||!c.fresh) return;
+  const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||c.earlyMissing||!c.fresh) return;
   d.busy=true; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
   try{
-    const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]);
+    const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]).map(o=>{ if(maIsEarly(o.activity)) o.earlyReason=String(d.early[o.activity]||'').trim(); return o; });
     const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments, scheduledDate:d.date }, 60000);
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] };
+    d.result.failed.forEach(f=>{ if(f.errorCode==='EARLY_ASSIGN_REASON_REQUIRED') d.earlyForce[f.activity]=true; });   /* a bed with no reset view yet learns a step is window-gated only from the server */
     if(d.result.created.length) toast(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' assigned.');
     /* keep only pairs that FAILED so the manager can adjust them; drop everything that went through or was already open */
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
