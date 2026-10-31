@@ -967,7 +967,9 @@ function selectBed(bedId){ ui.selectedBed=bedId; ui.tab='overview'; render(); } 
 function closePanel(){ ui.selectedBed=null; render(); }
 function setOverlay(mode){ ui.overlay=mode; render(); }
 function setTab(t){ ui.tab=t; render(); }
-function openModal(name, draft){ ui.modal=name; ui.modalDraft=draft||{}; render(); }
+function openModal(name, draft){ ui.modal=name; ui.modalDraft=draft||{}; render();
+  /* Assign modal opened with activities already ticked (e.g. from the bed readiness gate): default the planting date and start the window check now */
+  if(name==='dispatch' && !ui.modalDraft.fixedActivity && ui.modalDraft.acts && ui.modalDraft.acts.length) maPlantSync(); }
 function closeModal(){ ui.modal=null; ui.modalDraft={}; ui.focusCohort=null; ui.focusPending=false; render(); }
 
 function bedFill(bed){
@@ -2208,7 +2210,8 @@ function maPwHTML(){
   const ctx=maPlantCtx(); if(!ctx) return '';
   const d=maD(), pw=maPwNow(), planned=ctx.planned?String(ctx.planned).slice(0,10):'';
   const head=`<div class="qsub" style="text-transform:none;letter-spacing:0;margin:0 0 4px;"><b>Planting date ${esc(d.date)}</b> for ${esc(ctx.cropName||ctx.cohortId)}${planned?' · planned '+esc(planned)+(d.date!==planned?' <button class="dc-mini" onclick="maUsePlanned()">Use planned date</button>':''):''}</div>`;
-  if(!pw) return `<div class="pw-box">${head}<div>Checking the allowable planting window…</div></div>`;
+  if(!pw){ setTimeout(maPwCheck,0);   /* safety net: if nothing started the check, start it (guarded against duplicates) */
+    return `<div class="pw-box">${head}<div>Checking the allowable planting window…</div></div>`; }
   const range=pw.rangeText?esc(pw.rangeText):'';
   const src=PW_BASIS_LABEL[pw.basis]||pw.basis||'';
   if(pw.state==='IN_WINDOW') return `<div class="pw-box ok">${head}<div>✔ Inside the allowable window${range?': <b>'+range+'</b>':''}${src?' · '+esc(src):''}</div></div>`;
