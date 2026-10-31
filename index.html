@@ -354,6 +354,16 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 #vp-busy .bar{height:4px;background:rgba(0,0,0,.08);position:relative;overflow:hidden}
 #vp-busy .bar i{position:absolute;top:0;bottom:0;width:40%;background:#2f7d3a;animation:vpSlide 1.1s ease-in-out infinite}
 #vp-busy .msg{margin:8px auto 0;width:max-content;max-width:90vw;background:#1f2a1f;color:#fff;padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+/* Action feedback: disabled + spinner while a button's action runs; green success toast. */
+.vp-busy-btn{cursor:progress !important;}
+button.vp-busy-btn:disabled{opacity:.82;}
+.btn.vp-busy-btn:disabled,.sheet .btn.vp-busy-btn:disabled{opacity:.82;cursor:progress;border-style:solid;}
+.sheet .btn-primary.vp-busy-btn:disabled{background:var(--forest);}
+.sheet .btn-danger.vp-busy-btn:disabled{background:var(--danger);}
+.sheet .btn-ok.vp-busy-btn:disabled{background:var(--ok);}
+.sheet .btn-outline.vp-busy-btn:disabled,.sheet .btn-reject.vp-busy-btn:disabled,.sheet .btn-ghost.vp-busy-btn:disabled{background:transparent;}
+.toast.ok{background:var(--ok);}
+.toast.ok::before{content:"\2713";margin-right:8px;font-weight:800;}
 
 /* ---- bed readiness gate (four tabs) ---- */
 .gt-tabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--line);margin:0 0 10px;}
@@ -1752,20 +1762,7 @@ function actionsPanel(b,sess){
   const hd=`<div class="dp-hd"><div><b>Bed ${esc(b.id)}</b><div class="loc">${esc(b.blockId||'')}${b.locationType?' · '+esc(String(b.locationType))+' bed':''}</div></div><span class="chip chip-warn">${esc(st)}</span></div>`;
   return sync+hd+`<div id="dp-root">${dpInner(b,sess)}</div>`;
 }
-/* Monitor progress: while a bed is open, quietly re-read the live data every 30s. Skipped while a modal is open or the
- * manager is mid-edit in a field, so a refresh never wipes what they are typing or choosing. */
-async function refreshLive(){
-  if(!state.token || ui.modal || ui.loading || refreshLive._busy || !(ui.selectedBed||ui.ppSelectedBed||(ui.screen==='planning'&&ui.pMode==='bedboard'))) return;
-  const ae=document.activeElement; if(ae && /^(SELECT|TEXTAREA|INPUT)$/.test(ae.tagName)) return;
-  refreshLive._busy=true;
-  try{
-    const d=await fetchTodayView();
-    d.workers=d.workers||state.workers; d.activityCatalog=d.activityCatalog||state.activityCatalog;
-    applyTodayView(d); render();
-  }catch(e){ /* a failed background refresh is silent; Refresh button reports errors */ }
-  finally{ refreshLive._busy=false; }
-}
-setInterval(refreshLive,30000);
+/* Background refresh (every 30 s) now lives in the "LIVE SYNC + ACTION FEEDBACK" block just before START. */
 
 function modalHTML(){
   if(!ui.modal) return '';
@@ -6093,6 +6090,265 @@ async function mockBackend(action, p){
     default: return bad('That action is not available.','UNKNOWN_ACTION');
   }
 }
+
+/* ============================== LIVE SYNC + ACTION FEEDBACK ==============================
+ * Fixes two manager-board problems:
+ *  1. Tasks a worker starts in the field only showed as "In progress" after a manual browser refresh.
+ *  2. Verify / submit buttons gave no visible feedback while the server was working.
+ *
+ * LIVE SYNC. Every 30 s (setInterval) while signed in and the tab is visible, the board quietly re-reads the manager
+ * today-view (sessions, bed status, exceptions) and the cohort board. The data is ALWAYS applied to `state`; only the
+ * repaint is deferred while the manager is typing in a field, a modal is open, or an action is running, and it is
+ * flushed as soon as that ends. A repaint keeps open <details> sections and every scroll position, so open drawers
+ * are not reset. A poll that overlaps a user action or a manual Refresh is discarded, so stale data never overwrites
+ * fresher data. A poll also runs when the tab becomes visible again (browsers throttle background timers).
+ *
+ * ACTION FEEDBACK. Every write handler listed in ACTIONS is wrapped (the original functions are untouched): the clicked
+ * button is disabled and shows a spinner at once, the top progress bar shows what is happening, a second click on the
+ * same button is ignored, and when the server accepted the change a green "done" toast appears (unless the handler
+ * already showed its own toast). Failures keep the handler's own error toast; if a handler throws, an error toast is shown.
+ * The button state survives render() because it is re-applied after every render until the action finishes. */
+(function vpLiveLayer(){
+  'use strict';
+  const POLL_MS=30000;
+  const READ_RE=/^(get|list|check|preview|validate)-/;     /* api actions that do not change data */
+  let epoch=0, active=0, writes=0, writeFails=0, toasts=0, lastPoll=0, lastCtx='';
+  let clickCtx=null, dirty=false, polling=false;
+  const inflight=new Set(), busyBtns=new Map();
+
+  /* ---------- counters: did this action write, did a write fail, did the handler already toast ---------- */
+  const _apiCall=window.apiCall;
+  window.apiCall=function(action){
+    if(READ_RE.test(String(action))) return _apiCall.apply(this,arguments);
+    writes++;
+    return _apiCall.apply(this,arguments).catch(function(e){ writeFails++; throw e; });
+  };
+  const _toast=window.toast;
+  window.toast=function(msg,ms,kind){ toasts++; ui.toastKind=kind||''; return _toast.call(this,msg,ms); };
+  const _busyHide=window.busyHide;                          /* a handler's own busyHide() must not hide the bar while we are still working */
+  window.busyHide=function(){ if(active>0) return; return _busyHide.apply(this,arguments); };
+  const _lto=window.loadTodayOnce;                          /* a manual Refresh invalidates any poll that is in flight */
+  window.loadTodayOnce=function(){ epoch++; return Promise.resolve(_lto.apply(this,arguments)).finally(function(){ epoch++; }); };
+
+  /* ---------- keep <details> drawers open/closed across a repaint ---------- */
+  function detKey(d,counts){ const s=d.querySelector(':scope > summary'); const t=(s?s.textContent:'').replace(/[\d\s]+/g,'').slice(0,60)||'(none)'; counts[t]=(counts[t]||0)+1; return t+'#'+counts[t]; }
+  function snapDetails(root){ const out={}, counts={}; root.querySelectorAll('details').forEach(function(d){ out[detKey(d,counts)]=d.open; }); return out; }
+  function restoreDetails(root,snap){ const counts={}; root.querySelectorAll('details').forEach(function(d){ const k=detKey(d,counts); if(k in snap) d.open=snap[k]; }); }
+  function ctxKey(){ try{ return [ui.screen,ui.pMode,ui.selectedBed,ui.ppSelectedBed,ui.tab,ui.modal,(typeof bb!=='undefined'&&bb.bedSel)||''].join('|'); }catch(e){ return ''; } }
+
+  const _render=window.render;
+  window.render=function(){
+    const snap=snapDetails(document), before=lastCtx;
+    const r=_render.apply(this,arguments);
+    const now=ctxKey();
+    if(before===now) restoreDetails(document,snap);          /* same bed / screen / modal: keep what the manager had open */
+    lastCtx=now; dirty=false; decorate();
+    return r;
+  };
+  const _dpRefresh=window.dpRefresh;                         /* the dispatch drawer repaints itself without render() */
+  window.dpRefresh=function(){
+    const root=document.getElementById('dp-root'), snap=root?snapDetails(root):null;
+    const r=_dpRefresh.apply(this,arguments);
+    const root2=document.getElementById('dp-root');
+    if(snap&&root2) restoreDetails(root2,snap);
+    applyBusy();
+    return r;
+  };
+  function decorate(){
+    if(!ui.toast) ui.toastKind='';
+    const t=document.querySelector('.toast');
+    if(t){ t.setAttribute('role','status'); t.setAttribute('aria-live','polite'); t.classList.toggle('ok',ui.toastKind==='ok'); }
+    applyBusy();
+  }
+
+  /* ---------- per-button busy state (survives render because it is re-applied after each one) ---------- */
+  function markBusy(b){
+    b.dataset.vpBusy='1'; b.dataset.vpWasDis=b.disabled?'1':'';
+    b.disabled=true; b.classList.add('vp-busy-btn'); b.setAttribute('aria-busy','true');
+    if(!b.querySelector('.vp-spin')){ const s=document.createElement('span'); s.className='vp-spin'; s.setAttribute('aria-hidden','true'); s.dataset.vp='1'; b.insertBefore(s,b.firstChild); }
+  }
+  function unmarkBusy(b){
+    b.disabled=b.dataset.vpWasDis==='1'; b.classList.remove('vp-busy-btn'); b.removeAttribute('aria-busy');
+    const s=b.querySelector('.vp-spin[data-vp]'); if(s) s.remove();
+    delete b.dataset.vpBusy; delete b.dataset.vpWasDis;
+  }
+  function applyBusy(){
+    if(!busyBtns.size) return;
+    document.querySelectorAll('button[onclick]').forEach(function(b){ if(!b.dataset.vpBusy&&busyBtns.has(b.getAttribute('onclick'))) markBusy(b); });
+  }
+  function holdBtn(sig){ busyBtns.set(sig,(busyBtns.get(sig)||0)+1); applyBusy(); }
+  function releaseBtn(sig){
+    const n=(busyBtns.get(sig)||1)-1; if(n>0) busyBtns.set(sig,n); else busyBtns.delete(sig);
+    document.querySelectorAll('button[data-vp-busy]').forEach(function(b){ if(!busyBtns.has(b.getAttribute('onclick'))) unmarkBusy(b); });
+  }
+  /* The click is captured first, so the wrapper below (called synchronously by the inline onclick) knows which button it came from. */
+  document.addEventListener('click',function(e){
+    const b=e.target&&e.target.closest?e.target.closest('button[onclick]'):null;
+    clickCtx=b?{sig:b.getAttribute('onclick')}:null;
+    if(clickCtx) setTimeout(function(){ clickCtx=null; },0);
+  },true);
+
+  /* ---------- action wrapper ---------- */
+  function argKey(a){ try{ return JSON.stringify(Array.prototype.slice.call(a)); }catch(e){ return ''; } }
+  /* [message while working, message when the server accepted it (null = no automatic success toast)] */
+  const ACTIONS={
+    doLogin:['Signing in…',null],
+    pwAuthorizeAndRetry:['Recording planting-window decision…','Planting date accepted.'],
+    startSessionFor:['Assigning task…','Task assigned.'],
+    reassignSession:['Reassigning task…','Task reassigned.'],
+    closeAndNew:['Closing and starting new task…','Closed and started a new task.'],
+    resolveException:['Resolving exception…','Exception marked resolved.'],
+    verifyHarvestReady:['Verifying harvest readiness…','Harvest readiness verified.'],
+    doGenerate:['Generating recommendations…','Recommendations generated.'],
+    approveAssignment:['Approving assignment…','Assignment approved.'],
+    doApproveBatch:['Approving assignments…','Assignments approved.'],
+    changeAssignmentBed:['Changing bed…','Bed changed.'],
+    rejectAssignment:['Rejecting assignment…','Assignment rejected.'],
+    doVerifyPlanting:['Verifying planting…','Planting verified.'],
+    doMoveCohort:['Moving cohort…','Cohort moved.'],
+    doCompleteCohort:['Completing cohort…','Cohort marked complete.'],
+    doVerifyBedReady:['Verifying bed…','Bed verified.'],
+    doTerminateCohort:['Terminating cohort…','Cohort terminated.'],
+    avVerifySelected:['Verifying activities…','Activities verified.'],
+    gateCheckSelected:['Recording checks…','Activities checked.'],
+    dpSubmit:['Dispatching tasks…','Tasks dispatched.'],
+    doOverridePostHarvest:['Recording override…','Override recorded.'],
+    doVerifyResolve:['Verifying and releasing bed…','Bed verified and released.'],
+    doVerifyTurnover:['Verifying and releasing bed…','Bed verified and released.'],
+    submitMultiAssign:['Assigning tasks…','Tasks assigned.'],
+    tmAdd:['Adding worker…','Worker added.'],
+    tmReset:['Resetting PIN…','PIN reset.'],
+    saveRotationDraft:['Saving rotation…','Rotation draft saved.'],
+    approveRotation:['Approving rotation…','Rotation approved.'],
+    generatePlanReal:['Generating planting plan…','Planting plan generated.'],
+    confirmLayoutReal:['Confirming layout…','Layout confirmed.'],
+    saveBedModifyReal:['Saving bed changes…','Bed changes saved.'],
+    acValidate:['Checking crop…',null],
+    acSave:['Saving crop…','Crop added.'],
+    ppSaveBed:['Saving bed plan…','Bed plan saved.'],
+    ppSaveBulk:['Saving bed plans…','Bed plans saved.'],
+    ppConfirmRows:['Confirming plan rows…','Plan rows confirmed.'],
+    shDeployGrouped:['Deploying layout…','Layout deployed.'],
+    shDeploy:['Deploying layout…','Layout deployed.'],
+    cpPreview:['Building preview…',null],
+    cpConfirmAll:['Confirming plan…','Plan confirmed.'],
+    cpRun:['Creating cohorts…','Cohorts created.'],
+    opSave:['Saving operation plan…','Operation plan saved.'],
+    irrAssign:['Assigning irrigation…','Irrigation assigned.'],
+    irrAssignAll:['Assigning irrigation…','Irrigation assigned.'],
+    bbVerifyFromInfo:['Verifying bed…','Bed verified.'],
+    bbVerifyTurnover:['Verifying and releasing bed…','Bed verified and released.'],
+    bbCount:['Counting beds…',null],
+    bbRelease:['Releasing beds…','Beds released.'],
+    rbReview:['Saving review…','Review recorded.'],
+    doCreateActivity:['Creating activity…','Activity created.'],
+    pvVerify:['Verifying activities…','Activities verified.'],
+    saPreview:['Building preview…',null],
+    saRun:['Generating season…','Season generated.'],
+    urgCheck:['Checking…',null],
+    urgCreate:['Creating urgent production…','Urgent production created.'],
+    phaSubmit:['Assigning post-harvest work…','Post-harvest work assigned.'],
+    phaUnassignOne:['Removing assignment…','Assignment removed.'],
+    phaClearSelected:['Removing assignments…','Assignments removed.'],
+    acRefreshProposals:['Refreshing proposals…','Proposals refreshed.'],
+    acAssign:['Approving assignments…','Assignments approved.'],
+    beSave:['Saving bed…','Bed saved.'],
+    ceSave:['Saving crop…','Crop saved.']
+  };
+  function wrapAction(name,msgs){
+    const orig=window[name];
+    if(typeof orig!=='function'||orig._vpWrapped) return;
+    const busyMsg=msgs[0], doneMsg=msgs[1];
+    const w=function(){
+      const self=this, args=arguments, sig=clickCtx&&clickCtx.sig;
+      const key=name+'|'+(sig||argKey(args));
+      if(inflight.has(key)) return Promise.resolve(false);   /* double click / double Enter while the first is still running */
+      inflight.add(key); active++; epoch++;
+      const w0=writes, f0=writeFails, t0=toasts;
+      if(sig) holdBtn(sig);
+      try{ busyShow(busyMsg); }catch(e){}
+      let p; try{ p=Promise.resolve(orig.apply(self,args)); }catch(e){ p=Promise.reject(e); }
+      return p.then(function(v){ finish(false,v); return v; },function(e){ finish(true,e); throw e; });
+      function finish(threw,v){
+        inflight.delete(key); active--; epoch++;
+        if(sig) releaseBtn(sig);
+        if(active===0) _busyHide.call(window);
+        if(threw){ if(toasts===t0) window.toast((v&&v.message)||('Could not complete: '+busyMsg.replace(/…$/,''))); return; }
+        /* success = the server accepted at least one change, none failed, and the handler did not already say something */
+        if(v!==false&&doneMsg&&writes>w0&&writeFails===f0&&toasts===t0) window.toast(doneMsg,3200,'ok');
+      }
+    };
+    w._vpWrapped=true; window[name]=w;
+  }
+  Object.keys(ACTIONS).forEach(function(n){ wrapAction(n,ACTIONS[n]); });
+
+  /* ---------- background poll ---------- */
+  const TEXTY=/^(text|search|number|date|time|datetime-local|email|tel|url|password|month|week)$/i;
+  function repaintBlocked(){
+    if(ui.modal||ui.loading||active>0||(ui.dp&&ui.dp.busy)) return true;
+    const ae=document.activeElement; if(!ae||ae===document.body||ae.id==='bed-search') return false;   /* bed-search is state-bound and refocused after a repaint */
+    if(ae.tagName==='TEXTAREA'||ae.tagName==='SELECT') return true;
+    return ae.tagName==='INPUT'&&TEXTY.test(ae.type||'text');
+  }
+  function scrollKey(el,counts){
+    const cn=(el.className&&el.className.baseVal!==undefined)?el.className.baseVal:el.className;
+    const k=el.id?'#'+el.id:el.tagName+'.'+String(cn||'').trim().replace(/\s+/g,'.');
+    counts[k]=(counts[k]||0)+1; return k+'~'+counts[k];
+  }
+  function snapScroll(){
+    const out={ x:window.scrollX, y:window.scrollY, els:{} }, counts={}, app=document.getElementById('app');
+    if(app) app.querySelectorAll('*').forEach(function(el){ const k=scrollKey(el,counts); if(el.scrollTop||el.scrollLeft) out.els[k]=[el.scrollLeft,el.scrollTop]; });
+    return out;
+  }
+  function restoreScroll(s){
+    const counts={}, app=document.getElementById('app');
+    if(app) app.querySelectorAll('*').forEach(function(el){ const v=s.els[scrollKey(el,counts)]; if(v){ el.scrollLeft=v[0]; el.scrollTop=v[1]; } });
+    window.scrollTo(s.x,s.y);
+  }
+  function repaint(){
+    const ae=document.activeElement, search=!!(ae&&ae.id==='bed-search'), snap=snapScroll();
+    window.render();
+    restoreScroll(snap);
+    if(search&&typeof keepFocus==='function') keepFocus('bed-search');
+  }
+  function paint(){
+    if(ui.screen!=='board'&&ui.screen!=='planning') return;   /* other screens do not show this data */
+    if(repaintBlocked()){ dirty=true; return; }               /* data is already in state; paint when the manager is done */
+    repaint();
+  }
+  function flushIfIdle(){ if(dirty&&state.token) paint(); }
+  /* Same transform as loadCohortBoard(), but returned instead of applied so a stale result can be dropped. */
+  async function fetchBoard(year){
+    const d=await apiCall('get-cohort-board',{ year:year });
+    const cohorts=(d&&d.cohorts)||[], byKey={}, unplaced=[];
+    cohorts.forEach(function(c){ const p=parseLocationId(c.locationId); if(!p){ unplaced.push(c); return; } (byKey[locKey(p)]=byKey[locKey(p)]||[]).push(c); });
+    return { error:'', loaded:true, year:year, beds:(d&&d.beds)||[], cohorts:cohorts, byKey:byKey, unplaced:unplaced, stats:(d&&d.stats)||{} };
+  }
+  async function pollTick(){
+    flushIfIdle();
+    if(polling||!state.token||document.hidden||navigator.onLine===false) return;
+    if(ui.screen==='login'||_loadRun||active>0||ui.loading||(ui.dp&&ui.dp.busy)) return;
+    polling=true; lastPoll=Date.now();
+    const e0=epoch, year0=ui.year;
+    try{
+      const res=await Promise.allSettled([ fetchTodayView(), fetchBoard(year0) ]);
+      if(!state.token||epoch!==e0||_loadRun||active>0||ui.loading) return;   /* the user acted meanwhile: this result may be older than theirs */
+      let changed=false;
+      if(res[0].status==='fulfilled'){
+        const d=res[0].value||{}; d.workers=d.workers||state.workers; d.activityCatalog=d.activityCatalog||state.activityCatalog;
+        applyTodayView(d); changed=true;
+      }
+      if(res[1].status==='fulfilled'&&ui.year===year0){ state.board=res[1].value; changed=true; }
+      if(changed) paint();
+    }catch(e){ /* background refresh is silent; apiCall already updates the connection indicator */ }
+    finally{ polling=false; }
+  }
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden&&Date.now()-lastPoll>POLL_MS/2) pollTick(); });
+  window.addEventListener('online',function(){ pollTick(); });
+  document.addEventListener('focusout',function(){ if(dirty) setTimeout(flushIfIdle,300); },true);
+  setInterval(pollTick,POLL_MS);
+  window.refreshLive=pollTick;
+})();
 
 /* ============================== START ============================== */
 /* Enter signs in. In the ID box it jumps to the PIN first if the PIN is still empty. */
