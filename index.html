@@ -742,6 +742,7 @@ async function pwAuthorizeAndRetry(cohortId,kind,date){
   try{ await apiCall('authorize-planting-window',{ cohortId, date, reason },60000); toast('Accepted and recorded. Retrying the assignment…'); }
   catch(e){ toast(e.message); return; }
   if(ui.pwReasons) delete ui.pwReasons[cohortId];
+  if(kind==='ma'){ const d=maD(); d.pwMap={}; await maPwCheck(); }   /* the date is now accepted: re-read the window state so Assign is not blocked */
   return kind==='dp' ? dpSubmit() : submitMultiAssign();
 }
 /* ============================== PLANTING DEVIATION (PlantingDeviation.gs) ==============================
@@ -2100,14 +2101,14 @@ function maVisible(){ const d=maD(), q=d.q.trim().toLowerCase();
 function maOpenSet(){ const o={}; bedSessions(maD().bedId).forEach(s=>{ o[String(s.workerId||'').toUpperCase()+'|'+s.activity]=1; }); return o; }
 function maWName(id){ return ((state.workers||[]).find(w=>w.workerId===id)||{}).name||id; }
 function workerLoad(id){ return (state.sessions||[]).filter(s=>s.workerId===id && String(s.status||'').toUpperCase()!=='COMPLETED').length; }
-function maToggleAct(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } d.result=null; maRefresh(); }
-function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0){ d.acts.push(a.name); d.map[a.name]=d.map[a.name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[a.name]; } }); d.result=null; maRefresh(); }
+function maToggleAct(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } d.result=null; maPlantSync(); }
+function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0){ d.acts.push(a.name); d.map[a.name]=d.map[a.name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[a.name]; } }); d.result=null; maPlantSync(); }
 function maAddWorker(act,id){ if(!id) return; const l=maD().map[act]=maD().map[act]||[]; if(!l.includes(id)) l.push(id); maD().result=null; maRefresh(); }
 function maDelWorker(act,id){ const l=maD().map[act]||[], i=l.indexOf(id); if(i>=0) l.splice(i,1); maD().result=null; maRefresh(); }
 function maBulkAdd(id){ if(!id) return; const d=maD(); d.acts.forEach(a=>{ const l=d.map[a]=d.map[a]||[]; if(!l.includes(id)) l.push(id); }); d.result=null; maRefresh(); }
 function maSetCat(k){ maD().cat=k; maRefresh(); }
 function maSearch(v){ maD().q=v; maRefresh(); }
-function maClear(){ const d=maD(); d.acts=[]; d.map={}; d.result=null; maRefresh(); }
+function maClear(){ const d=maD(); d.acts=[]; d.map={}; d.result=null; d.dateTouched=false; maRefresh(); }
 function maWorkerOpts(act,placeholder){
   const open=maOpenSet(), have=(maD().map[act]||[]);
   return `<option value="">${esc(placeholder)}</option>`+(state.workers||[]).filter(w=>!have.includes(w.workerId)).map(w=>{ const n=workerLoad(w.workerId), dup=act&&open[String(w.workerId).toUpperCase()+'|'+act];
@@ -2155,15 +2156,67 @@ function maFootHTML(){
     : c.fertMissing?`<span style="color:var(--warn);font-weight:600;">${c.fertMissing} fertilizer task${c.fertMissing===1?'':'s'} still need type, brand and quantity.</span> Fill in the green box on each.`
     : c.earlyMissing?`<span style="color:var(--warn);font-weight:600;">${c.earlyMissing} early assignment${c.earlyMissing===1?'':'s'} still need a reason.</span> Type at least ${EARLY_MIN} characters in the yellow box.`
     : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
+  const pwBlocked=maPwBlocked(), pwPending=pwBlocked&&c.total>0&&!c.missing&&!c.fertMissing&&!c.earlyMissing;
   const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':f.errorCode==='EARLY_ASSIGN_REASON_REQUIRED'?(f.message||'its seasonal window has not opened: enter a reason to assign it early'):(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}${pwWarnHTML(r.failed,'ma')}</div>`;
-  const ok=d.acts.length&&!c.missing&&!c.fertMissing&&!c.earlyMissing&&c.fresh>0&&!d.busy;
-  return `<div class="ma-sum">${sum}</div>${res}
+  const ok=d.acts.length&&!c.missing&&!c.fertMissing&&!c.earlyMissing&&c.fresh>0&&!d.busy&&!pwBlocked;
+  const pwNote=pwPending&&maPwNow()?`<div class="ma-sum" style="color:var(--warn);font-weight:600;">Planting cannot be assigned on ${esc(d.date)} until the date is accepted below, or change the date.</div>`:'';
+  return `${maPwHTML()}<div class="ma-sum">${sum}</div>${pwNote}${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'<span class="vp-spin"></span>Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
     <button class="btn btn-outline" style="width:auto;padding:11px 16px;" onclick="maClear()">Clear</button>
     <button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
     <div class="note" style="margin:6px 0 0;">Each task shows as Pending until that worker taps Start. Server rules still apply to every task.</div>`;
 }
 /* Partial re-render: keeps focus in the search box and the scroll position of both columns. */
+/* ---- Planting date + allowable window, checked IN the assign modal (before Assign is pressed) ----
+ * A planting-method activity (Direct Seeding / Transplanting) on a bed whose cohort is not planted yet needs an execution date. The date defaults to the
+ * cohort's planned date, the crop's allowable window (Oregon Region 2 calendar) is shown next to it as soon as a date exists, and a date outside the
+ * window shows the acceptance box right here instead of failing after the click. The server (PlantingWindow.gs pwGate_) is still the judge. */
+const MA_PLANT_NAMES=['DirectSeeding','Transplanting','Planting','Seeding'];
+function maPlantCtx(){
+  const d=maD(), raw=(state.beds||[]).find(x=>x.id===d.bedId); if(!raw) return null;
+  const b=(typeof bedView==='function')?bedView(raw):raw;
+  if(!b.cohortId||b.plantingDate) return null;
+  if(!d.acts.some(a=>MA_PLANT_NAMES.includes(a))) return null;
+  return { cohortId:b.cohortId, planned:b.plannedDob||'', cropName:b.cropName||'' };
+}
+function maPwKey(ctx,date){ return ctx.cohortId+'|'+date; }
+function maPwNow(){ const ctx=maPlantCtx(); if(!ctx) return null; const d=maD(); return (d.pwMap||{})[maPwKey(ctx,d.date)]||null; }
+/* true while Assign must wait: the window check is running, or the date is outside the window and not accepted yet */
+function maPwBlocked(){
+  const ctx=maPlantCtx(); if(!ctx) return false;
+  const pw=maPwNow(); if(!pw) return true;
+  return pw.state==='OUTSIDE_AUTH_REQUIRED'||pw.state==='DATA_PROBLEM';
+}
+async function maPwCheck(){
+  const ctx=maPlantCtx(); if(!ctx) return; const d=maD(); d.pwMap=d.pwMap||{};
+  const date=d.date, key=maPwKey(ctx,date); d.pwBusy=d.pwBusy||{}; if(d.pwMap[key]||d.pwBusy[key]) return; d.pwBusy[key]=1;
+  try{ const r=await apiCall('check-planting-window',{ cohortId:ctx.cohortId, date },30000); d.pwMap[key]=(r&&r.plantingWindow)||{ state:'NOT_CHECKED' }; }
+  catch(e){ d.pwMap[key]={ state:'NOT_CHECKED', message:e.message }; }
+  delete d.pwBusy[key];
+  if(ui.modal && ui.modalDraft===d) maRefresh();
+}
+/* Called whenever the picked activities change: default the date to the planned planting date, then check the window. */
+function maPlantSync(){
+  const ctx=maPlantCtx(), d=maD(); if(!ctx){ maRefresh(); return; }
+  if(!d.dateTouched && ctx.planned && /^\d{4}-\d{2}-\d{2}/.test(ctx.planned)){
+    d.date=ctx.planned.slice(0,10); const e=document.getElementById('ma-date'); if(e) e.value=d.date; }
+  maRefresh(); maPwCheck();
+}
+function maDateSet(v){ const d=maD(); d.date=v||todayISO(); d.dateTouched=true; d.result=null; maRefresh(); maPwCheck(); }
+function maUsePlanned(){ const ctx=maPlantCtx(); if(!ctx||!ctx.planned) return; const d=maD(); d.dateTouched=false; maPlantSync(); }
+function maPwHTML(){
+  const ctx=maPlantCtx(); if(!ctx) return '';
+  const d=maD(), pw=maPwNow(), planned=ctx.planned?String(ctx.planned).slice(0,10):'';
+  const head=`<div class="qsub" style="text-transform:none;letter-spacing:0;margin:0 0 4px;"><b>Planting date ${esc(d.date)}</b> for ${esc(ctx.cropName||ctx.cohortId)}${planned?' · planned '+esc(planned)+(d.date!==planned?' <button class="dc-mini" onclick="maUsePlanned()">Use planned date</button>':''):''}</div>`;
+  if(!pw) return `<div class="pw-box">${head}<div>Checking the allowable planting window…</div></div>`;
+  const range=pw.rangeText?esc(pw.rangeText):'';
+  const src=PW_BASIS_LABEL[pw.basis]||pw.basis||'';
+  if(pw.state==='IN_WINDOW') return `<div class="pw-box ok">${head}<div>✔ Inside the allowable window${range?': <b>'+range+'</b>':''}${src?' · '+esc(src):''}</div></div>`;
+  if(pw.state==='OUTSIDE_AUTH_REQUIRED') return head+pwBox(Object.assign({cohortId:ctx.cohortId,cropName:ctx.cropName,checkedDate:d.date},pw),{ retry:'ma' });
+  if(pw.state==='OUTSIDE_AUTHORIZED') return head+pwBox(pw,{});
+  if(pw.state==='DATA_PROBLEM') return `<div class="pw-box">${head}<div class="pw-t">The allowable window cannot be checked</div><div>${esc(pw.message||'The planting window data has a problem. Fix it at its source before assigning planting.')}</div></div>`;
+  return `<div class="pw-box">${head}<div>${range?'Allowable window: <b>'+range+'</b>':'No allowable window is on file for this crop; the server will check the date.'}</div></div>`;
+}
 function maRefresh(){
   const g=id=>document.getElementById(id); if(!g('ma-acts')) return render();
   const keep=(el,fn)=>{ const t=el.scrollTop; fn(); el.scrollTop=t; };
@@ -2208,15 +2261,15 @@ function multiAssignModal(){
     <div class="ma-col"><div class="ma-colhead"><h3>2 · Choose who does each (<span id="ma-n">${d.acts.length}</span>)</h3></div>
       <div id="ma-planwrap" style="overflow-y:auto;max-height:52vh;">${maPlanHTML()}</div></div>
   </div>
-  <div class="ma-date"><b>Schedule</b>
+  <div class="ma-date"><b>3 · Date</b>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(0)">Today</button>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(1)">Tomorrow</button>
-    <input type="date" id="ma-date" value="${esc(d.date)}" min="${todayISO()}" onchange="maD().date=this.value||todayISO()"></div>
+    <input type="date" id="ma-date" value="${esc(d.date)}" min="${todayISO()}" onchange="maDateSet(this.value)"></div>
   <div class="ma-foot" id="ma-foot">${maFootHTML()}</div>`;
 }
-function maSetDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; }
+function maSetDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; maD().dateTouched=true; maD().result=null; const e=document.getElementById('ma-date'); if(e) e.value=v; maRefresh(); maPwCheck(); }
 async function submitMultiAssign(){
-  const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||c.earlyMissing||!c.fresh) return;
+  const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||c.earlyMissing||!c.fresh||maPwBlocked()) return;
   d.busy=true; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
   try{
     const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]).map(o=>{ if(maIsEarly(o.activity)) o.earlyReason=String(d.early[o.activity]||'').trim(); return o; });
