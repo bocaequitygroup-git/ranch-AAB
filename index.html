@@ -916,7 +916,7 @@ async function doVerifyPlanting(cohortId, actualDob){
     if(dv){ const n=Math.abs(dv.varianceDays||0); msg='Planting verified ('+n+' day'+(n===1?'':'s')+' '+String(dv.timing||'').toLowerCase()+').'+(h?' Harvest window moved '+(h.shiftDays>0?'+':'')+h.shiftDays+' day'+(Math.abs(h.shiftDays)===1?'':'s')+' to '+h.earliest+' \u2192 '+h.latest+'.':''); }
     if(res&&res.plantingDeviationWarning) msg+=' '+res.plantingDeviationWarning;
     else if(dv&&dv.warning) msg+=' '+dv.warning;
-    toast(msg); closeModal(); await loadToday();
+    toast(msg); closeModal(); execInvalidate(); await loadToday();
   }catch(e){
     if(e&&e.code==='DEVIATION_REASON_REQUIRED'){
       ui.modalDraft.pd={ message:e.message }; ui.modalDraft.pdDate=actualDob; ui.modalDraft.dob=actualDob; render();
@@ -2671,7 +2671,7 @@ function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete
 function setPMode(m){ if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
-function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard'){ bbLoad(true); loadToday(); } if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='assigncohort'){ loadToday(); asg.tried=false; ensureAcLoaded(true); } if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } toast('Planning data refreshed.'); render(); }
+function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard'){ bbLoad(true); loadToday(); } if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='assigncohort'){ loadToday(); asg.tried=false; ensureAcLoaded(true); } if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } if(ui.pMode==='exec'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); execEnsureBoard(true); } toast('Planning data refreshed.'); render(); }
 function selectCrop(id){ ui.pSelectedCrop=id; ui.pModifying=false; render(); }
 function selectCropByBed(n){ const c=getPlan(ui.pBlock,ui.pYear).crops.find(x=>x.bedNums.includes(n)); if(c){ ui.pSelectedCrop=c.id; render(); } }
 
@@ -2758,8 +2758,8 @@ async function approveRotation(){
 }
 
 /* ============================== REAL Planting Plan mode (BED_PLANTING_PLAN via PlantingPlanAPI.gs) ==============================
- * This replaces the mock buildPlan()/getPlan() data path ONLY for pMode==='plan'. Execution/Harvest/Cover/Rotation
- * modes above are unchanged and still run on client-side mock data — wire those to their own backend actions later.
+ * This replaces the mock buildPlan()/getPlan() data path for pMode==='plan' and, via realPlan() below, pMode==='exec'.
+ * Harvest/Cover/Rotation modes above are unchanged and still run on client-side mock data — wire those to their own backend actions later.
  * Flow: display -> manager interaction -> send action -> refresh. No recommendation/assignment logic lives here;
  * the backend (approved BLOCK_TEMPLATE / BLOCK_ROTATION_PLAN) is the only source of what should be planted where. */
 function ppKey(year,block){ return year+'|'+block; }
@@ -4000,7 +4000,7 @@ function irrScreen(){
  *   Post-Harvest & Cover Crop     beds in turnover with the cover crop mix chosen by exit date
  * NO new Bed_Status value is introduced. "Ready" is the AVAILABLE state itself: BED_STATUS_RULES says AVAILABLE means
  * physically usable and is entered only by the manager's Verify Bed Ready (R11/R13/R14/R15). */
-const MOCK_MODES={ exec:1, harvest:1, cover:1 };   /* client-side preview screens: nothing is written to the workbook */
+const MOCK_MODES={ harvest:1, cover:1 };   /* client-side preview screens: nothing is written to the workbook */
 function ptabOf(mode){ return PLAN_TABS.find(t=>t.views.some(v=>v[0]===mode))||PLAN_TABS[0]; }
 function setPTab(k){ const t=PLAN_TABS.find(x=>x.k===k); if(t) setPMode(t.views[0][0]); }
 function planTabStrip(){
@@ -5150,6 +5150,7 @@ function selIds_(){ return allIds_().filter(id=>!asg.off[id]); }
 /* ---- render: screen shell ---- */
 function planningScreen(){
   if(ui.pMode==='plan') ensurePlanLoaded();
+  if(ui.pMode==='exec'){ ensurePlanLoaded(); execEnsureBoard(); }
   if(ui.pMode==='postharvest') ensureCoverLoaded();
   if(ui.pMode==='assigncohort') ensureAcLoaded();
   if(ui.pMode==='rotation'||ui.pMode==='infra') ensureRotationLoaded();
@@ -5168,7 +5169,7 @@ function planningScreen(){
     ui.pMode==='postharvest' ? postHarvestScreen() :
     ui.pMode==='sheet' ? sheetScreen() :
     ui.pMode==='plan' ? planLayout(ppLeftHTML(), ppBedGridSVG(), ppLegend(), ppRightHTML()) :
-    ui.pMode==='exec' ? planLayout(cropListHTML('exec'), planBedGridSVG('exec'), planLegend('exec'), executionProfile()) :
+    ui.pMode==='exec' ? planLayout(execLeftHTML(), execGridSVG(), planLegend('exec'), execProfileHTML()) :
     ui.pMode==='harvest' ? planLayout(cropListHTML('harvest'), planBedGridSVG('harvest'), planLegend('harvest'), harvestProfile()) :
     ui.pMode==='cover' ? planLayout(blockListHTML(), planBedGridSVG('cover'), planLegend('cover'), coverProfile()) :
     ui.pMode==='cropref' ? cropRefLayout(cropRefListHTML(), cropRefProfile()) :
@@ -5190,7 +5191,7 @@ function planLayout(left,center,legend,right){
 function legendItem(style,label){ return `<span><span class="sw" style="${style}"></span>${label}</span>`; }
 function planLegend(mode){
   if(mode==='plan') return legendItem('background:#D8CFAE;','Pending')+legendItem('background:#2E7D32;','Confirmed')+legendItem('background:repeating-linear-gradient(45deg,#8FBF8A,#8FBF8A 3px,#fff 3px,#fff 6px);','Modified')+legendItem('background:#EEE;border:1px solid var(--line);','Empty');
-  if(mode==='exec') return legendItem('background:#D8CFAE;','Assigned')+legendItem('background:#2E7D32;','Planted')+legendItem('background:#EEE;border:1px solid var(--line);','Empty');
+  if(mode==='exec') return legendItem('background:#D8CFAE;','Planned')+legendItem('background:#5B8FC9;','Assigned')+legendItem('background:#2E7D32;','Planted')+legendItem('background:#F1DFA8;','Not released')+legendItem('background:#EEE;border:1px solid var(--line);','Empty');
   if(mode==='harvest') return legendItem('background:#8FBF8A;','Growing')+legendItem('background:#2E7D32;','Harvest ready')+legendItem('background:#7C8B98;','Harvest complete')+legendItem('background:#EEE;border:1px solid var(--line);','Not planted');
   return legendItem('background:#7C8B98;','Harvest complete')+legendItem('background:#2E7D32;','Cover crop');
 }
@@ -5259,6 +5260,7 @@ function planBedGridSVG(mode){
 }
 function attachPlanningEvents(){
   document.querySelectorAll('[data-pbed]').forEach(el=>{ el.addEventListener('click', ()=>{ const n=+el.dataset.pbed; if(ui.pModifying) toggleModifyBed(n); else selectCropByBed(n); }); });
+  document.querySelectorAll('[data-xbed]').forEach(el=>{ el.addEventListener('click', ()=>selectCrop(el.dataset.xbed)); });
   document.querySelectorAll('[data-ppbed]').forEach(el=>{ el.addEventListener('click', ()=>{ ui.ppMulti ? ppToggleSel(el.dataset.ppbed) : selectPPBed(el.dataset.ppbed); }); });
 }
 function rotationMatrixHTML(){
@@ -5297,20 +5299,133 @@ function plantingPlanProfile(){
     `}
   </div>`;
 }
-function executionProfile(){
-  const c=cropById(ui.pSelectedCrop);
+/* ============================== REAL Planting execution (pMode==='exec') ==============================
+ * Same screen layout as before; the data source is now the Season Planning context (state.pp, get-planning-context:
+ * BED_PLANTING_PLAN rows + BED_MASTER beds) plus the cohort board for the SELECTED year (get-cohort-board, kept in xb so the
+ * Daily board's own copy in state.board is never overwritten). No planting state is stored in the browser. */
+const xb={ year:null, busy:false, err:'', byKey:{} };
+function execInvalidate(){ xb.year=null; Object.keys(state.pp).forEach(k=>delete state.pp[k]); }
+function execEnsureBoard(force){
+  if(xb.busy || (!force && xb.year===ui.pYear)) return;
+  const y=ui.pYear; xb.busy=true; xb.err='';
+  apiCall('get-cohort-board',{ year:y }).then(d=>{
+    const byKey={};
+    ((d&&d.cohorts)||[]).forEach(c=>{ const p=parseLocationId(c.locationId); if(p) (byKey[locKey(p)]=byKey[locKey(p)]||[]).push(c); });
+    xb.byKey=byKey; xb.year=y;
+  }).catch(e=>{ xb.err=errMsg(e); xb.byKey={}; xb.year=y; }).finally(()=>{ xb.busy=false; render(); });
+}
+const EXEC_STATES={
+  PLANNED:{ label:'Planned', fill:'#D8CFAE', tc:'#1B1B18', chip:'chip-neutral' },
+  ASSIGNED:{ label:'Assigned', fill:'#5B8FC9', tc:'#fff', chip:'chip-warn' },
+  PLANTED:{ label:'Planted', fill:'#2E7D32', tc:'#fff', chip:'chip-ok' },
+  NOT_RELEASED:{ label:'Not released', fill:'#F1DFA8', tc:'#1B1B18', chip:'chip-neutral' }
+};
+/* One plan bed -> one of Planned / Assigned / Planted / Not released, from the cohort on that bed and BED_MASTER's status. */
+function execBedState(planBed, pb){
+  const p=parseLocationId(planBed.bedId), list=(p&&xb.byKey[locKey(p)])||[], crop=String(planBed.cropId||'').toUpperCase();
+  const c=pickCohort(list.filter(x=>String(x.cropId||'').toUpperCase()===crop));
+  const bedStatus=String(pbBedStatus(pb)||'').toUpperCase();
+  if(c){
+    const cs=String(c.cohortStatus||'').toUpperCase();
+    if(cs==='PRE_PLANTING') return { key:'ASSIGNED', cohortId:c.cohortId, cohortStatus:cs, reason:'' };
+    if(cs==='PLANNED'||cs==='') return { key:'PLANNED', cohortId:c.cohortId, cohortStatus:cs, reason:'No cohort assigned to this bed yet.' };
+    return { key:'PLANTED', cohortId:c.cohortId, cohortStatus:cs, reason:'' };
+  }
+  const other=pickCohort(list);
+  if(other && isLive(other)) return { key:'NOT_RELEASED', cohortId:'', cohortStatus:'', reason:'Bed is occupied by '+other.cohortId+'.' };
+  if(bedStatus==='AVAILABLE') return { key:'PLANNED', cohortId:'', cohortStatus:'', reason:'No cohort assigned to this bed yet.' };
+  return { key:'NOT_RELEASED', cohortId:'', cohortStatus:'', reason: bedStatus.indexOf('POST')>=0 ? 'Bed still in post-harvest.' : 'Bed is '+(availabilityLabel(bedStatus)||'not verified')+', not AVAILABLE.' };
+}
+/* Same shape the mock getPlan() returned (cropName, plantingDate, bedNums, plantedBeds, plantingStatus), built from real rows:
+ * BED_PLANTING_PLAN rows grouped by crop + planting date, so each wave is its own card. Returns null until the data is loaded. */
+function realPlan(block,year){
+  const ctx=state.pp[ppKey(year,block)];
+  if(!ctx || ctx.error || !ctx.plan || !xb.byKey) return null;
+  if(realPlan._ctx===ctx && realPlan._bk===xb.byKey && realPlan._y===year) return realPlan._out;
+  const pbById={}; (ctx.physicalBeds||[]).forEach(pb=>pbById[pb.bedId]=pb);
+  const groups=[], byId={}, bedMap={};
+  (ctx.plan.beds||[]).forEach(b=>{
+    if(!b.cropId || String(b.cropId).toUpperCase()==='OPEN') return;
+    const pl=parseLocationId(b.bedId); if(!pl) return;
+    const date=String(b.plantingDate||''), id=b.cropId+'|'+date;
+    let g=byId[id];
+    if(!g){ g={ id, cropId:b.cropId, cropName:b.cropName||b.cropId, plantingDate:date, wave:b.wave, bedNums:[], plantedBeds:[], beds:[] }; byId[id]=g; groups.push(g); }
+    const st=execBedState(b, pbById[b.bedId]);
+    g.bedNums.push(pl.bed); g.beds.push(Object.assign({ bedId:b.bedId, n:pl.bed }, st));
+    if(st.key==='PLANTED') g.plantedBeds.push(pl.bed);
+    bedMap[b.bedId]=g;
+  });
+  groups.forEach(g=>{
+    g.bedNums.sort((x,y)=>x-y); g.beds.sort((x,y)=>x.n-y.n);
+    const n=g.beds.length, cnt=k=>g.beds.filter(x=>x.key===k).length;
+    g.plantingStatus = cnt('PLANTED')===n ? 'Planted' : cnt('PLANTED') ? 'Partly planted' : cnt('ASSIGNED') ? 'Assigned' : cnt('PLANNED') ? 'Planned' : 'Not released';
+  });
+  groups.sort((a,b)=>a.plantingDate.localeCompare(b.plantingDate)||a.cropName.localeCompare(b.cropName));
+  realPlan._ctx=ctx; realPlan._bk=xb.byKey; realPlan._y=year; realPlan._out={ crops:groups, byId, bedMap, physicalBeds:ctx.physicalBeds||[] };
+  return realPlan._out;
+}
+function execChip(s){ return {Planted:'chip-ok','Partly planted':'chip-warn',Assigned:'chip-warn',Planned:'chip-neutral','Not released':'chip-neutral'}[s]||'chip-neutral'; }
+/* Loading / error text shared by the three panels, or '' when the plan is ready. */
+function execGate(){
+  const ctx=state.pp[ppKey(ui.pYear,ui.pBlock)];
+  if(!ctx) return 'Loading…';
+  if(ctx.error) return ctx.error;
+  if(!ctx.plan || !ctx.plan.found) return 'No planting plan yet for '+BLOCK_LABELS[ui.pBlock]+' in '+ui.pYear+'.';
+  if(xb.err) return 'Cohort status could not be loaded: '+xb.err;
+  if(xb.year!==ui.pYear) return 'Loading cohort status…';
+  return '';
+}
+function execLeftHTML(){
+  const g=execGate(); if(g) return `<div class="empty">${esc(g)}</div>`;
+  const plan=realPlan(ui.pBlock,ui.pYear);
+  if(!plan.crops.length) return `<div class="empty">No crops planned for ${esc(BLOCK_LABELS[ui.pBlock])} in ${ui.pYear}.</div>`;
+  return plan.crops.map(c=>`<div class="card" style="${ui.pSelectedCrop===c.id?'outline:2px solid var(--forest);':''}" onclick="selectCrop('${esc(c.id)}')">
+      <div class="row"><span><b style="color:var(--ink);">${esc(c.cropName)}</b></span><span class="chip ${execChip(c.plantingStatus)}">${esc(c.plantingStatus)}</span></div>
+      <div class="row"><span>Beds</span><span>${c.bedNums.length} (${c.plantedBeds.length} planted)</span></div>
+      <div class="row"><span>Planting date</span><span>${esc(c.plantingDate||'—')}</span></div>
+    </div>`).join('');
+}
+function execGridSVG(){
+  const g=execGate(); if(g) return `<div class="empty">${esc(g)}</div>`;
+  const plan=realPlan(ui.pBlock,ui.pYear), beds=plan.physicalBeds;
+  if(!beds.length) return `<div class="empty">No physical beds.</div>`;
+  const sel=plan.byId[ui.pSelectedCrop], cols=Math.min(8,beds.length)||1, cw=70, ch=50, gap=6, rows=Math.ceil(beds.length/cols);
+  let svg='';
+  beds.forEach((pb,i)=>{
+    const col=i%cols, row=Math.floor(i/cols), bx=10+col*(cw+gap), by=10+row*(ch+gap), grp=plan.bedMap[pb.bedId];
+    const bed=grp&&grp.beds.find(x=>x.bedId===pb.bedId), info=bed?EXEC_STATES[bed.key]:{ fill:'#EEE', tc:'#1B1B18', label:'' };
+    const hi=sel&&grp===sel;
+    svg+=`<g><rect class="bed" ${grp?`data-xbed="${esc(grp.id)}"`:''} x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${info.fill}" ${hi?'stroke="var(--forest)" stroke-width="3"':''}></rect>
+      <text x="${bx+6}" y="${by+13}" font-size="8" font-weight="700" fill="${info.tc}" opacity=".7">${esc(String(pb.bedId).split('-')[1]||pb.bedId)}</text>
+      <text x="${bx+cw/2}" y="${by+30}" text-anchor="middle" font-size="${grp?9.5:9}" ${grp?'font-weight="700"':''} fill="${info.tc}">${grp?esc(grp.cropName.slice(0,10)):'Empty'}</text>
+      ${bed?`<text x="${bx+cw/2}" y="${by+42}" text-anchor="middle" font-size="6.5" font-weight="700" fill="${info.tc}" opacity=".85">${esc(info.label.toUpperCase())}</text>`:''}</g>`;
+  });
+  const W=10+cols*(cw+gap), H=10+rows*(ch+gap);
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;">${svg}</svg>`;
+}
+function execProfileHTML(){
+  const g=execGate(); if(g) return `<div class="panelhead"><h2>Planting activity</h2></div><div class="panelbody"><div class="empty">${esc(g)}</div></div>`;
+  const plan=realPlan(ui.pBlock,ui.pYear), c=plan.byId[ui.pSelectedCrop];
   if(!c) return `<div class="panelhead"><h2>Planting activity</h2></div><div class="panelbody"><div class="empty">Select a crop.</div></div>`;
-  return `<div class="panelhead"><div><h2>${esc(c.cropName)}</h2><div class="meta">${esc(cropBedRangeLabel(ui.pBlock,c))}</div></div></div>
+  const rows=c.beds.map(b=>{
+    const st=EXEC_STATES[b.key];
+    const act = b.key==='ASSIGNED' ? `<button class="btn btn-primary" style="width:auto;margin:0;padding:5px 10px;font-size:11.5px;" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.bedId)}'})">Verify planting</button>`
+      : b.key==='PLANTED' ? `<span style="font-size:11px;color:var(--ink-soft);">${esc(b.cohortId)}</span>`
+      : `<span style="font-size:11px;color:var(--ink-soft);">${esc(b.reason)}</span>`;
+    return `<div class="row"><span>Bed ${String(b.n).padStart(2,'0')} <span class="chip ${st.chip}">${esc(st.label)}</span></span><span style="text-align:right;">${act}</span></div>`;
+  }).join('');
+  const blocked=c.beds.some(b=>b.key==='PLANNED'||b.key==='NOT_RELEASED');
+  return `<div class="panelhead"><div><h2>${esc(c.cropName)}</h2><div class="meta">${esc(blockRangeLabel(ui.pBlock,c.bedNums))}</div></div></div>
   <div class="panelbody">
     <div class="card">
-      <div class="row"><span>Planting date</span><span>${esc(c.plantingDate)}</span></div>
-      <div class="row"><span>Beds range</span><span>${esc(cropBedRangeLabel(ui.pBlock,c))}</span></div>
-      <div class="row"><span>Planting status</span><span class="chip ${chipClassFor(c.plantingStatus)}">${esc(c.plantingStatus)}</span></div>
+      <div class="row"><span>Planting date</span><span>${esc(c.plantingDate||'—')}</span></div>
+      <div class="row"><span>Beds range</span><span>${esc(blockRangeLabel(ui.pBlock,c.bedNums))}</span></div>
+      <div class="row"><span>Planting status</span><span class="chip ${execChip(c.plantingStatus)}">${esc(c.plantingStatus)}</span></div>
       <div class="row"><span>Planted beds</span><span>${c.plantedBeds.length} / ${c.bedNums.length}</span></div>
     </div>
-    <button class="btn btn-primary" ${c.plantingStatus==='Planted'?'disabled':''} onclick="markCropPlanted('${c.id}')">Mark crop as planted</button>
-    <h2 style="font-size:12.5px;margin:14px 0 6px;color:var(--ink-soft);">Mark individual beds</h2>
-    ${c.bedNums.map(n=>`<div class="row"><span>Bed ${String(n).padStart(2,'0')}</span><span>${c.plantedBeds.includes(n)?'<span class="chip chip-ok">Planted</span>':`<button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:11.5px;" onclick="markBedPlanted('${c.id}',${n})">Mark planted</button>`}</span></div>`).join('')}
+    <h2 style="font-size:12.5px;margin:14px 0 6px;color:var(--ink-soft);">Beds</h2>
+    ${rows}
+    ${blocked?`<button class="btn btn-outline" style="margin-top:10px;" onclick="setPMode('assigncohort')">Go to Assign Cohort</button>`:''}
   </div>`;
 }
 function harvestProfile(){
