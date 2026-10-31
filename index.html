@@ -606,9 +606,10 @@ function bedView(b){
   const p=parseLocationId(b.id), c = p ? pickCohort(state.board.byKey[locKey(p)]) : null;
   if(c){
     Object.assign(v, { cohortId:c.cohortId, cropId:c.cropId, cropName:c.cropName, shortfall:!!c.shortfall, cohortStatus:c.cohortStatus, currentStage:cohortStage(c),
-      plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'', plantingWindow:c.plantingWindow||null, plantingDeviation:c.plantingDeviation||null });
+      plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'', plantingWindow:c.plantingWindow||null, plantingDeviation:c.plantingDeviation||null,
+      propagationPath:c.propagationPath||'', propagationVerifiedBy:c.propagationVerifiedBy||'', propagationVerifiedDate:c.propagationVerifiedDate||'' });
   }else{
-    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'', plantingWindow:null, plantingDeviation:null });
+    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'', plantingWindow:null, plantingDeviation:null, propagationPath:'', propagationVerifiedBy:'', propagationVerifiedDate:'' });
   }
   return v;
 }
@@ -1430,9 +1431,47 @@ const GATE_LABEL={ 'TerminateCohort':'Terminate Cohort / Harvest Complete', 'Til
 const GATE_GROUPS=[
   {k:'base', title:'Step 1: Bed base reset (post-harvest and clean-up)', tag:'Post-Harvest'},
   {k:'infra',title:'Step 2: Infrastructure prep (pre-planting)', tag:'Pre-Planting'},
-  {k:'plant',title:'Step 3: Plant material check (ready to transplant / ready to seed)', tag:'Pre-Planting'}
+  {k:'plant',title:'Step 3: Propagation (for information only; does not affect bed release)', tag:'Info'}
 ];
 const GATE_NOT_RELEASED=['UNVERIFIED','POST-HARVEST ACTIVITIES','BLOCKED'];
+/* Step 3 is INFORMATION ONLY. It is not counted in m.total / m.done / m.verified and never blocks Verify Bed Ready. Crop = the bed's assigned cohort,
+ * else the crop planned for the bed in a loaded planning context (state.pp). Propagation facts come from CROP_MASTER (propPath, plantMethod, lead). */
+function gatePlannedCrop(b){
+  if(b.cropId) return { id:b.cropId, name:b.cropName||'', date:b.plannedDob||'' };
+  const key=String(b.id||'').toUpperCase();
+  for(const k of Object.keys(state.pp||{})){
+    const hit=((((state.pp[k]||{}).plan)||{}).beds||[]).find(x=>String(x.bedId||'').toUpperCase()===key&&x.cropId&&String(x.cropId).toUpperCase()!=='OPEN');
+    if(hit) return { id:hit.cropId, name:hit.cropName||'', date:hit.plantingDate||'' };
+  }
+  return null;
+}
+function gateIsoMinus(iso,n){
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||'')); if(!m) return '';
+  const d=new Date(+m[1],+m[2]-1,+m[3]-n), p=x=>(x<10?'0':'')+x;
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+}
+function gatePropagationInfo(b){
+  const pc=gatePlannedCrop(b);
+  if(!pc) return [{ label:'Propagation', note:'No crop is assigned or planned for this bed yet, so there is no propagation to show.' }];
+  const cm=(typeof CROP_MASTER!=='undefined'?CROP_MASTER:[]).find(c=>c.id===pc.id||(pc.name&&c.name===pc.name));
+  const name=(cm&&cm.name)||pc.name||pc.id;
+  if(!cm) return [{ label:'Propagation', note:name+': not in the crop reference, so its propagation path is unknown.' }];
+  const path=String(cm.propPath||'').toUpperCase(), method=String(cm.plantMethod||'').toUpperCase().replace(/[\s-]+/g,'_'), lead=cm.lead||{};
+  if(path==='FIELD_DIRECT'||method==='DIRECT_SEED') return [{ label:'Propagation', note:name+': direct seeded. No nursery batch or propagation step is needed; seed goes straight into the bed.' }];
+  if(path==='GH_PROP'||path==='NURSERY'){
+    const total=Number(lead.total)||0, start=(pc.date&&total)?gateIsoMinus(pc.date,total):'';
+    const parts=[['germination',lead.germ],['nursery',lead.nursery],['hardening',lead.harden],['establishment',lead.establish]].filter(x=>Number(x[1])>0).map(x=>x[1]+' d '+x[0]).join(' + ');
+    const gated=!!b.cohortId&&String(b.propagationPath||'').toUpperCase()==='GH_PROP', signed=gated&&!!b.propagationVerifiedDate;
+    return [
+      { label:'Propagation', note:name+': transplanted from the '+(path==='NURSERY'?'nursery':'greenhouse')+(total?'. Lead time '+total+' days'+(parts?' ('+parts+')':'')+'.':'.')+(start?' To plant on '+pc.date+', propagation starts about '+start+'.':'') },
+      gated
+        ? { label:'Nursery sign-off (R01)', chip:signed?{text:'Propagation Signed Off',cls:'chip-ok'}:{text:'Awaiting Nursery Sign-off',cls:'chip-warn'},
+            note:signed?'Verified'+(b.propagationVerifiedBy?' by '+b.propagationVerifiedBy:'')+' on '+b.propagationVerifiedDate+'. Transplanting is not blocked by propagation.':'The manager must verify propagation before Transplanting can be assigned or started. This does not affect releasing the bed.' }
+        : { label:'Nursery sign-off (R01)', note:b.cohortId?'This cohort does not use greenhouse propagation, so no nursery sign-off applies.':'Applies once a cohort is assigned: the manager verifies propagation (rule R01) before Transplanting can be assigned or started. This does not affect releasing the bed.' }
+    ];
+  }
+  return [{ label:'Propagation', note:name+': planted by '+(method?method.toLowerCase().replace(/_/g,' '):'an unlisted method')+' (propagation path '+(path||'not set')+'). No nursery batch is tracked for it here.' }];
+}
 function gtS(b){ if(!ui.gt||ui.gt.bedId!==b.id) ui.gt={bedId:b.id,tab:'overview'}; return ui.gt; }
 function setGateTab(t){ ui.gt.tab=t; dpRefresh(); }
 function gateLive(q){ return ['ACTIVE','PAUSED','EXCEPTION'].includes(String(q.status||'').toUpperCase()); }
@@ -1477,7 +1516,7 @@ function gateModel(b){
   const unassigned=open.filter(r=>r.worker&&!r.waiting&&!r.sessions.length);
   const busy=open.filter(r=>r.sessions.length);
   const pending=rows.filter(r=>r.done&&!r.verified);   /* completed but not verified: a CHECK does not change this */
-  return { rows, plant, total, done, verified, open, unassigned, busy, pending, released, scope, st, cohortScope,
+  return { rows, plant, prop:gatePropagationInfo(b), total, done, verified, open, unassigned, busy, pending, released, scope, st, cohortScope,
            ready:released||(verified===total&&total>0), cleared:verified===total&&total>0 };
 }
 function gateOverrideSteps(m){   /* the override modal lists these (PH_STEPS[scope].steps) */
@@ -1554,8 +1593,8 @@ function gateOverviewTab(b,m){
       <div><b>${esc(gateRowLabel(r))}</b> ${gateChipTag(g)}</div><div class="gt-sub">${line}${gateOverrideLink(r,m)}</div></div></div>`;
   };
   const g1=GATE_GROUPS[0], g2=GATE_GROUPS[1], g3=GATE_GROUPS[2];
-  const plantRows=m.plant.map(p=>`<div class="gt-row ${p.done?'is-done':''} ${p.applies?'':'is-na'}"><span class="gt-box" aria-hidden="true">${p.done?'☑':'☐'}</span><div class="gt-main">
-      <div><b>${esc(gateRowLabel(p))}</b> ${gateChipTag(g3)}</div><div class="gt-sub">${esc(p.note)}</div></div></div>`).join('');
+  const plantRows=m.prop.map(p=>`<div class="gt-row"><span class="gt-box" aria-hidden="true">ℹ</span><div class="gt-main">
+      <div><b>${esc(p.label)}</b> ${p.chip?`<span class="chip ${p.chip.cls}">${esc(p.chip.text)}</span>`:gateChipTag(g3)}</div><div class="gt-sub">${esc(p.note)}</div></div></div>`).join('');
   return `<div class="gt-status"><span class="chip ${chip[1]} gt-big">${esc(chip[0])}</span>${gateProgress(m)}<div class="gt-lead">${esc(gateStateLine(m,b))}</div></div>
     <div class="gt-grp"><div class="gt-grp-h">${esc(g1.title)}</div>${m.rows.filter(r=>r.group==='base').map(r=>rowHTML(r,g1)).join('')||'<div class="gt-sub">No steps apply.</div>'}</div>
     <div class="gt-grp"><div class="gt-grp-h">${esc(g2.title)}</div>${m.rows.filter(r=>r.group==='infra').map(r=>rowHTML(r,g2)).join('')||'<div class="gt-sub">No steps apply to this bed.</div>'}</div>
