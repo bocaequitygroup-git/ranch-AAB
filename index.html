@@ -606,9 +606,9 @@ function bedView(b){
   const p=parseLocationId(b.id), c = p ? pickCohort(state.board.byKey[locKey(p)]) : null;
   if(c){
     Object.assign(v, { cohortId:c.cohortId, cropId:c.cropId, cropName:c.cropName, shortfall:!!c.shortfall, cohortStatus:c.cohortStatus, currentStage:cohortStage(c),
-      plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'', plantingWindow:c.plantingWindow||null });
+      plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'', plantingWindow:c.plantingWindow||null, plantingDeviation:c.plantingDeviation||null });
   }else{
-    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'', plantingWindow:null });
+    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'', plantingWindow:null, plantingDeviation:null });
   }
   return v;
 }
@@ -732,6 +732,32 @@ async function pwAuthorizeAndRetry(cohortId,kind,date){
   catch(e){ toast(e.message); return; }
   if(ui.pwReasons) delete ui.pwReasons[cohortId];
   return kind==='dp' ? dpSubmit() : submitMultiAssign();
+}
+/* ============================== PLANTING DEVIATION (PlantingDeviation.gs) ==============================
+ * Planted on a date other than Planned DOB (inside the allowable window, or outside it and manager-accepted): the manager must explain,
+ * the harvest window is re-anchored on the ACTUAL planting date + days to maturity, and the planting task is marked Late / Early.
+ * verify-planting answers DEVIATION_REASON_REQUIRED until deviationReason is sent. Board cohorts then carry
+ * plantingDeviation = {timing, varianceDays, reason, by, date, plannedDob, actualDob, originalHarvestEarliest/Latest, harvestShiftDays}. */
+function pdSetReason(id,v){ (ui.pdReasons=ui.pdReasons||{})[id]=v; }
+function pdDays(a,b){ const p=x=>{ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(x||'')); return m?Date.UTC(+m[1],+m[2]-1,+m[3]):NaN; }; return Math.round((p(b)-p(a))/86400000); }
+function pdPlannedFor(cohortId){ const c=((state.board&&state.board.cohorts)||[]).find(x=>x.cohortId===cohortId); return (c&&c.plannedDob)||''; }
+/* The manager's explanation box, shown inside the Verify planting modal once the server asks for it. */
+function pdAskBox(pd,cohortId){
+  if(!pd) return '';
+  const id=esc(cohortId);
+  return `<div class="pw-box warn"><div class="pw-t">Planting date differs from the plan</div><div>${esc(pd.message||'')}</div>
+    <textarea placeholder="Explanation for planting on a different date (required)" oninput="pdSetReason('${id}',this.value)">${esc((ui.pdReasons||{})[cohortId]||'')}</textarea></div>`;
+}
+/* Read-only record on the bed panel for a cohort that was planted off its planned date. */
+function pdSummaryBox(pd){
+  if(!pd||!pd.timing) return '';
+  const row=(k,v)=>v!==''&&v!=null?`<div class="pw-r"><span>${esc(k)}</span><span>${esc(v)}</span></div>`:'';
+  const n=Math.abs(pd.varianceDays||0), tl=pd.timing==='LATE'?'late':'early', sh=pd.harvestShiftDays||0;
+  const orig=pd.originalHarvestEarliest?(pd.originalHarvestEarliest+' \u2192 '+(pd.originalHarvestLatest||'?')):'';
+  return `<div class="pw-box ok"><div class="pw-t">Planted ${n} day${n===1?'':'s'} ${tl} - harvest window moved</div>
+    ${row('Planned DOB',pd.plannedDob)}${row('Actual planting',pd.actualDob)}${orig?row('Original harvest window',orig):''}
+    ${sh?row('Harvest shifted',(sh>0?'+':'')+sh+' day'+(Math.abs(sh)===1?'':'s')):''}
+    <div class="pw-why">${esc(pd.reason||'')}${pd.by?' \u2014 '+esc(pd.by):''}${pd.date?' on '+esc(String(pd.date).slice(0,10)):''}</div></div>`;
 }
 function pwTileMark(pw,bx,by,ch){
   if(!pw||!pw.state||pw.state==='IN_WINDOW'||pw.state==='NOT_CHECKED') return '';
@@ -878,8 +904,25 @@ async function doVerifyPlanting(cohortId, actualDob){
       }
     } else { ui.modalDraft.pw=null; ui.modalDraft.pwDate=''; }
   }catch(e){ toast(e.message); return; }
-  try{ await apiCall('verify-planting', Object.assign({ cohortId, actualDob }, reason?{ windowOverrideReason:reason }:{})); if(ui.pwReasons) delete ui.pwReasons[cohortId]; toast('Planting verified. Cohort is now ACTIVE.'); closeModal(); await loadToday(); }
-  catch(e){ toast(e.message); }
+  /* Missed / early planting date: the explanation is sent only for the date it was written for. */
+  const dvReason=(ui.modalDraft.pdDate===actualDob)?String((ui.pdReasons||{})[cohortId]||'').trim():'';
+  try{
+    const res=await apiCall('verify-planting', Object.assign({ cohortId, actualDob }, reason?{ windowOverrideReason:reason }:{}, dvReason?{ deviationReason:dvReason }:{}));
+    if(ui.pwReasons) delete ui.pwReasons[cohortId];
+    if(ui.pdReasons) delete ui.pdReasons[cohortId];
+    const dv=res&&res.plantingDeviation, h=dv&&dv.harvest;
+    let msg='Planting verified. Cohort is now ACTIVE.';
+    if(dv){ const n=Math.abs(dv.varianceDays||0); msg='Planting verified ('+n+' day'+(n===1?'':'s')+' '+String(dv.timing||'').toLowerCase()+').'+(h?' Harvest window moved '+(h.shiftDays>0?'+':'')+h.shiftDays+' day'+(Math.abs(h.shiftDays)===1?'':'s')+' to '+h.earliest+' \u2192 '+h.latest+'.':''); }
+    if(res&&res.plantingDeviationWarning) msg+=' '+res.plantingDeviationWarning;
+    else if(dv&&dv.warning) msg+=' '+dv.warning;
+    toast(msg); closeModal(); await loadToday();
+  }catch(e){
+    if(e&&e.code==='DEVIATION_REASON_REQUIRED'){
+      ui.modalDraft.pd={ message:e.message }; ui.modalDraft.pdDate=actualDob; ui.modalDraft.dob=actualDob; render();
+      toast('This is not the planned date. Enter an explanation, then verify again.'); return;
+    }
+    toast(e.message);
+  }
 }
 async function openMoveModal(cohortId){
   try{
@@ -1073,6 +1116,7 @@ function overviewTab(b,sess){
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
   </div>`:''}
   ${b.cohortId?pwBox(b.plantingWindow):''}
+  ${b.cohortId?pdSummaryBox(b.plantingDeviation):''}
   ${b.cohortId?cohortActionButtons(b)+pendingBlock(b,true):emptyBedBlock(b,sess)}
   ${actionsPanel(b,sess)}
   ${bedProfileCard(b)}`;
@@ -1133,7 +1177,7 @@ function cohortActionButtons(b){
 }
 function activityTab(b){
   const rows=(b.activityLog||[]);
-  return rows.length? `<div class="card">${rows.map(r=>`<div class="row"><span>${esc(r.taskType)} · ${esc(r.workerName||r.workerId)}</span><span>${esc(r.endTime||'')}</span></div>`).join('')}</div>` : `<div class="empty">No completed activity logged for this bed yet.</div>`;
+  return rows.length? `<div class="card">${rows.map(r=>`<div class="row"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span>${esc(r.endTime||'')}</span></div>`).join('')}</div>` : `<div class="empty">No completed activity logged for this bed yet.</div>`;
 }
 function exceptionsTab(b,exc){
   return exc.length? exc.map(x=>`<div class="card">
@@ -2213,15 +2257,22 @@ function rejectModal(){
   <button class="btn btn-danger" onclick="rejectAssignment('${esc(d.cohortId)}')">Reject recommendation</button>
   <button class="btn btn-ghost" onclick="openModal('queue')">Back</button>`;
 }
+function pdPlannedLine(d){
+  const planned=pdPlannedFor(d.cohortId); if(!planned) return '';
+  const v=pdDays(planned,d.dob||todayISO()), n=Math.abs(v);
+  return `<div class="note" style="margin:6px 0;">Planned DOB ${esc(planned)}${!v?' \u00b7 on plan':' \u00b7 '+n+' day'+(n===1?'':'s')+(v>0?' late':' early')+' if planted '+esc(d.dob||todayISO())}.</div>`;
+}
 function verifyPlantingModal(){
   const d=ui.modalDraft;
   const today=todayISO();   /* local date: toISOString() is UTC and offered tomorrow's date in the evening */
   const pw=d.pw, outside=!!pw&&pw.state==='OUTSIDE_AUTH_REQUIRED';
   return `<h2 style="font-size:15px;">Verify planting</h2>
-  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock. The planned DOB is not changed.</p>
+  <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock. The planned DOB is not changed; if the actual date differs, the harvest window follows the actual planting date.</p>
   ${pwBox(pw,{ reason:true })}
+  ${pdPlannedLine(d)}
+  ${pdAskBox(d.pd,d.cohortId)}
   <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||today)}" max="${esc(today)}"></div>
-  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':'Verify planting'}</button>
+  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':(d.pd?'Record explanation and verify planting':'Verify planting')}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function moveModal(){
@@ -4242,7 +4293,7 @@ function bhHistory(b,d){
       :k==='CHECKED'?`Checked${r.checkedBy?' by '+esc(r.checkedBy):''}${r.checkedDate?' \u00b7 '+esc(bhDate(r.checkedDate)):''}`:'';
     const grp=r.domain||c.domain||'', sc=scOf(r);
     return bhRow({ id:r.activityId||c.id||'', name:r.taskType||'', desc:shortDesc(r.description||c.description||'',110), worker:r.workerName||r.workerId||'', done:bhDate(r.endTime),
-      chips:(sc?`<span class="chip chip-neutral" title="Activity domain">${esc(bhScopeLabel(sc))}</span>`:'')+(grp?`<span class="chip chip-neutral" title="Activity group">${esc(grp)}</span>`:'')+chip, note:by });
+      chips:(sc?`<span class="chip chip-neutral" title="Activity domain">${esc(bhScopeLabel(sc))}</span>`:'')+(grp?`<span class="chip chip-neutral" title="Activity group">${esc(grp)}</span>`:'')+(r.timing?`<span class="chip chip-warn" title="Planted off the planned date">Completed \u00b7 ${esc(String(r.timing).charAt(0)+String(r.timing).slice(1).toLowerCase())} ${(r.varianceDays>0?'+':'')+esc(r.varianceDays)}d</span>`:'')+chip, note:by });
   };
   const more=rows.length>lim?`<button class="btn btn-outline" onclick="bhSet('hl',${lim+25})">Show more (${rows.length-lim} left)</button>`:'';
   return bhSec('History',log.length?rows.length+(rows.length===log.length?'':' of '+log.length):0,
@@ -5825,7 +5876,7 @@ async function mockBackend(action, p){
       const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
       if(bed.cohortStatus!=='PRE_PLANTING') return bad('This cohort is not awaiting planting verification.','WRONG_STATUS');
       bed.cohortStatus='ACTIVE'; bed.currentStage='PRE_PLANTING'; bed.plantingDate=p.actualDob;
-      return ok({done:true});
+      return ok({done:true});   /* demo data has no planned DOB, so the deviation flow is only exercised against the real backend */
     }
     case 'move-cohort': {
       const oldBed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!oldBed) return bad('Cohort not found.','COHORT_NOT_FOUND');
