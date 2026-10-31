@@ -1461,13 +1461,16 @@ function gatePropagationInfo(b){
   if(path==='GH_PROP'||path==='NURSERY'){
     const total=Number(lead.total)||0, start=(pc.date&&total)?gateIsoMinus(pc.date,total):'';
     const parts=[['germination',lead.germ],['nursery',lead.nursery],['hardening',lead.harden],['establishment',lead.establish]].filter(x=>Number(x[1])>0).map(x=>x[1]+' d '+x[0]).join(' + ');
-    const gated=!!b.cohortId&&String(b.propagationPath||'').toUpperCase()==='GH_PROP', signed=gated&&!!b.propagationVerifiedDate;
+    /* b is the today-view bed: it knows the cohort but not Propagation_Path / Propagation_Verified_*, which only the cohort board carries. Read them from the board view of the SAME cohort. */
+    const pv=bedViewById(b.id)||{}, same=!!b.cohortId&&pv.cohortId===b.cohortId;
+    const pPath=String(b.propagationPath||(same?pv.propagationPath:'')||'').toUpperCase(), vDate=b.propagationVerifiedDate||(same?pv.propagationVerifiedDate:'')||'', vBy=b.propagationVerifiedBy||(same?pv.propagationVerifiedBy:'')||'';
+    const gated=!!b.cohortId&&pPath==='GH_PROP', signed=gated&&!!vDate;
     return [
       { label:'Propagation', note:name+': transplanted from the '+(path==='NURSERY'?'nursery':'greenhouse')+(total?'. Lead time '+total+' days'+(parts?' ('+parts+')':'')+'.':'.')+(start?' To plant on '+pc.date+', propagation starts about '+start+'.':'') },
       gated
         ? { label:'Nursery sign-off (R01)', chip:signed?{text:'Propagation Signed Off',cls:'chip-ok'}:{text:'Awaiting Nursery Sign-off',cls:'chip-warn'},
-            note:signed?'Verified'+(b.propagationVerifiedBy?' by '+b.propagationVerifiedBy:'')+' on '+b.propagationVerifiedDate+'. Transplanting is not blocked by propagation.':'The manager must verify propagation before Transplanting can be assigned or started. This does not affect releasing the bed.' }
-        : { label:'Nursery sign-off (R01)', note:b.cohortId?'This cohort does not use greenhouse propagation, so no nursery sign-off applies.':'Applies once a cohort is assigned: the manager verifies propagation (rule R01) before Transplanting can be assigned or started. This does not affect releasing the bed.' }
+            note:signed?'Verified'+(vBy?' by '+vBy:'')+' on '+vDate+'. Transplanting is not blocked by propagation.':'The manager must verify propagation before Transplanting can be assigned or started. This does not affect releasing the bed.' }
+        : { label:'Nursery sign-off (R01)', note:b.cohortId?(pPath?'This cohort does not use greenhouse propagation, so no nursery sign-off applies.':'The propagation path of this cohort has not loaded yet. Press Refresh; the nursery sign-off status will show once it does.'):'Applies once a cohort is assigned: the manager verifies propagation (rule R01) before Transplanting can be assigned or started. This does not affect releasing the bed.' }
     ];
   }
   return [{ label:'Propagation', note:name+': planted by '+(method?method.toLowerCase().replace(/_/g,' '):'an unlisted method')+' (propagation path '+(path||'not set')+'). No nursery batch is tracked for it here.' }];
