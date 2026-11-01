@@ -617,9 +617,10 @@ function bedView(b){
   if(c){
     Object.assign(v, { cohortId:c.cohortId, cropId:c.cropId, cropName:c.cropName, shortfall:!!c.shortfall, cohortStatus:c.cohortStatus, currentStage:cohortStage(c),
       plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'', plantingWindow:c.plantingWindow||null, plantingDeviation:c.plantingDeviation||null,
-      propagationPath:c.propagationPath||'', propagationVerifiedBy:c.propagationVerifiedBy||'', propagationVerifiedDate:c.propagationVerifiedDate||'' });
+      propagationPath:c.propagationPath||'', propagationVerifiedBy:c.propagationVerifiedBy||'', propagationVerifiedDate:c.propagationVerifiedDate||'',
+      propagationOverrideBy:c.propagationOverrideBy||'', propagationOverrideDate:c.propagationOverrideDate||'', propagationOverrideReason:c.propagationOverrideReason||'' });
   }else{
-    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'', plantingWindow:null, plantingDeviation:null, propagationPath:'', propagationVerifiedBy:'', propagationVerifiedDate:'' });
+    Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'', plantingWindow:null, plantingDeviation:null, propagationPath:'', propagationVerifiedBy:'', propagationVerifiedDate:'', propagationOverrideBy:'', propagationOverrideDate:'', propagationOverrideReason:'' });
   }
   return v;
 }
@@ -758,6 +759,15 @@ function pdAskBox(pd,cohortId){
   const id=esc(cohortId);
   return `<div class="pw-box warn"><div class="pw-t">Planting date differs from the plan</div><div>${esc(pd.message||'')}</div>
     <textarea placeholder="Explanation for planting on a different date (required)" oninput="pdSetReason('${id}',this.value)">${esc((ui.pdReasons||{})[cohortId]||'')}</textarea></div>`;
+}
+/* NURSERY SIGN-OFF (rule R01): verify-planting answers PROPAGATION_NOT_VERIFIED for a GH_PROP cohort until propagation is verified.
+ * The manager may plant anyway by explaining (propagationOverrideReason, >= 5 chars); the server records who / when / why. */
+function ppSetReason(id,v){ (ui.ppReasons=ui.ppReasons||{})[id]=v; }
+function ppAskBox(pp,cohortId){
+  if(!pp) return '';
+  const id=esc(cohortId);
+  return `<div class="pw-box warn"><div class="pw-t">Nursery sign-off missing</div><div>${esc(pp.message||'')}</div>
+    <textarea placeholder="Explanation for planting without nursery sign-off (required, at least 5 characters)" oninput="ppSetReason('${id}',this.value)">${esc((ui.ppReasons||{})[cohortId]||'')}</textarea></div>`;
 }
 /* Read-only record on the bed panel for a cohort that was planted off its planned date. */
 function pdSummaryBox(pd){
@@ -917,10 +927,13 @@ async function doVerifyPlanting(cohortId, actualDob){
   }catch(e){ toast(e.message); return; }
   /* Missed / early planting date: the explanation is sent only for the date it was written for. */
   const dvReason=(ui.modalDraft.pdDate===actualDob)?String((ui.pdReasons||{})[cohortId]||'').trim():'';
+  /* Nursery sign-off: the explanation is sent only after the server has asked for it (ui.modalDraft.pp). */
+  const ppReason=ui.modalDraft.pp?String((ui.ppReasons||{})[cohortId]||'').trim():'';
   try{
-    const res=await apiCall('verify-planting', Object.assign({ cohortId, actualDob }, reason?{ windowOverrideReason:reason }:{}, dvReason?{ deviationReason:dvReason }:{}));
+    const res=await apiCall('verify-planting', Object.assign({ cohortId, actualDob }, reason?{ windowOverrideReason:reason }:{}, dvReason?{ deviationReason:dvReason }:{}, ppReason?{ propagationOverrideReason:ppReason }:{}));
     if(ui.pwReasons) delete ui.pwReasons[cohortId];
     if(ui.pdReasons) delete ui.pdReasons[cohortId];
+    if(ui.ppReasons) delete ui.ppReasons[cohortId];
     const dv=res&&res.plantingDeviation, h=dv&&dv.harvest;
     let msg='Planting verified. Cohort is now ACTIVE.';
     if(dv){ const n=Math.abs(dv.varianceDays||0); msg='Planting verified ('+n+' day'+(n===1?'':'s')+' '+String(dv.timing||'').toLowerCase()+').'+(h?' Harvest window moved '+(h.shiftDays>0?'+':'')+h.shiftDays+' day'+(Math.abs(h.shiftDays)===1?'':'s')+' to '+h.earliest+' \u2192 '+h.latest+'.':''); }
@@ -928,6 +941,10 @@ async function doVerifyPlanting(cohortId, actualDob){
     else if(dv&&dv.warning) msg+=' '+dv.warning;
     toast(msg); closeModal(); execInvalidate(); await loadToday();
   }catch(e){
+    if(e&&e.code==='PROPAGATION_NOT_VERIFIED'){
+      ui.modalDraft.pp={ message:e.message }; ui.modalDraft.dob=actualDob; render();
+      toast('Nursery sign-off is missing. Verify propagation first, or enter an explanation to plant without it.'); return;
+    }
     if(e&&e.code==='DEVIATION_REASON_REQUIRED'){
       ui.modalDraft.pd={ message:e.message }; ui.modalDraft.pdDate=actualDob; ui.modalDraft.dob=actualDob; render();
       toast('This is not the planned date. Enter an explanation, then verify again.'); return;
@@ -1475,6 +1492,17 @@ function gatePropagationInfo(b){
     const pv=bedViewById(b.id)||{}, same=!!b.cohortId&&pv.cohortId===b.cohortId;
     const pPath=String(b.propagationPath||(same?pv.propagationPath:'')||'').toUpperCase(), vDate=b.propagationVerifiedDate||(same?pv.propagationVerifiedDate:'')||'', vBy=b.propagationVerifiedBy||(same?pv.propagationVerifiedBy:'')||'';
     const gated=!!b.cohortId&&pPath==='GH_PROP', signed=gated&&!!vDate;
+    /* Planted without nursery sign-off: the manager's written override is the record (server: propagationRecordOverride_). Never show "Awaiting" for a planted cohort. */
+    const oDate=b.propagationOverrideDate||(same?pv.propagationOverrideDate:'')||'', oBy=b.propagationOverrideBy||(same?pv.propagationOverrideBy:'')||'', oWhy=b.propagationOverrideReason||(same?pv.propagationOverrideReason:'')||'';
+    const plantedAlready=!!(b.plantingDate||(same&&pv.plantingDate));
+    if(gated&&!signed&&oDate) return [
+      { label:'Propagation', note:name+': transplanted from the '+(path==='NURSERY'?'nursery':'greenhouse')+(total?'. Lead time '+total+' days'+(parts?' ('+parts+')':'')+'.':'.') },
+      { label:'Nursery sign-off (R01)', chip:{text:'Overridden by manager',cls:'chip-warn'}, note:'Planted without nursery sign-off'+(oBy?' (override by '+oBy+')':'')+' on '+String(oDate).slice(0,10)+(oWhy?': '+oWhy:'.') }
+    ];
+    if(gated&&!signed&&plantedAlready) return [
+      { label:'Propagation', note:name+': transplanted from the '+(path==='NURSERY'?'nursery':'greenhouse')+(total?'. Lead time '+total+' days'+(parts?' ('+parts+')':'')+'.':'.') },
+      { label:'Nursery sign-off (R01)', chip:{text:'Planted without sign-off',cls:'chip-warn'}, note:'This cohort was verified planted before the nursery sign-off gate existed, so there is no sign-off or override on record.' }
+    ];
     return [
       { label:'Propagation', note:name+': transplanted from the '+(path==='NURSERY'?'nursery':'greenhouse')+(total?'. Lead time '+total+' days'+(parts?' ('+parts+')':'')+'.':'.')+(start?' To plant on '+pc.date+', propagation starts about '+start+'.':'') },
       gated
@@ -2309,9 +2337,10 @@ function verifyPlantingModal(){
   <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock. The planned DOB is not changed; if the actual date differs, the harvest window follows the actual planting date.</p>
   ${pwBox(pw,{ reason:true })}
   ${pdPlannedLine(d)}
+  ${ppAskBox(d.pp,d.cohortId)}
   ${pdAskBox(d.pd,d.cohortId)}
   <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||today)}" max="${esc(today)}"></div>
-  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':(d.pd?'Record explanation and verify planting':'Verify planting')}</button>
+  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':((d.pd||d.pp)?'Record explanation and verify planting':'Verify planting')}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function moveModal(){
