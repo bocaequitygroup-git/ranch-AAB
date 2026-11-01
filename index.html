@@ -742,7 +742,6 @@ async function pwAuthorizeAndRetry(cohortId,kind,date){
   try{ await apiCall('authorize-planting-window',{ cohortId, date, reason },60000); toast('Accepted and recorded. Retrying the assignment…'); }
   catch(e){ toast(e.message); return; }
   if(ui.pwReasons) delete ui.pwReasons[cohortId];
-  if(kind==='ma'){ const d=maD(); d.pwMap={}; await maPwCheck(); }   /* the date is now accepted: re-read the window state so Assign is not blocked */
   return kind==='dp' ? dpSubmit() : submitMultiAssign();
 }
 /* ============================== PLANTING DEVIATION (PlantingDeviation.gs) ==============================
@@ -967,9 +966,7 @@ function selectBed(bedId){ ui.selectedBed=bedId; ui.tab='overview'; render(); } 
 function closePanel(){ ui.selectedBed=null; render(); }
 function setOverlay(mode){ ui.overlay=mode; render(); }
 function setTab(t){ ui.tab=t; render(); }
-function openModal(name, draft){ ui.modal=name; ui.modalDraft=draft||{}; render();
-  /* Assign modal opened with activities already ticked (e.g. from the bed readiness gate): default the planting date and start the window check now */
-  if(name==='dispatch' && !ui.modalDraft.fixedActivity && ui.modalDraft.acts && ui.modalDraft.acts.length) maPlantSync(); }
+function openModal(name, draft){ ui.modal=name; ui.modalDraft=draft||{}; render(); }
 function closeModal(){ ui.modal=null; ui.modalDraft={}; ui.focusCohort=null; ui.focusPending=false; render(); }
 
 function bedFill(bed){
@@ -1496,37 +1493,31 @@ function gateModel(b){
   const st=String(b.bedStatus||'').toUpperCase()||'UNVERIFIED';
   const ph=b.postHarvest||b.reset||null;
   const released=!b.postHarvest && !GATE_NOT_RELEASED.includes(st);
-  /* READ THE STORED RECORD, never invent one. ph.steps = the bed's real MANAGER_QUEUE state (b.reset is sent for every released bed that has turnover history);
-   * ph.release = the bed's stored Verify Bed Ready stamp (latest RESOLVED VerifyBedReady queue row). A released bed's step with no stored completion is LEGACY:
-   * shown as 'not on record' (released under an earlier SOP, or before step tracking), never counted done or verified, and never offered for assignment. */
-  const stamp=(ph&&ph.release)||null;
   const cohortScope=!!(b.postHarvest && !b.postHarvest.bedLevel);
   const scope=cohortScope?b.cohortId:'BED:'+b.id;
   const cs=String(b.cohortStatus||'').toUpperCase();
   let src;
   if(ph) src=(ph.steps||[]).map(x=>Object.assign({},x));
   else src=cat.filter(a=>a.postHarvestSequence>0).sort((x,y)=>x.postHarvestSequence-y.postHarvestSequence)
-        .map(a=>({name:a.name,status:released?'UNRECORDED':'PENDING',gate:'',domain:a.domain}));   /* no stored record at all: unrecorded, not complete */
+        .map(a=>({name:a.name,status:released?'COMPLETE':'PENDING',gate:'',domain:a.domain}));
   const rows=src.map((x,i)=>{
     const m=meta(x.name), seq=m.postHarvestSequence||0, mine=sess.filter(q=>q.activity===x.name);
     const done=x.status==='COMPLETE', w=x.work||null;
-    const legacy=released&&!done&&(x.status==='UNRECORDED'||x.status==='PENDING');
-    const waiting=!done&&!legacy&&(x.gate==='BUFFER'||(x.gate==='WINDOW'&&x.status!=='OPEN'));
-    const verified=done&&(x.overridden||!!(w&&w.verified)||(released&&!w&&!!stamp));   /* a step with no work record counts as verified only when the bed carries a stored release stamp */
+    const waiting=!done&&(x.gate==='BUFFER'||(x.gate==='WINDOW'&&x.status!=='OPEN'));
+    const verified=done&&(x.overridden||!!(w&&w.verified)||released&&!w);
     return { name:x.name, id:m.id||'', label:GATE_LABEL[x.name]||x.name, domain:x.domain||m.domain||'', seq:seq||i+1,
       group:(seq>=GATE_INFRA_FROM_SEQ||GATE_INFRA_NAMES.includes(x.name))?'infra':'base',
       checked:!!(w&&w.checked&&!(w&&w.verified)), checkedBy:(w&&w.checkedByName)||'', checkedAt:(w&&w.checkedAt)||'', done, overridden:!!x.overridden, hov:(ph&&ph.overrides||[]).find(o=>o.name===x.name)||null, verified, work:w, needsVerification:!!x.needsVerification,
-      legacy, note:legacy?'not on record: this bed was released'+(stamp?' on '+stamp.date:'')+' before this step was tracked':'', waiting, windowGate:!done&&!legacy&&x.gate==='WINDOW'&&x.status!=='OPEN', waitText:x.gate==='BUFFER'?'Automatic wait: no one needs to be assigned':(waiting?'Waiting for its seasonal window'+(x.windowOpens?' (opens '+x.windowOpens+')':'')+'. You can assign it early with a reason.':''),
-      sessions:mine, live:mine.filter(gateLive), assigned:mine.filter(q=>!gateLive(q)), worker:!legacy };
+      waiting, waitText:x.gate==='BUFFER'?'Automatic wait: no one needs to be assigned':(waiting?'Waiting for its seasonal window'+(x.windowOpens?' (opens '+x.windowOpens+')':''):''),
+      sessions:mine, live:mine.filter(gateLive), assigned:mine.filter(q=>!gateLive(q)), worker:true };
   });
   /* ACT_053 is a lifecycle step, not part of the SOP sequence: it is done when this bed's cohort was terminated (harvest complete). */
   const harvested=cohortScope||['TERMINATED','COMPLETE'].includes(cs);
   const hov=ph&&ph.harvestOverride||null;
-  const t53done=harvested||!!hov||(released&&!!stamp), t53legacy=released&&!t53done;   /* released with no stored stamp and no termination record = not on record */
   const t53={ name:'TerminateCohort', id:(meta('TerminateCohort').id||'ACT_053'), label:GATE_LABEL.TerminateCohort, domain:'Lifecycle', seq:0, group:'base',
-    done:t53done, overridden:!!hov&&!harvested, verified:t53done, legacy:t53legacy, work:null, needsVerification:false, waiting:false, waitText:'',
+    done:released||harvested||!!hov, overridden:!!hov&&!harvested&&!released, verified:released||harvested||!!hov, work:null, needsVerification:false, waiting:false, waitText:'',
     sessions:[], live:[], assigned:[], worker:false, harvested, hov,
-    note:t53legacy?'not on record: this bed was released before harvest closure was tracked':harvested?'cohort terminated and harvest closed':hov?'overridden by '+(hov.by||'a manager')+(hov.date?' on '+hov.date:'')+(hov.reason?': '+hov.reason:''):'no previous harvest — this bed has not been harvested yet' };
+    note:harvested?'cohort terminated and harvest closed':hov?'overridden by '+(hov.by||'a manager')+(hov.date?' on '+hov.date:'')+(hov.reason?': '+hov.reason:''):'no previous harvest — this bed has not been harvested yet' };
   rows.unshift(t53);
   const total=rows.length, done=rows.filter(r=>r.done).length, verified=rows.filter(r=>r.verified).length;
   const planted=!!b.plantingDate, method=plantingActivityFor(b);
@@ -1534,30 +1525,25 @@ function gateModel(b){
     const m=meta(n), applies=!!b.cohortId&&method===n;
     return { name:n, id:m.id||id, label, applies, done:planted&&applies, note:!b.cohortId?'not for this crop — applies once a crop is assigned':applies?(planted?'done — planting verified':'applies to '+(b.cropName||'this crop')+' — happens after the bed is released'):'not for this crop' };
   });
-  const legacyN=rows.filter(r=>r.legacy).length;
-  const open=rows.filter(r=>!r.done&&!r.legacy);
+  const open=rows.filter(r=>!r.done);
   const unassigned=open.filter(r=>r.worker&&!r.waiting&&!r.sessions.length);
   const busy=open.filter(r=>r.sessions.length);
   const pending=rows.filter(r=>r.done&&!r.verified);   /* completed but not verified: a CHECK does not change this */
-  return { rows, plant, prop:gatePropagationInfo(b), total, done, verified, open, unassigned, busy, pending, released, scope, st, cohortScope, legacy:legacyN, releasedAt:stamp?stamp.date:'',
+  return { rows, plant, prop:gatePropagationInfo(b), total, done, verified, open, unassigned, busy, pending, released, scope, st, cohortScope,
            ready:released||(verified===total&&total>0), cleared:verified===total&&total>0 };
 }
 function gateOverrideSteps(m){   /* the override modal lists these (PH_STEPS[scope].steps) */
-  PH_STEPS[m.scope]={ steps:m.rows.filter(r=>!r.done&&!r.legacy).map(r=>({name:r.name,domain:r.domain||'Other',status:'OPEN'})) };
+  PH_STEPS[m.scope]={ steps:m.rows.filter(r=>!r.done).map(r=>({name:r.name,domain:r.domain||'Other',status:'OPEN'})) };
 }
 function gateRowLabel(r){ return (r.id?r.id+': ':'')+r.label; }
 function gateStateLine(m,b){
-  if(m.released){
-    const base=b.plantingDate?'Cleared before planting. This bed is now in production.':'Bed verified ready. Planting can start once a cohort is assigned.';
-    return m.legacy?base+' Partial record: '+(m.total-m.legacy)+' of '+m.total+' current steps are on file'+(m.releasedAt?' (released '+m.releasedAt+')':'')+'; the other '+m.legacy+' predate this SOP or were never logged, so they are shown as not on record rather than done.':base;
-  }
+  if(m.released) return b.plantingDate?'Cleared before planting. This bed is now in production.':'Bed verified ready. Planting can start once a cohort is assigned.';
   if(m.cleared) return 'All '+m.total+' required steps are verified. Release the bed to make it available.';
   if(!m.open.length) return 'All required steps are done, but '+m.pending.length+' still need'+(m.pending.length===1?'s':'')+' manager verification. Checking a step does not count; verify it.';
   if(!m.pending.length) return m.open.length+' of '+m.total+' required step'+(m.total===1?'':'s')+' still open. Planting is blocked until all are done and a manager verifies the bed ready.';
   return m.open.length+' step'+(m.open.length===1?'':'s')+' still open and '+m.pending.length+' completed step'+(m.pending.length===1?'':'s')+' awaiting verification. Planting is blocked until all '+m.total+' are verified and the bed is released.';
 }
 function gateHeadChip(m,b){
-  if(m.released&&m.legacy) return ['RELEASED · PARTIAL RECORD','chip-neutral'];
   if(m.released) return b.plantingDate?['CLEARED · IN PRODUCTION','chip-ok']:['READY TO PLANT','chip-ok'];
   if(m.cleared) return ['READY TO RELEASE','chip-ok'];
   return ['NOT READY TO PLANT','chip-warn'];
@@ -1610,39 +1596,13 @@ function gateOverrideBtn(r,m){
 }
 function gateOverrideLink(r,m){ const x=gateOverrideBtn(r,m); return x?' — '+x:''; }
 /* ---- TAB 1 ---- */
-/* Bed overview: everything a manager has put on this bed. In progress, assigned (not started), reassigned (with who / when / note) and overridden steps,
- * with the same Reassign / Close & new actions as the Bed Status Board. Read-only data: bedSessions(), the turnover model rows and state.overrides. */
-function gateWorkSection(b,m){
-  const rk=x=>({ACTIVE:0,IN_PROGRESS:0,PAUSED:1,EXCEPTION:1,ASSIGNED:2}[String(x.status||'').toUpperCase()]);
-  const sess=bedSessions(b.id).slice().sort((x,y)=>((rk(x)===undefined?3:rk(x))-(rk(y)===undefined?3:rk(y)))||String(x.activityId||x.activity).localeCompare(String(y.activityId||y.activity)));
-  const isAsg=x=>String(x.status||'').toUpperCase()==='ASSIGNED';
-  const nLive=sess.filter(x=>!isAsg(x)).length, nAsg=sess.filter(isAsg).length, nRe=sess.filter(x=>x.reassignedFrom).length;
-  const ov=[], seen={};
-  (m.rows||[]).filter(r=>r.overridden).forEach(r=>{ seen[r.name]=1; const h=r.hov||{};
-    ov.push({ name:r.name, label:gateRowLabel(r), by:h.by||'', date:h.date||'', reason:h.reason||'' }); });
-  (state.overrides||[]).filter(o=>String(o.bedId||'').trim().toUpperCase()===String(b.id).trim().toUpperCase()).forEach(o=>{
-    if(seen[o.activity]) return; seen[o.activity]=1;
-    ov.push({ name:o.activity, label:o.activityId?o.activityId+': '+o.activity:o.activity, by:o.managerName||o.managerId||'', date:fmtTs(o.date)||'', reason:o.reason||'' }); });
-  const sum=nLive+' in progress · '+nAsg+' assigned · '+nRe+' reassigned · '+ov.length+' override'+(ov.length===1?'':'s');
-  const cards=sess.map(q=>{
-    const st=taskStatus(q), t=taskTimes(q), pending=isAsg(q);
-    const who=(q.workerName||q.workerId||'Unassigned')+((q.workerName&&q.workerId&&q.workerName!==q.workerId)?' ('+q.workerId+')':'');
-    const re=q.reassignedFrom?`<div class="gt-sub"><span class="chip chip-warn">Reassigned</span> from <b>${esc(q.reassignedFromName||q.reassignedFrom)}</b>${q.reassignedBy?' by '+esc(q.reassignedBy):''}${q.reassignedAt?' · '+esc(fmtTs(q.reassignedAt)):''}${q.reassignNote?'<br>Note: '+esc(q.reassignNote):''}</div>`:'';
-    return `<div class="gt-row"><div class="gt-main"><div><b>${esc(actLabel(q.activity,q))}</b> <span class="chip ${st[1]}">${esc(st[0])}</span></div>
-      <div class="gt-sub">${esc(who)} · ${pending?'dispatched '+esc(fmtTs(t.dispatched)||'—')+', waiting for the worker to start':'started '+esc(fmtTs(t.started)||'—')}</div>${re}
-      <div class="gt-sub"><button class="gt-link" onclick="gateReassign('${esc(q.id)}')">Reassign</button> <button class="gt-link" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'close'})">Close &amp; new</button></div></div></div>`; }).join('');
-  const ovs=ov.map(o=>`<div class="gt-row is-done"><div class="gt-main"><div><b>${esc(o.label)}</b> <span class="chip chip-neutral">Override</span></div>
-      <div class="gt-sub">By ${esc(o.by||'a manager')}${o.date?' · '+esc(o.date):''}${o.reason?'<br>Reason: '+esc(o.reason):''}</div></div></div>`).join('');
-  return `<div class="gt-grp"><div class="gt-grp-h">Assigned, in progress &amp; overrides</div><div class="gt-sub" style="margin:0 0 6px;">${esc(sum)}</div>
-    ${cards||'<div class="gt-sub">No task is assigned or running on this bed.</div>'}${ov.length?`<div class="gt-grp-h" style="margin-top:8px;">Overridden steps (${ov.length})</div>${ovs}`:''}</div>`;
-}
 function gateOverviewTab(b,m){
   const chip=gateHeadChip(m,b);
   const rowHTML=(r,g)=>{
     const crew=r.sessions.length?' · '+esc(r.sessions.map(q=>q.workerName||q.workerId).join(', '))+(r.live.length?' (in progress)':' (assigned)'):'';
     const line=r.done?(r.overridden?'overridden'+(r.note?' — '+esc(r.note.replace(/^overridden by /,'by ')):''):r.verified?(r.work&&r.work.verifiedByName?'verified by '+esc(r.work.verifiedByName):(r.note?esc(r.note):'verified')):(r.checked?'checked by '+esc(r.checkedBy||'a manager')+' — still pending verification':'completed — pending verification'))
       :r.note?esc(r.note):r.waiting?esc(r.waitText):(r.sessions.length?(r.live.length?'in progress':'assigned, not started')+crew:'open');
-    return `<div class="gt-row ${r.verified?'is-done':''}"><span class="gt-box" aria-hidden="true">${r.verified?'☑':r.legacy?'–':'☐'}</span><div class="gt-main">
+    return `<div class="gt-row ${r.verified?'is-done':''}"><span class="gt-box" aria-hidden="true">${r.verified?'☑':'☐'}</span><div class="gt-main">
       <div><b>${esc(gateRowLabel(r))}</b> ${gateChipTag(g)}</div><div class="gt-sub">${line}${gateOverrideLink(r,m)}</div></div></div>`;
   };
   const g1=GATE_GROUPS[0], g2=GATE_GROUPS[1], g3=GATE_GROUPS[2];
@@ -1652,7 +1612,6 @@ function gateOverviewTab(b,m){
     <div class="gt-grp"><div class="gt-grp-h">${esc(g1.title)}</div>${m.rows.filter(r=>r.group==='base').map(r=>rowHTML(r,g1)).join('')||'<div class="gt-sub">No steps apply.</div>'}</div>
     <div class="gt-grp"><div class="gt-grp-h">${esc(g2.title)}</div>${m.rows.filter(r=>r.group==='infra').map(r=>rowHTML(r,g2)).join('')||'<div class="gt-sub">No steps apply to this bed.</div>'}</div>
     <div class="gt-grp"><div class="gt-grp-h">${esc(g3.title)}</div>${plantRows}</div>
-    ${gateWorkSection(b,m)}
     ${gateNext(m,b)}`;
 }
 /* ---- TAB 2 ---- */
@@ -1661,21 +1620,19 @@ function gateRequiredTab(b,m){
     <div class="gt-sub" style="margin:0;"><b>Before:</b> Verify bed ready to plant. ${b.cohortId?esc((b.cropName||'The assigned crop')+' ('+b.cohortId+') is waiting on these steps.'):'No cohort on this bed yet: these steps are the gate for the next cohort.'} <b>Any order:</b> the crew does them as they are able, and every box must be checked.</div>
     ${b.cohortId?'':'<div class="note" style="margin:8px 0 0;">Preview: these steps become the gate once a cohort is approved for this bed.</div>'}</div>`;
   const label=r=>`<b>${esc(gateRowLabel(r))}</b> ${gateChipTag(GATE_GROUPS[r.group==='infra'?1:0])}`;
-  const openRows=m.rows.filter(r=>!r.done&&!r.legacy&&!r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
+  const openRows=m.rows.filter(r=>!r.done&&!r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
       ${r.waiting?`<div class="gt-sub">${esc(r.waitText)}</div>`:r.worker?'':`<div class="gt-sub">${esc(r.note)}. Closed by the manager’s Terminate cohort action${gateOverrideBtn(r,m)?', or ':''}${gateOverrideBtn(r,m)}</div>`}</div>
-      ${r.worker&&!r.waiting?`<button class="btn btn-outline gt-btn" data-a="${esc(r.name)}" onclick="gateAssignOne(this)">Assign to Worker(s)</button>`:r.windowGate?`<button class="btn btn-outline gt-btn" data-a="${esc(r.name)}" onclick="gateAssignOne(this)">Assign early…</button>`:''}</div>`).join('');
+      ${r.worker&&!r.waiting?`<button class="btn btn-outline gt-btn" data-a="${esc(r.name)}" onclick="gateAssignOne(this)">Assign to Worker(s)</button>`:''}</div>`).join('');
   const prog=m.rows.filter(r=>!r.done&&r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
       ${r.sessions.map(q=>{ const t=taskTimes(q), live=gateLive(q);
         return `<div class="gt-crew"><span>${esc(q.workerName||q.workerId)} · ${live?'started '+esc(fmtTs(t.started)||'—'):'assigned'+(t.dispatched?' '+esc(fmtTs(t.dispatched)):'')+', not started'}</span><button class="gt-link" onclick="gateReassign('${esc(q.id)}')">Reassign</button></div>`; }).join('')}</div></div>`).join('');
-  const legacyRows=m.rows.filter(r=>r.legacy).map(r=>`<div class="gt-row is-grey"><div class="gt-main"><div>${esc(gateRowLabel(r))}</div><div class="gt-sub">${esc(r.note)}</div></div></div>`).join('');
   const doneRows=m.rows.filter(r=>r.done).map(r=>`<div class="gt-row is-done"><div class="gt-main"><div class="gt-strike">${esc(gateRowLabel(r))}</div><div class="gt-sub">${r.overridden?'overridden':r.verified?'verified':'done, waiting for verification'}</div></div></div>`).join('');
   const sec=(t,n,body)=>body?`<div class="gt-grp"><div class="gt-grp-h">${t} (${n})</div>${body}</div>`:'';
   const sessB=bedSessions(b.id);
   return lead
-    +sec('Unassigned / open steps',m.rows.filter(r=>!r.done&&!r.legacy&&!r.sessions.length).length,openRows)
+    +sec('Unassigned / open steps',m.rows.filter(r=>!r.done&&!r.sessions.length).length,openRows)
     +sec('In progress',m.rows.filter(r=>!r.done&&r.sessions.length).length,prog)
     +sec('Completed',m.done,doneRows)
-    +sec('Not on record (legacy)',m.legacy,legacyRows)
     +gateNext(m,b)
     +(sessB.length?activeWorkSection(b,sessB):'');
 }
@@ -1827,7 +1784,7 @@ function modalHTML(){
   else if(ui.modal==='urgent') inner=urgentModal();
   else if(ui.modal==='phassign') inner=phaModal();
   else if(ui.modal==='new-activity') inner=newActivityModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -2075,27 +2032,21 @@ function dispatchModal(){
  * Every (activity, worker) pair is its own ASSIGNED session validated by validateActivity_(). Post-harvest turnover is NOT here:
  * it stays a controlled one-step-at-a-time sequence (turnoverBlock / fixedDispatchModal). */
 function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.fert) d.fert={}; if(!d.early) d.early={}; if(!d.earlyForce) d.earlyForce={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
+function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.fert) d.fert={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
 /* Required-workflow steps this bed can be given right now (any order): not complete, not an automatic buffer, window open. */
 /* Any order: every unfinished step that is not an automatic wait / closed window can be assigned. The bed is released only by the manager's Verify Bed Ready. */
 function phNextStep(p){ return p?(p.steps||[]).find(x=>x.status!=='COMPLETE')||null:null; }
 function phStepOpen(x){ return !!x&&x.gate!=='BUFFER'&&!(x.gate==='WINDOW'&&x.status!=='OPEN'); }
 function phStepAssignable(x){ return !!x&&x.status!=='COMPLETE'&&phStepOpen(x); }
-/* A seasonal-window step whose date has not arrived (e.g. ACT_045, 3/25). Not assignable normally, but a manager may ASSIGN EARLY with a logged reason
- * (>= EARLY_MIN chars). The server (validateActivity_ / earlyAssignCheck_) enforces it; this only offers it. Automatic buffers are never offered. */
-const EARLY_MIN=5;
-function phStepEarly(x){ return !!x&&x.status!=='COMPLETE'&&x.gate==='WINDOW'&&x.status!=='OPEN'; }
-function wfEarly(b){ const p=b&&b.postHarvest; return p?(p.steps||[]).map((x,i)=>Object.assign({idx:i},x)).filter(phStepEarly):[]; }
 function wfAssignable(b){ const p=b&&b.postHarvest; return p?(p.steps||[]).map((x,i)=>Object.assign({idx:i},x)).filter(phStepAssignable):[]; }
 function dispatchListFor(bedId,hasCohort){
   const b=(state.beds||[]).find(x=>x.id===bedId)||{}, cat=state.activityCatalog||[];
   const wf=wfAssignable(b).map(x=>{ const c=cat.find(y=>y.name===x.name)||{}; return {id:c.id||'',name:x.name,domain:'Required workflow',description:c.description||'',postHarvestSequence:x.idx+1,wf:true}; });
-  const early=wfEarly(b).map(x=>{ const c=cat.find(y=>y.name===x.name)||{}; return {id:c.id||'',name:x.name,domain:'Required workflow',description:c.description||'',postHarvestSequence:x.idx+1,wf:true,early:true,windowOpens:x.windowOpens||''}; });
   const reg=startableActivities(bedId,hasCohort).list.filter(a=>!(Number(a.postHarvestSequence)>0));
   /* An UNVERIFIED bed has no reset view yet, but the server starts the reset the moment its first step is assigned (R14). */
   const unv=(!hasCohort && !b.postHarvest && (String(b.bedStatus||'').toUpperCase()||'UNVERIFIED')==='UNVERIFIED')
     ? cat.filter(a=>a.postHarvestSequence>0).sort((x,y)=>x.postHarvestSequence-y.postHarvestSequence).map(a=>({id:a.id||'',name:a.name,domain:'Required workflow',description:a.description||'',postHarvestSequence:a.postHarvestSequence,wf:true})) : [];
-  return wf.concat(early,unv,reg);
+  return wf.concat(unv,reg);
 }
 function maList(){ const d=maD(); return dispatchListFor(d.bedId,d.hasCohort); }
 function maVisible(){ const d=maD(), q=d.q.trim().toLowerCase();
@@ -2103,14 +2054,14 @@ function maVisible(){ const d=maD(), q=d.q.trim().toLowerCase();
 function maOpenSet(){ const o={}; bedSessions(maD().bedId).forEach(s=>{ o[String(s.workerId||'').toUpperCase()+'|'+s.activity]=1; }); return o; }
 function maWName(id){ return ((state.workers||[]).find(w=>w.workerId===id)||{}).name||id; }
 function workerLoad(id){ return (state.sessions||[]).filter(s=>s.workerId===id && String(s.status||'').toUpperCase()!=='COMPLETED').length; }
-function maToggleAct(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } d.result=null; maPlantSync(); }
-function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0){ d.acts.push(a.name); d.map[a.name]=d.map[a.name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[a.name]; } }); d.result=null; maPlantSync(); }
+function maToggleAct(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } d.result=null; maRefresh(); }
+function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0){ d.acts.push(a.name); d.map[a.name]=d.map[a.name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[a.name]; } }); d.result=null; maRefresh(); }
 function maAddWorker(act,id){ if(!id) return; const l=maD().map[act]=maD().map[act]||[]; if(!l.includes(id)) l.push(id); maD().result=null; maRefresh(); }
 function maDelWorker(act,id){ const l=maD().map[act]||[], i=l.indexOf(id); if(i>=0) l.splice(i,1); maD().result=null; maRefresh(); }
 function maBulkAdd(id){ if(!id) return; const d=maD(); d.acts.forEach(a=>{ const l=d.map[a]=d.map[a]||[]; if(!l.includes(id)) l.push(id); }); d.result=null; maRefresh(); }
 function maSetCat(k){ maD().cat=k; maRefresh(); }
 function maSearch(v){ maD().q=v; maRefresh(); }
-function maClear(){ const d=maD(); d.acts=[]; d.map={}; d.result=null; d.dateTouched=false; maRefresh(); }
+function maClear(){ const d=maD(); d.acts=[]; d.map={}; d.result=null; maRefresh(); }
 function maWorkerOpts(act,placeholder){
   const open=maOpenSet(), have=(maD().map[act]||[]);
   return `<option value="">${esc(placeholder)}</option>`+(state.workers||[]).filter(w=>!have.includes(w.workerId)).map(w=>{ const n=workerLoad(w.workerId), dup=act&&open[String(w.workerId).toUpperCase()+'|'+act];
@@ -2122,16 +2073,7 @@ function maRowsActs(){
   if(!vis.length) return `<div class="empty">${maList().length?'No activity matches this filter.':esc(startableActivities(d.bedId,d.hasCohort).why||'No activity is allowed on this bed right now.')}</div>`;
   return Object.keys(groups).sort((x,y)=>rank(x)-rank(y)).map(g=>`<div class="ma-grp">${esc(g)}</div>`+groups[g].map(a=>{
     const on=d.acts.includes(a.name), live=bedSessions(d.bedId).filter(s=>s.activity===a.name).length;
-    return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="maToggleAct(this.dataset.v,this.checked)" data-v="${esc(a.name)}"><span><b style="font-weight:700;">${esc(actLabel(a.name))}</b>${govChips(a)}${a.early?`<span class="chip chip-warn" style="margin-left:6px;">Assign early${a.windowOpens?' · opens '+esc(a.windowOpens):''}</span>`:''}${a.description?`<span class="d">${esc(a.description)}</span>`:''}</span>${live?`<span class="r">${live} open</span>`:''}</label>`; }).join('')).join('');
-}
-function maIsEarly(a){ const d=maD(); return !!d.earlyForce[a]||maList().some(x=>x.name===a&&x.early); }
-function maEarlyOk(a){ return String((maD().early||{})[a]||'').replace(/\s+/g,' ').trim().length>=EARLY_MIN; }
-function maEarly(a,v){ const d=maD(); d.early[a]=v; d.result=null; const f=document.getElementById('ma-foot'); if(f) f.innerHTML=maFootHTML(); }
-function earlyBox(a){
-  const ok=maEarlyOk(a);
-  return `<div style="margin-top:6px;padding:6px 8px;border:1px solid #e0c98a;border-radius:8px;background:#FFF8E6;">
-    <div class="qsub" style="text-transform:none;letter-spacing:0;font-weight:700;">Assign early: its seasonal window has not opened${ok?'':' <span style="color:var(--warn);">· reason required (at least '+EARLY_MIN+' characters)</span>'}</div>
-    <input type="text" maxlength="200" value="${esc((maD().early||{})[a]||'')}" placeholder="Why assign this before its window opens? (logged) *" data-a="${esc(a)}" oninput="maEarly(this.dataset.a,this.value)" style="width:100%;margin-top:4px;"></div>`;
+    return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="maToggleAct(this.dataset.v,this.checked)" data-v="${esc(a.name)}"><span><b style="font-weight:700;">${esc(actLabel(a.name))}</b>${govChips(a)}${a.description?`<span class="d">${esc(a.description)}</span>`:''}</span>${live?`<span class="r">${live} open</span>`:''}</label>`; }).join('')).join('');
 }
 function maPlanHTML(){
   const d=maD();
@@ -2141,85 +2083,31 @@ function maPlanHTML(){
   const cards=d.acts.map(a=>{ const ws=d.map[a]||[];
     return `<div class="ma-pcard ${ws.length?'':'need'}"><div class="ma-ptop"><span>${esc(actLabel(a))}</span><button title="Remove activity" onclick="maToggleAct(this.dataset.v,false)" data-v="${esc(a)}">×</button></div>
       ${ws.length?`<div class="ma-chips" style="margin:6px 0 0;">${ws.map(w=>`<span class="ma-chip" style="background:#E4F1E5;">${esc(maWName(w))}${open[String(w).toUpperCase()+'|'+a]?' <span style="color:var(--warn);font-size:10.5px;">(already open)</span>':''}<button title="Remove" onclick="maDelWorker(this.dataset.a,this.dataset.w)" data-a="${esc(a)}" data-w="${esc(w)}">×</button></span>`).join('')}</div>`:`<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">No worker yet</div>`}
-      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select>${isFertAct(a)?fertBox('ma',a):''}${maIsEarly(a)?earlyBox(a):''}</div>`; }).join('');
+      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select>${isFertAct(a)?fertBox('ma',a):''}</div>`; }).join('');
   return bulk+`<div class="ma-plan" style="padding-top:8px;">${cards}</div>`;
 }
 function maCatTabs(){ const d=maD(), list=maList(), cnt=k=>k==='ALL'?list.length:list.filter(a=>actCatOf(a)===k).length;
   return ACTION_CATS.filter(([k])=>k==='ALL'||cnt(k)>0).map(([k,l])=>`<button class="${d.cat===k?'active':''}" onclick="maSetCat('${k}')">${esc(l)}<span class="n">${cnt(k)}</span></button>`).join(''); }
 function maCounts(){
-  const d=maD(), open=maOpenSet(); let total=0, dup=0, missing=0, fertMissing=0, earlyMissing=0;
-  d.acts.forEach(a=>{ const ws=d.map[a]||[]; if(!ws.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fertMissing++; if(maIsEarly(a)&&!maEarlyOk(a)) earlyMissing++; ws.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
-  return {total,dup,missing,fertMissing,earlyMissing,fresh:total-dup};
+  const d=maD(), open=maOpenSet(); let total=0, dup=0, missing=0, fertMissing=0;
+  d.acts.forEach(a=>{ const ws=d.map[a]||[]; if(!ws.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fertMissing++; ws.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
+  return {total,dup,missing,fertMissing,fresh:total-dup};
 }
 function maFootHTML(){
   const d=maD(), c=maCounts();
   const sum=!d.acts.length?`<span style="color:var(--ink-soft);">Pick the activities, then choose who does each one.</span>`
     : c.missing?`<span style="color:var(--warn);font-weight:600;">${c.missing} selected activit${c.missing===1?'y has':'ies have'} no worker yet.</span> Choose a worker for each, or remove it.`
     : c.fertMissing?`<span style="color:var(--warn);font-weight:600;">${c.fertMissing} fertilizer task${c.fertMissing===1?'':'s'} still need type, brand and quantity.</span> Fill in the green box on each.`
-    : c.earlyMissing?`<span style="color:var(--warn);font-weight:600;">${c.earlyMissing} early assignment${c.earlyMissing===1?'':'s'} still need a reason.</span> Type at least ${EARLY_MIN} characters in the yellow box.`
     : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
-  const pwBlocked=maPwBlocked(), pwPending=pwBlocked&&c.total>0&&!c.missing&&!c.fertMissing&&!c.earlyMissing;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':f.errorCode==='EARLY_ASSIGN_REASON_REQUIRED'?(f.message||'its seasonal window has not opened: enter a reason to assign it early'):(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}${pwWarnHTML(r.failed,'ma')}</div>`;
-  const ok=d.acts.length&&!c.missing&&!c.fertMissing&&!c.earlyMissing&&c.fresh>0&&!d.busy&&!pwBlocked;
-  const pwNote=pwPending&&maPwNow()?`<div class="ma-sum" style="color:var(--warn);font-weight:600;">Planting cannot be assigned on ${esc(d.date)} until the date is accepted below, or change the date.</div>`:'';
-  return `${maPwHTML()}<div class="ma-sum">${sum}</div>${pwNote}${res}
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}${pwWarnHTML(r.failed,'ma')}</div>`;
+  const ok=d.acts.length&&!c.missing&&!c.fertMissing&&c.fresh>0&&!d.busy;
+  return `<div class="ma-sum">${sum}</div>${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'<span class="vp-spin"></span>Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
     <button class="btn btn-outline" style="width:auto;padding:11px 16px;" onclick="maClear()">Clear</button>
     <button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
     <div class="note" style="margin:6px 0 0;">Each task shows as Pending until that worker taps Start. Server rules still apply to every task.</div>`;
 }
 /* Partial re-render: keeps focus in the search box and the scroll position of both columns. */
-/* ---- Planting date + allowable window, checked IN the assign modal (before Assign is pressed) ----
- * A planting-method activity (Direct Seeding / Transplanting) on a bed whose cohort is not planted yet needs an execution date. The date defaults to the
- * cohort's planned date, the crop's allowable window (Oregon Region 2 calendar) is shown next to it as soon as a date exists, and a date outside the
- * window shows the acceptance box right here instead of failing after the click. The server (PlantingWindow.gs pwGate_) is still the judge. */
-const MA_PLANT_NAMES=['DirectSeeding','Transplanting','Planting','Seeding'];
-function maPlantCtx(){
-  const d=maD(), raw=(state.beds||[]).find(x=>x.id===d.bedId); if(!raw) return null;
-  const b=(typeof bedView==='function')?bedView(raw):raw;
-  if(!b.cohortId||b.plantingDate) return null;
-  if(!d.acts.some(a=>MA_PLANT_NAMES.includes(a))) return null;
-  return { cohortId:b.cohortId, planned:b.plannedDob||'', cropName:b.cropName||'' };
-}
-function maPwKey(ctx,date){ return ctx.cohortId+'|'+date; }
-function maPwNow(){ const ctx=maPlantCtx(); if(!ctx) return null; const d=maD(); return (d.pwMap||{})[maPwKey(ctx,d.date)]||null; }
-/* true while Assign must wait: the window check is running, or the date is outside the window and not accepted yet */
-function maPwBlocked(){
-  const ctx=maPlantCtx(); if(!ctx) return false;
-  const pw=maPwNow(); if(!pw) return true;
-  return pw.state==='OUTSIDE_AUTH_REQUIRED'||pw.state==='DATA_PROBLEM';
-}
-async function maPwCheck(){
-  const ctx=maPlantCtx(); if(!ctx) return; const d=maD(); d.pwMap=d.pwMap||{};
-  const date=d.date, key=maPwKey(ctx,date); d.pwBusy=d.pwBusy||{}; if(d.pwMap[key]||d.pwBusy[key]) return; d.pwBusy[key]=1;
-  try{ const r=await apiCall('check-planting-window',{ cohortId:ctx.cohortId, date },30000); d.pwMap[key]=(r&&r.plantingWindow)||{ state:'NOT_CHECKED' }; }
-  catch(e){ d.pwMap[key]={ state:'NOT_CHECKED', message:e.message }; }
-  delete d.pwBusy[key];
-  if(ui.modal && ui.modalDraft===d) maRefresh();
-}
-/* Called whenever the picked activities change: default the date to the planned planting date, then check the window. */
-function maPlantSync(){
-  const ctx=maPlantCtx(), d=maD(); if(!ctx){ maRefresh(); return; }
-  if(!d.dateTouched && ctx.planned && /^\d{4}-\d{2}-\d{2}/.test(ctx.planned)){
-    d.date=ctx.planned.slice(0,10); const e=document.getElementById('ma-date'); if(e) e.value=d.date; }
-  maRefresh(); maPwCheck();
-}
-function maDateSet(v){ const d=maD(); d.date=v||todayISO(); d.dateTouched=true; d.result=null; maRefresh(); maPwCheck(); }
-function maUsePlanned(){ const ctx=maPlantCtx(); if(!ctx||!ctx.planned) return; const d=maD(); d.dateTouched=false; maPlantSync(); }
-function maPwHTML(){
-  const ctx=maPlantCtx(); if(!ctx) return '';
-  const d=maD(), pw=maPwNow(), planned=ctx.planned?String(ctx.planned).slice(0,10):'';
-  const head=`<div class="qsub" style="text-transform:none;letter-spacing:0;margin:0 0 4px;"><b>Planting date ${esc(d.date)}</b> for ${esc(ctx.cropName||ctx.cohortId)}${planned?' · planned '+esc(planned)+(d.date!==planned?' <button class="dc-mini" onclick="maUsePlanned()">Use planned date</button>':''):''}</div>`;
-  if(!pw){ setTimeout(maPwCheck,0);   /* safety net: if nothing started the check, start it (guarded against duplicates) */
-    return `<div class="pw-box">${head}<div>Checking the allowable planting window…</div></div>`; }
-  const range=pw.rangeText?esc(pw.rangeText):'';
-  const src=PW_BASIS_LABEL[pw.basis]||pw.basis||'';
-  if(pw.state==='IN_WINDOW') return `<div class="pw-box ok">${head}<div>✔ Inside the allowable window${range?': <b>'+range+'</b>':''}${src?' · '+esc(src):''}</div></div>`;
-  if(pw.state==='OUTSIDE_AUTH_REQUIRED') return head+pwBox(Object.assign({cohortId:ctx.cohortId,cropName:ctx.cropName,checkedDate:d.date},pw),{ retry:'ma' });
-  if(pw.state==='OUTSIDE_AUTHORIZED') return head+pwBox(pw,{});
-  if(pw.state==='DATA_PROBLEM') return `<div class="pw-box">${head}<div class="pw-t">The allowable window cannot be checked</div><div>${esc(pw.message||'The planting window data has a problem. Fix it at its source before assigning planting.')}</div></div>`;
-  return `<div class="pw-box">${head}<div>${range?'Allowable window: <b>'+range+'</b>':'No allowable window is on file for this crop; the server will check the date.'}</div></div>`;
-}
 function maRefresh(){
   const g=id=>document.getElementById(id); if(!g('ma-acts')) return render();
   const keep=(el,fn)=>{ const t=el.scrollTop; fn(); el.scrollTop=t; };
@@ -2264,21 +2152,20 @@ function multiAssignModal(){
     <div class="ma-col"><div class="ma-colhead"><h3>2 · Choose who does each (<span id="ma-n">${d.acts.length}</span>)</h3></div>
       <div id="ma-planwrap" style="overflow-y:auto;max-height:52vh;">${maPlanHTML()}</div></div>
   </div>
-  <div class="ma-date"><b>3 · Date</b>
+  <div class="ma-date"><b>Schedule</b>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(0)">Today</button>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(1)">Tomorrow</button>
-    <input type="date" id="ma-date" value="${esc(d.date)}" min="${todayISO()}" onchange="maDateSet(this.value)"></div>
+    <input type="date" id="ma-date" value="${esc(d.date)}" min="${todayISO()}" onchange="maD().date=this.value||todayISO()"></div>
   <div class="ma-foot" id="ma-foot">${maFootHTML()}</div>`;
 }
-function maSetDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; maD().dateTouched=true; maD().result=null; const e=document.getElementById('ma-date'); if(e) e.value=v; maRefresh(); maPwCheck(); }
+function maSetDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; }
 async function submitMultiAssign(){
-  const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||c.earlyMissing||!c.fresh||maPwBlocked()) return;
+  const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||!c.fresh) return;
   d.busy=true; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
   try{
-    const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]).map(o=>{ if(maIsEarly(o.activity)) o.earlyReason=String(d.early[o.activity]||'').trim(); return o; });
+    const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]);
     const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments, scheduledDate:d.date }, 60000);
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] };
-    d.result.failed.forEach(f=>{ if(f.errorCode==='EARLY_ASSIGN_REASON_REQUIRED') d.earlyForce[f.activity]=true; });   /* a bed with no reset view yet learns a step is window-gated only from the server */
     if(d.result.created.length) toast(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' assigned.');
     /* keep only pairs that FAILED so the manager can adjust them; drop everything that went through or was already open */
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
@@ -4433,10 +4320,10 @@ function bhHistory(b,d){
   const stOf=r=>String(r.reviewStatus||'COMPLETED').toUpperCase(), scOf=r=>bhScope(r.taskType,{scope:r.scope,group:r.domain});
   const cnt={ALL:log.length,COMPLETED:0,CHECKED:0,VERIFIED:0}; log.forEach(r=>{ cnt[stOf(r)]=(cnt[stOf(r)]||0)+1; });
   const rows=log.filter(r=>(fS==='ALL'||stOf(r)===fS)&&(fD==='ALL'||scOf(r)===fD));
-  const seg=[['ALL','All'],['COMPLETED','Awaiting review'],['CHECKED','Checked'],['VERIFIED','Verified']];
+  const seg=[['ALL','All'],['COMPLETED','Completed'],['CHECKED','Checked'],['VERIFIED','Verified']];
   const tools=`<div class="bh-tools"><div class="seg">${seg.map(([k,l])=>`<button class="${fS===k?'active':''}" onclick="bhSet('hf','${k}')">${l} (${cnt[k]||0})</button>`).join('')}</div>
     <select aria-label="Filter history by domain" onchange="bhSet('hd',this.value)"><option value="ALL">Both domains</option><option value="BED" ${fD==='BED'?'selected':''}>Bed domain</option><option value="CROP" ${fD==='CROP'?'selected':''}>Crop domain</option></select></div>
-    <div class="qsub" style="margin:0 0 8px;text-transform:none;letter-spacing:0;">All = every finished activity. Awaiting review = finished, not yet checked or verified (0 when everything is already signed off). Checked = a manager reviewed it. Verified = a manager signed it off.</div>`;
+    <div class="qsub" style="margin:0 0 8px;text-transform:none;letter-spacing:0;">Completed = finished, not yet checked or verified. Checked = a manager reviewed it. Verified = a manager signed it off.</div>`;
   const row=r=>{
     const k=stOf(r), c=bhCat(r.taskType);
     const chip=k==='VERIFIED'?'<span class="chip chip-ok">Verified</span>':k==='CHECKED'?'<span class="chip chip-neutral">Checked</span>'
@@ -4693,32 +4580,84 @@ function rbPanel(){
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
     ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${chk}${ver}${recent}</div>`;
 }
-/* New activity type: the manager must choose BOTH the domain and the governance class (there is no default). */
-function naSet(k,v){ ui.modalDraft[k]=v; if(k==='domain'&&v==='BED') ui.modalDraft.isFertilizer=false; render(); }
+/* New activity type: every ACTIVITY_REFERENCE field, saved through 'create-activity' {full:true} (ActivityAdmin.gs validates and assigns the ACT_ id). */
+const NA_GROUPS=['State','CropCare','Planting','Prep','Field Cleanup & Prep','Cover Cropping','Harvest','Next-Season Prep','Post-Harvest','Lifecycle'];
+const NA_STAGES=[['PrePlanting','Pre-planting (cohort assigned, not yet planted)'],['Growing','Growing'],['HarvestReady','Harvest ready'],['HarvestComplete','Harvest complete (bed turnover)']];
+const NA_UNITS=['none','lbs','gal','acres','days'];
+const NA_RULES=[['','Any crop'],['Cycle_Class!=Perennial','Every crop except perennials'],['Cycle_Class=Perennial','Perennials only'],['__custom','Custom rule...']];
+function naInit(){ const d=ui.modalDraft; if(d._init) return d;
+  Object.assign(d,{_init:1,name:'',group:'',groupOther:'',scope:'',cls:'',description:'',notes:'',worker:true,manager:true,approval:false,stages:[],crops:'',ruleKind:'',ruleCustom:'',
+    qty:false,unit:'none',unitOther:'',trigger:false,target:'Growing',exception:false,isFertilizer:false,ph:false,phSeq:'',bufDays:'',bufMax:'',startMonth:'',startDay:'',adv:false}); return d; }
+function naGroupVal(d){ return d.group==='__other'?(d.groupOther||'').trim():d.group; }
+function naUnitVal(d){ return d.unit==='__other'?(d.unitOther||'').trim():d.unit; }
+function naReady(d){ return (d.name||'').trim().length>=3&&!!naGroupVal(d)&&!!d.scope&&!!d.cls&&d.stages.length>0&&(!d.qty||(naUnitVal(d)&&naUnitVal(d)!=='none')); }
+function naSet(k,v){ ui.modalDraft[k]=v; if(k==='scope'&&v==='BED') ui.modalDraft.isFertilizer=false; if(k==='scope'&&v==='CROP') ui.modalDraft.ph=false; render(); }
+function naTxt(k,v){ ui.modalDraft[k]=v; naSync(); }
+function naStage(s,on){ const a=ui.modalDraft.stages; const i=a.indexOf(s); if(on&&i<0) a.push(s); if(!on&&i>=0) a.splice(i,1); naSync(); }
+function naSync(){ const d=ui.modalDraft, b=document.getElementById('na-go'); if(b) b.disabled=!naReady(d); }
 function newActivityModal(){
-  const d=ui.modalDraft, ready=(d.name||'').trim().length>=3&&d.domain&&d.cls;
-  const radio=(grp,key,val,title,desc)=>`<label class="dp-row ${d[key]===val?'on':''}"><input type="radio" name="${grp}" ${d[key]===val?'checked':''} onchange="naSet('${key}','${val}')"><span><b>${title}</b><span class="d">${desc}</span></span></label>`;
+  const d=naInit(), cat=(state.activityCatalog||[]).map(c=>c.domain).filter(Boolean);
+  const groups=Array.from(new Set(NA_GROUPS.concat(cat)));
+  const radio=(key,val,title,desc)=>`<label class="dp-row ${d[key]===val?'on':''}"><input type="radio" name="na-${key}" ${d[key]===val?'checked':''} onchange="naSet('${key}','${val}')"><span><b>${title}</b><span class="d">${desc}</span></span></label>`;
+  const chk=(key,title,desc,dis)=>`<label class="dp-row ${d[key]?'on':''} ${dis?'off':''}"><input type="checkbox" ${d[key]?'checked':''} ${dis?'disabled':''} onchange="naSet('${key}',this.checked)"><span><b>${title}</b><span class="d">${desc}</span></span></label>`;
+  const sel=(key,opts,extra)=>`<select onchange="naSet('${key}',this.value)">${opts.map(o=>{const v=Array.isArray(o)?o[0]:o,l=Array.isArray(o)?o[1]:o;return `<option value="${esc(v)}" ${d[key]===v?'selected':''}>${esc(l)}</option>`;}).join('')}${extra||''}</select>`;
+  const inp=(key,ph,w,attrs)=>`<input value="${esc(d[key]||'')}" placeholder="${esc(ph||'')}" ${attrs||''} style="${w?'max-width:'+w+';':''}" oninput="naTxt('${key}',this.value)">`;
+  const h3=t=>`<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);margin:16px 0 6px;border-bottom:1px solid var(--line);padding-bottom:3px;">${t}</div>`;
+  const grp=`<option value="" ${d.group?'':'selected'}>Choose a group...</option>`+groups.map(g=>`<option value="${esc(g)}" ${d.group===g?'selected':''}>${esc(g)}</option>`).join('')+`<option value="__other" ${d.group==='__other'?'selected':''}>Other (type a new group)...</option>`;
   return `<h2 style="font-size:15px;">New activity type</h2>
   ${d.err?`<div class="error">${esc(d.err)}</div>`:''}
-  <div class="field"><label>Name</label><input id="na-name" maxlength="60" value="${esc(d.name||'')}" oninput="ui.modalDraft.name=this.value;naSync()"></div>
+  ${h3('Basics')}
+  <div class="field"><label>Name *</label><input maxlength="60" value="${esc(d.name)}" oninput="naTxt('name',this.value)"></div>
+  <div class="field"><label>Group * <span style="font-weight:400;">(how the activity is listed in the picker)</span></label><select onchange="naSet('group',this.value)">${grp}</select>
+    ${d.group==='__other'?`<div style="margin-top:6px;">${inp('groupOther','New group name',null,'maxlength="40"')}</div>`:''}</div>
+  <div class="field"><label>Description <span style="font-weight:400;">(shown to workers and managers)</span></label><textarea style="width:100%;min-height:60px;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;" maxlength="500" oninput="naTxt('description',this.value)">${esc(d.description)}</textarea></div>
+  <div class="field"><label>Internal notes</label>${inp('notes','Optional',null,'maxlength="500"')}</div>
+  ${h3('Domain and governance')}
   <div class="field"><label>Domain *</label>
-    ${radio('na-dom','domain','BED','Bed','Land, soil, bed structure, reset. Available only when no living crop is on the bed.')}
-    ${radio('na-dom','domain','CROP','Crop','Living crop care, from verified planting to termination. Needs a verified, living cohort.')}</div>
+    ${radio('scope','BED','Bed','Land, soil, bed structure, reset. Available only when no living crop is on the bed.')}
+    ${radio('scope','CROP','Crop','Living crop care, from verified planting to termination. Needs a verified, living cohort.')}</div>
   <div class="field"><label>Governance class *</label>
-    ${radio('na-cls','cls','VERIFIED','Verified','A manager verifies it after the worker finishes (stamped on the Review Board).')}
-    ${radio('na-cls','cls','CHECKED','Checked','Appears on the Review Board for oversight. Never blocks a bed, cohort, schedule or assignment.')}</div>
-  ${d.domain==='CROP'?`<label class="dp-row ${d.isFertilizer?'on':''}"><input type="checkbox" ${d.isFertilizer?'checked':''} onchange="ui.modalDraft.isFertilizer=this.checked;render()"><span><b>Fertilizer activity</b><span class="d">When you assign it, you enter the fertilizer type, brand name and quantity (notes optional). The worker just does the task.</span></span></label>`:''}
-  <div class="field"><label>Description (optional)</label><input id="na-desc" maxlength="300" value="${esc(d.description||'')}" oninput="ui.modalDraft.description=this.value"></div>
-  <div class="qsub" style="text-transform:none;letter-spacing:0;">A new activity never changes a bed or cohort stage by itself. Adding a new stage transition is a code change.</div>
-  <button id="na-go" class="btn btn-primary" ${ready?'':'disabled'} onclick="doCreateActivity()">Create activity</button>
+    ${radio('cls','VERIFIED','Verified','A manager verifies it after the worker finishes (stamped on the Review Board).')}
+    ${radio('cls','CHECKED','Checked','Appears on the Review Board for oversight. Never blocks a bed, cohort, schedule or assignment.')}</div>
+  ${h3('Who can run it')}
+  ${chk('worker','Workers can start it','Shows in the worker app and the New Activity picker. The picker needs BOTH worker and manager ticked.')}
+  ${chk('manager','Managers can assign it','Managers can dispatch it to a worker from the board.')}
+  ${chk('approval','Needs manager approval','The server asks for manager approval before it can start.')}
+  ${h3('When it is allowed')}
+  <div class="field"><label>Lifecycle stages * <span style="font-weight:400;">(tick every stage where it may be started)</span></label>
+    ${NA_STAGES.map(([v,l])=>`<label class="dp-row ${d.stages.includes(v)?'on':''}"><input type="checkbox" ${d.stages.includes(v)?'checked':''} onchange="naStage('${v}',this.checked);render()"><span><b>${esc(l)}</b></span></label>`).join('')}</div>
+  <div class="field"><label>Only these crops <span style="font-weight:400;">(Crop IDs, comma separated; blank = all crops)</span></label>${inp('crops','e.g. TOM, SB, AFE')}</div>
+  <div class="field"><label>Crop rule</label>${sel('ruleKind',NA_RULES)}
+    ${d.ruleKind==='__custom'?`<div style="margin-top:6px;">${inp('ruleCustom','Cycle_Class!=Perennial  |  Category=Cool-Season Roots  |  Crop_ID=TOM,SB')}</div>`:''}</div>
+  ${h3('Measurement')}
+  ${chk('qty','Records a quantity','The worker enters an amount when finishing (weight, volume, area...).')}
+  ${d.qty?`<div class="field"><label>Unit *</label>${sel('unit',NA_UNITS.filter(u=>u!=='none'),'<option value="__other"'+(d.unit==='__other'?' selected':'')+'>Other...</option>')}${d.unit==='__other'?`<div style="margin-top:6px;">${inp('unitOther','Unit name',null,'maxlength="20"')}</div>`:''}</div>`:''}
+  ${h3('Effects')}
+  ${chk('trigger','Moves the cohort to a new stage','Completing it changes the cohort stage (like Transplanting moves it to Growing).')}
+  ${d.trigger?`<div class="field"><label>Moves it to</label>${sel('target',['Growing'])}</div>`:''}
+  ${chk('exception','Can raise an exception','Findings logged by this activity open an exception for the manager.')}
+  ${chk('isFertilizer','Fertilizer activity','When you assign it, you enter the fertilizer type, brand name and quantity. Crop domain only.',d.scope!=='CROP')}
+  <details ${d.adv||d.ph?'open':''} style="margin-top:14px;"><summary style="cursor:pointer;font-size:12px;font-weight:700;" onclick="ui.modalDraft.adv=!ui.modalDraft.adv">Advanced: bed turnover checklist and start date</summary>
+    ${chk('ph','Part of the post-harvest turnover checklist','A required step before a bed is released. Bed domain only. It joins the checklist of every bed in turnover.',d.scope==='CROP')}
+    ${d.ph?`<div class="field"><label>Checklist step number *</label>${inp('phSeq','e.g. 11',null,'inputmode="numeric"')}<div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:3px;">Steps run in number order. Each number can be used once; the save tells you which are taken.</div></div>
+    <div class="field"><label>Waiting period (only for a time-gate buffer, not a task)</label><div style="display:flex;gap:8px;">${inp('bufDays','Days',null,'inputmode="numeric"')}${inp('bufMax','Max days',null,'inputmode="numeric"')}</div>
+      <div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:3px;">A waiting period is a timed gate (like Sanitation Break), never assigned to a worker.</div></div>`:''}
+    <div class="field"><label>Earliest start date each year <span style="font-weight:400;">(optional, month and day)</span></label><div style="display:flex;gap:8px;">${inp('startMonth','Month 1-12',null,'inputmode="numeric"')}${inp('startDay','Day 1-31',null,'inputmode="numeric"')}</div></div>
+  </details>
+  <div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:12px;">A new activity gets the next ACT_ number automatically. It never changes a bed or cohort stage by itself beyond the stage you choose above.</div>
+  <button id="na-go" class="btn btn-primary" ${naReady(d)?'':'disabled'} onclick="doCreateActivity()">Create activity</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
-function naSync(){ const d=ui.modalDraft, b=document.getElementById('na-go'); if(b) b.disabled=!((d.name||'').trim().length>=3&&d.domain&&d.cls); }
 async function doCreateActivity(){
   const d=ui.modalDraft; d.err='';
-  try{ await apiCall('create-activity',{name:(d.name||'').trim(),domain:d.domain,governanceClass:d.cls,description:d.description||'',isFertilizer:!!d.isFertilizer});
-    toast('Activity created.'); closeModal(); await loadToday(); }
-  catch(e){ d.err=e.message; render(); }
+  const rule=d.ruleKind==='__custom'?(d.ruleCustom||'').trim():(d.ruleKind||'');
+  const body={full:true,activity:{name:(d.name||'').trim(),group:naGroupVal(d),scope:d.scope,governanceClass:d.cls,description:d.description||'',notes:d.notes||'',
+    workerExecutable:!!d.worker,managerExecutable:!!d.manager,requiresApproval:!!d.approval,allowedStages:d.stages.slice(),allowedCrops:d.crops||'',cropRule:rule,
+    quantityBased:!!d.qty,defaultUnit:d.qty?naUnitVal(d):'none',triggersStateChange:!!d.trigger,stateChangeTarget:d.trigger?d.target:'',generatesException:!!d.exception,
+    isFertilizer:d.scope==='CROP'&&!!d.isFertilizer,requiresPostHarvest:!!d.ph,postHarvestSequence:d.ph?d.phSeq:'',bufferDurationDays:d.ph?d.bufDays:'',bufferMaxDays:d.ph?d.bufMax:'',
+    earliestStartMonth:d.startMonth||'',earliestStartDay:d.startDay||''}};
+  try{ const r=await apiCall('create-activity',body); toast('Activity '+(r&&r.activityId?r.activityId+' ':'')+'created.'+(r&&r.note?' '+r.note:''),5200); closeModal(); await loadToday(); }
+  catch(e){ d.err=e.message; render(); const el=document.querySelector('.sheet'); if(el) el.scrollTop=0; }
 }
 const pv={ sel:{}, busy:false };
 function pvBlockOf(id){ const m=String(id).toUpperCase().match(/^([A-Z]+\d+)-/); return m?m[1]:''; }
