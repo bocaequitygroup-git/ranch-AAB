@@ -66,6 +66,15 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .ptabs button:hover{color:var(--ink);}
 .ptabs button.active{color:var(--forest);border-bottom-color:var(--forest);}
 .ptabs button:focus-visible,.bb-bed:focus-visible{outline:2px solid var(--forest);outline-offset:-2px;}
+.bb-lay{display:grid;grid-template-columns:190px minmax(0,1fr);gap:18px;align-items:start;max-width:1240px;margin:0 auto;}
+.bb-nav{position:sticky;top:0;display:flex;flex-direction:column;gap:3px;}
+.bb-nav button{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;text-align:left;border:1px solid transparent;background:none;color:var(--ink);font-family:inherit;font-size:13px;font-weight:600;padding:9px 10px;border-radius:8px;cursor:pointer;}
+.bb-nav button:hover{background:color-mix(in srgb,var(--forest) 7%,var(--paper));}
+.bb-nav button.on{background:color-mix(in srgb,var(--forest) 12%,var(--paper));border-color:var(--forest);}
+.bb-nav button:focus-visible{outline:2px solid var(--forest);outline-offset:1px;}
+.bb-nav .chip{flex:none;}
+.bb-main{min-width:0;}
+@media (max-width:760px){ .bb-lay{grid-template-columns:minmax(0,1fr);gap:10px;} .bb-nav{position:static;flex-direction:row;overflow-x:auto;padding-bottom:4px;} .bb-nav button{width:auto;white-space:nowrap;} }
 .bb-wrap{border:1px solid var(--line);border-radius:12px;background:var(--paper);overflow:auto;}
 .bb-t{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;}
 .bb-t th{position:sticky;top:0;z-index:1;background:var(--sand);text-align:left;font-size:10px;font-weight:800;letter-spacing:.03em;color:var(--ink-soft);padding:9px 8px;border-bottom:1px solid var(--line);}
@@ -995,7 +1004,7 @@ function bedSessions(bedId){ return state.sessions.filter(x=>x.bedId===bedId && 
 
 /* ============================== RENDER ============================== */
 function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0;
-  const ms0=$('.mapscroll'), pb0=$('.panelbody'), kMap=ui.screen+'|'+(ui.pMode||''); let kPan=''; try{ kPan=(ui.selectedBed||'')+'|'+ui.tab+'|'+(bb.bedSel||'')+'|'+bb.tab; }catch(e){}
+  const ms0=$('.mapscroll'), pb0=$('.panelbody'), kMap=ui.screen+'|'+(ui.pMode||'')+((ui.screen==='planning'&&ui.pMode==='bedboard')?'|'+bb.sec:''); let kPan=''; try{ kPan=(ui.selectedBed||'')+'|'+ui.tab+'|'+(bb.bedSel||'')+'|'+bb.tab; }catch(e){}
   const msT=(ms0&&render._kMap===kMap&&!ui.resetScroll)?ms0.scrollTop:0, pbT=(pb0&&render._kPan===kPan)?pb0.scrollTop:0; render._kMap=kMap; render._kPan=kPan;
   ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : ui.screen==='planning' ? planningScreen() : ui.screen==='labor' ? laborScreen() : boardScreen(); attachMapEvents(); attachPlanningEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const ms1=$('.mapscroll'); if(ms1&&msT) ms1.scrollTop=msT; const pb1=$('.panelbody'); if(pb1&&pbT) pb1.scrollTop=pbT; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
 function goPlanning(){ ui.screen='planning'; render(); }
@@ -2624,7 +2633,7 @@ const PLAN_TABS=[
   {k:'infra',label:'Infrastructure & Crop Groups',views:[['infra','Block layout'],['rotation','Rotation editor'],['cropref','Crop profile'],['addcrop','Add crop']]},
   {k:'beds',label:'Bed Status Board',views:[['bedboard','Bed status']]},
   {k:'assign',label:'Assign Cohort',views:[['assigncohort','Ready beds']]},
-  {k:'ofo',label:'Open Field Operation',views:[['operation','Schedule editor'],['calendar','Production calendar']]},
+  {k:'ofo',label:'Open Field Operation',views:[['operation','Schedule editor'],['calendar','Production calendar'],['newactivity','New activity type']]},
   {k:'plan',label:'Bed Planting Plan',views:[['smart','Smart allocation'],['plan','Bed layout'],['sheet','Bed plan sheet']]},
   {k:'cohorts',label:'Cohorts',views:[['cohorts','Cohort production'],['exec','Planting execution'],['harvest','Harvest'],['irrigation','Irrigation calendar']]},
   {k:'post',label:'Post-Harvest & Cover Crop',views:[['postharvest','Turnover & cover crop']]}
@@ -2697,7 +2706,7 @@ function harvestStatusOf(c){ return c.harvestStatus==='Complete'?'Complete':(c.p
 function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete:'chip-ok',Modified:'chip-warn','In progress':'chip-warn',Pending:'chip-neutral','Not planted':'chip-neutral','Not started':'chip-neutral'}[s]||'chip-neutral'; }
 
 /* ---- nav / selection ---- */
-function setPMode(m){ if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
+function setPMode(m){ if(m==='newactivity'&&ui.pMode!=='newactivity'){ ui.modal=null; ui.modalDraft={}; } if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard'){ bbLoad(true); loadToday(); } if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='assigncohort'){ loadToday(); asg.tried=false; ensureAcLoaded(true); } if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } if(ui.pMode==='exec'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); execEnsureBoard(true); } toast('Planning data refreshed.'); render(); }
@@ -4045,7 +4054,7 @@ function planToolbarControls(){
   const yr=`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`;
   const blk=`<select onchange="setPBlock(this.value)" aria-label="Block">${PLAN_BLOCKS.map(b=>`<option value="${b}" ${b===ui.pBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select>`;
   const refresh=`<button class="btn btn-ghost" style="width:auto;margin:0;" onclick="refreshPlanning()">↻ Refresh</button>`;
-  if(m==='addcrop'||m==='calendar'||m==='irrigation'||m==='operation'||m==='sheet') return '';
+  if(m==='addcrop'||m==='calendar'||m==='irrigation'||m==='operation'||m==='sheet'||m==='newactivity') return '';
   if(m==='cohorts') return yr;
   if(m==='cropref') return `<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`;
   if(m==='infra'||m==='smart') return yr+refresh;
@@ -4116,7 +4125,7 @@ const BB_STATUS=[
   ['BLOCKED','Blocked','#B3261E','#fff']
 ];
 const bb={data:{},busy:false,err:'',tried:false,sel:'B1',reason:'',confirm:false,dry:null,res:null,relBusy:false,
-  bedSel:null,info:null,tab:'overview',filter:'ALL',q:''};   /* bedSel/info/tab = the Daily-board style bed panel; filter/q = map filter and search */
+  bedSel:null,info:null,tab:'overview',filter:'ALL',q:'',sec:'overview'};   /* bedSel/info/tab = the Daily-board style bed panel; filter/q = map filter and search */
 function bbStatusOf(b){ return String(b.bedStatus||'').trim().toUpperCase()||'UNVERIFIED'; }
 function bbStyle(st){ const x=BB_STATUS.find(s=>s[0]===st)||['','','#EEE','#1B1B18']; return {fill:x[2],tc:x[3],label:x[1]||st}; }
 async function bbLoad(force){
@@ -4200,6 +4209,7 @@ function bbMapSVG(){
   const W=10+cols*(cw+gap);
   return `<svg viewBox="0 0 ${W} ${curY}" width="${W}" height="${curY}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;">${svg}</svg>`;
 }
+function bbSec(k){ bb.sec=k; render(); }
 function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; render(); }
 function bbForget(){ Object.keys(state.pp).forEach(k=>delete state.pp[k]); }
 /* Click a bed on the Bed Status Board -> Bed profile side panel (same layout as the Daily board's bed panel). */
@@ -4605,7 +4615,7 @@ function rbPanel(){
     <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="verify" ${nV?'':'disabled'} onclick="rbReview('verify')">Verify selected${nV?' ('+nV+')':''}</button>`:'';
   const recent=(d.recentlyChecked&&d.recentlyChecked.length)?`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;">Recently checked (${d.recentlyChecked.length})</summary>${d.recentlyChecked.map(x=>`<div class="qsub" style="text-transform:none;letter-spacing:0;padding:3px 0;">${esc(actLabel(x.activity))} · Bed ${esc(x.bedId)} · ${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</div>`).join('')}</details>`:'';
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
-      <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span> <button class="dc-mini" onclick="openModal('new-activity',{})">+ New activity type</button></span></div>
+      <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></span></div>
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
     ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${chk}${ver}${recent}</div>`;
 }
@@ -4675,7 +4685,13 @@ function newActivityModal(){
   </details>
   <div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:12px;">A new activity gets the next ACT_ number automatically. It never changes a bed or cohort stage by itself beyond the stage you choose above.</div>
   <button id="na-go" class="btn btn-primary" ${naReady(d)?'':'disabled'} onclick="doCreateActivity()">Create activity</button>
-  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+  <button class="btn btn-ghost" onclick="${ui.modal?'closeModal()':'naReset()'}">${ui.modal?'Cancel':'Clear form'}</button>`;
+}
+/* Inline page under Open Field Operation (the same form the modal draws). */
+function naReset(){ ui.modalDraft={}; render(); }
+function newActivityScreen(){
+  if(ui.modal) return '';
+  return `<div class="mapcol"><div class="mapscroll"><div style="max-width:720px;margin:0 auto;padding-bottom:40px;">${newActivityModal()}</div></div></div>`;
 }
 async function doCreateActivity(){
   const d=ui.modalDraft; d.err='';
@@ -4685,8 +4701,8 @@ async function doCreateActivity(){
     quantityBased:!!d.qty,defaultUnit:d.qty?naUnitVal(d):'none',triggersStateChange:!!d.trigger,stateChangeTarget:d.trigger?d.target:'',generatesException:!!d.exception,
     isFertilizer:d.scope==='CROP'&&!!d.isFertilizer,requiresPostHarvest:!!d.ph,postHarvestSequence:d.ph?d.phSeq:'',bufferDurationDays:d.ph?d.bufDays:'',bufferMaxDays:d.ph?d.bufMax:'',
     earliestStartMonth:d.startMonth||'',earliestStartDay:d.startDay||''}};
-  try{ const r=await apiCall('create-activity',body); toast('Activity '+(r&&r.activityId?r.activityId+' ':'')+'created.'+(r&&r.note?' '+r.note:''),5200); closeModal(); await loadToday(); }
-  catch(e){ d.err=e.message; render(); const el=document.querySelector('.sheet'); if(el) el.scrollTop=0; }
+  try{ const r=await apiCall('create-activity',body); toast('Activity '+(r&&r.activityId?r.activityId+' ':'')+'created.'+(r&&r.note?' '+r.note:''),5200); if(ui.modal) closeModal(); else { ui.modalDraft={}; render(); } await loadToday(); }
+  catch(e){ d.err=e.message; render(); const el=document.querySelector('.sheet')||document.querySelector('.mapscroll'); if(el) el.scrollTop=0; }
 }
 const pv={ sel:{}, busy:false };
 function pvBlockOf(id){ const m=String(id).toUpperCase().match(/^([A-Z]+\d+)-/); return m?m[1]:''; }
@@ -4772,20 +4788,26 @@ function bbScreen(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
       <button class="btn btn-outline" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy?'disabled':''} onclick="bbCount()">${bb.relBusy?'Working…':'Count beds'}</button>
       <button id="bb-release" class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy||!d||!d.eligible||bb.reason.trim().length<5||!bb.confirm?'disabled':''} onclick="bbRelease()">Release ${d?d.eligible:''} bed${d&&d.eligible===1?'':'s'}</button></div></div>`;
-  return `<div class="mapcol">
-    ${bbFilterBar()}
-    <div class="legend">${legend}</div>
-    <div class="mapscroll"><div style="max-width:1040px;margin:0 auto;">
-    <h2 style="margin:0 0 4px;">Bed status board</h2>
-    <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Click a bed on the map to open its profile on the right. Verify finished activities, plantings and ready beds in the panels below the map, or click a bed: Not verified and Blocked beds can be verified ready there too.</div>
-    ${bb.err?`<div class="error">${esc(bb.err)}</div>`:''}
+  const overview=`<h2 style="margin:0 0 4px;">Bed status board</h2>
+    <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Click a bed on the map to open its profile on the right. Pick a section on the left to work on verification, reviews, tasks or Start of operations. Not verified and Blocked beds can be verified ready from the bed profile.</div>
     <div class="bb-wrap"><table class="bb-t"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
     <div style="margin:14px 0 6px;">${grid||`<div class="empty">${bb.busy?'Loading\u2026':'No beds loaded.'}</div>`}</div>
-    <div class="qsub" style="margin:0 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed, a red dot an open exception. An amber number means that many things on the bed are waiting for your verification. Click a block name to choose it for Start of operations.</div>
-    ${pvPanel()}
-    ${rbPanel()}
-    ${bbTasksPanel()}
-    ${relPanel}</div></div></div>
+    <div class="qsub" style="margin:0 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed, a red dot an open exception. An amber number means that many things on the bed are waiting for your verification. Click a block name to choose it for Start of operations.</div>`;
+  const nVerify=state.lastSync?(pvActivities().length+pvPlantings().length+pvReadyBeds().length):0;
+  const nReview=(!IS_DEMO&&!rb.hide&&rb.data)?((rb.data.toCheck||[]).length+(rb.data.toVerify||[]).length):0;
+  const nTasks=(state.sessions||[]).filter(x=>String(x.status||'').toUpperCase()!=='COMPLETED').length;
+  const SECS=[['overview','Block map',0,overview],['verify','Waiting for verification',nVerify,pvPanel()],['review','Manager review',nReview,rbPanel()],['tasks','Open tasks',nTasks,bbTasksPanel()],['release','Start of operations',0,relPanel]]
+    .filter(x=>x[0]!=='review'||(!IS_DEMO&&!rb.hide));
+  if(!SECS.some(x=>x[0]===bb.sec)) bb.sec='overview';
+  const navBtns=SECS.map(x=>`<button class="${x[0]===bb.sec?'on':''}" aria-current="${x[0]===bb.sec?'page':'false'}" onclick="bbSec('${x[0]}')"><span>${esc(x[1])}</span>${x[2]?`<span class="chip chip-warn">${x[2]}</span>`:''}</button>`).join('');
+  const secHtml=(SECS.find(x=>x[0]===bb.sec)||SECS[0])[3];
+  return `<div class="mapcol">
+    ${bb.sec==='overview'?bbFilterBar()+`<div class="legend">${legend}</div>`:''}
+    <div class="mapscroll"><div class="bb-lay">
+    <nav class="bb-nav" aria-label="Bed status board sections">${navBtns}</nav>
+    <div class="bb-main">
+    ${bb.err?`<div class="error">${esc(bb.err)}</div>`:''}
+    ${secHtml}</div></div></div></div>
     <div class="panel ${bb.bedSel?'':'closed'}">${bb.bedSel?bbPanelHTML():''}</div>`;
 }
 function bbSyncRelease(){ const b=document.getElementById('bb-release'); if(b) b.disabled=!!(bb.relBusy||!bb.dry||!bb.dry.eligible||bb.reason.trim().length<5||!bb.confirm); }
@@ -5258,6 +5280,7 @@ function planningScreen(){
     ui.pMode==='calendar' ? calScreen() :
     ui.pMode==='irrigation' ? irrScreen() :
     ui.pMode==='operation' ? opScreen() :
+    ui.pMode==='newactivity' ? newActivityScreen() :
     ui.pMode==='cohorts' ? cohortScreen() :
     planLayout(rotationLeftHTML(), rotationMatrixHTML(), '', rotationEditorHTML())
   }</div>
