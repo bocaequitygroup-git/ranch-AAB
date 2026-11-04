@@ -988,7 +988,7 @@ async function doTerminateCohort(cohortId, reason){
 }
 
 /* ============================== UI HELPERS ============================== */
-function selectBed(bedId){ ui.selectedBed=bedId; ui.tab='overview'; render(); }  // always opens on Overview
+function selectBed(bedId){ ui.selectedBed=bedId; ui.tab='overview'; render(); pdueLoad(bedId,true); }  // always opens on Overview
 function closePanel(){ ui.selectedBed=null; render(); }
 function setOverlay(mode){ ui.overlay=mode; render(); }
 function setTab(t){ ui.tab=t; render(); }
@@ -1154,6 +1154,7 @@ function overviewTab(b,sess){
   </div>`:''}
   ${b.cohortId?pwBox(b.plantingWindow):''}
   ${b.cohortId?pdSummaryBox(b.plantingDeviation):''}
+  ${b.cohortId?pastDueBox(b):''}
   ${b.cohortId?cohortActionButtons(b)+pendingBlock(b,true):emptyBedBlock(b,sess)}
   ${actionsPanel(b,sess)}
   ${bedProfileCard(b)}`;
@@ -1815,6 +1816,7 @@ function modalHTML(){
   else if(ui.modal==='verify-planting') inner=verifyPlantingModal();
   else if(ui.modal==='move') inner=moveModal();
   else if(ui.modal==='terminate') inner=terminateModal();
+  else if(ui.modal==='pastdue') inner=pastDueModal();
   else if(ui.modal==='bed-edit') inner=bedEditModal();
   else if(ui.modal==='crop-edit') inner=cropEditModal();
   else if(ui.modal==='team') inner=teamModal();
@@ -2370,6 +2372,84 @@ function terminateModal(){
   <div class="field"><label>Reason</label><textarea id="md-treason" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;"></textarea></div>
   <button class="btn btn-danger" onclick="doTerminateCohort('${esc(d.cohortId)}', document.getElementById('md-treason').value)">Terminate cohort</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+
+/* ============================== PAST DUE & REQUIRED ==============================
+ * Per-bed card on Overview. get-bed-past-due {bedId} lists what is overdue for the bed's current cohort:
+ *   QUEUE (open manager-queue task), WINDOW (planted outside the allowable window, no acceptance), VERIFY (completed but
+ *   unverified), IRRIGATION (watering overdue per IRRIGATION_PROFILE). The manager can clear any of them with
+ *   override-past-due {bedId, reason, items:[{kind,key}]}; a written reason is required and the server logs it
+ *   (PAST_DUE_OVERRIDE_LOG). Backend: ManagerOverride.gs (managerPastDueForBed / managerOverridePastDue). The red Queue colour comes from open MANAGER_QUEUE rows, so
+ *   clearing a QUEUE item turns the bed off red after the board reloads. */
+const pdue={ byBed:{} };
+const PDUE_KIND={ QUEUE:'Queue task', WINDOW:'Planting window', VERIFY:'Awaiting verification', IRRIGATION:'Irrigation' };
+const PDUE_EFFECT={
+  QUEUE:'Marks the queue task resolved.',
+  WINDOW:'Accepts the actual planting date (same record as a window acceptance) and moves the harvest window to start from it.',
+  VERIFY:'Stamps you as the verifier of this completed activity.',
+  IRRIGATION:'Skips the missed watering; the next one is counted from today.'
+};
+function pdueState(id){ return pdue.byBed[id]||(pdue.byBed[id]={ loading:false, loaded:false, error:'', items:[], sel:[] }); }
+const pdueKey=i=>i.kind+'|'+i.key;
+async function pdueLoad(bedId,force){
+  const s=pdueState(bedId); if(s.loading||(s.loaded&&!force)) return;
+  s.loading=true; s.error=''; render();
+  try{
+    const r=await apiCall('get-bed-past-due',{ bedId });
+    s.items=(r&&r.items)||[]; s.sel=s.sel.filter(k=>s.items.some(i=>pdueKey(i)===k));
+  }catch(e){ s.error=(e&&e.message)||'Could not load past-due items.'; }
+  s.loaded=true; s.loading=false; render();
+}
+function pdueToggle(bedId,idx,on){ const s=pdueState(bedId), i=s.items[idx]; if(!i) return; const k=pdueKey(i), at=s.sel.indexOf(k); if(on&&at<0) s.sel.push(k); if(!on&&at>=0) s.sel.splice(at,1); render(); }
+function pdueAll(bedId,on){ const s=pdueState(bedId); s.sel=on?s.items.map(pdueKey):[]; render(); }
+function pdueAge(i){ return i.daysOverdue>0?i.daysOverdue+' day'+(i.daysOverdue===1?'':'s')+' overdue':'Open today'; }
+function pastDueBox(b){
+  const s=pdueState(b.id), id=esc(b.id);
+  const refresh=`<button class="btn btn-ghost" style="padding:2px 8px;font-size:11.5px;margin:0;" onclick="pdueLoad('${id}',true)">Refresh</button>`;
+  const head=`<div class="row" style="align-items:center;"><span><b>Past due &amp; required</b>${s.loaded&&!s.error?` <span class="chip ${s.items.length?'chip-danger':'chip-ok'}">${s.items.length||'None'}</span>`:''}</span><span>${refresh}</span></div>`;
+  let body='';
+  if(s.loading&&!s.loaded) body='<div class="note" style="margin:6px 0 0;">Checking this bed…</div>';
+  else if(s.error) body=`<div class="note" style="margin:6px 0 0;color:var(--danger);">${esc(s.error)}</div>`;
+  else if(!s.items.length) body='<div class="note" style="margin:6px 0 0;">Nothing is past due on this bed.</div>';
+  else{
+    const sevChip=i=>i.severity==='HIGH'?'chip-danger':i.severity==='MEDIUM'?'chip-warn':'chip-neutral';
+    const all=s.sel.length===s.items.length;
+    body=s.items.map((i,n)=>`<label style="display:block;padding:8px 0;border-top:1px solid var(--line);cursor:pointer;">
+        <div class="row" style="align-items:flex-start;">
+          <span><input type="checkbox" ${s.sel.includes(pdueKey(i))?'checked':''} onchange="pdueToggle('${id}',${n},this.checked)"> <b>${esc(i.title)}</b>
+            <div class="qsub" style="text-transform:none;letter-spacing:0;margin:2px 0 0 22px;">${esc(PDUE_KIND[i.kind]||i.kind)} · ${esc(i.detail||'')}${i.since?' · since '+esc(i.since):''}</div></span>
+          <span class="chip ${sevChip(i)}" style="white-space:nowrap;">${esc(pdueAge(i))}</span>
+        </div></label>`).join('')+
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn btn-ghost" style="margin:0;" onclick="pdueAll('${id}',${all?'false':'true'})">${all?'Clear selection':'Select all'}</button>
+        <button class="btn btn-danger" style="margin:0;" ${s.sel.length?'':'disabled'} onclick="openModal('pastdue',{bedId:'${id}',reason:''})">Clear ${s.sel.length||''} by manager override…</button></div>`;
+  }
+  return `<div class="card">${head}${body}</div>`;
+}
+function pastDueModal(){
+  const d=ui.modalDraft, s=pdueState(d.bedId), items=s.items.filter(i=>s.sel.includes(pdueKey(i)));
+  const kinds=[...new Set(items.map(i=>i.kind))];
+  return `<h2 style="font-size:15px;">Manager override · ${esc(d.bedId)}</h2>
+  <div class="note" style="margin-top:0;">These ${items.length} item${items.length===1?'':'s'} will be cleared without the work being done on the board. Each is logged with your name, the date and your explanation.</div>
+  <div class="field"><label>Items</label>${items.map(i=>`<div style="margin-left:6px;">• <b>${esc(i.title)}</b> <span class="qsub" style="text-transform:none;letter-spacing:0;">(${esc(PDUE_KIND[i.kind]||i.kind)}, ${esc(pdueAge(i))})</span></div>`).join('')||'<div class="note">Nothing selected.</div>'}</div>
+  <div class="note">${kinds.map(k=>'<b>'+esc(PDUE_KIND[k]||k)+':</b> '+esc(PDUE_EFFECT[k]||'')).join('<br>')}</div>
+  <div class="field"><label>Explanation (required)</label><textarea id="md-pdreason" oninput="ui.modalDraft.reason=this.value" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;">${esc(d.reason||'')}</textarea></div>
+  <button class="btn btn-danger" ${d.busy?'disabled':''} onclick="doPastDueOverride()">${d.busy?'Working…':'Override selected items'}</button>
+  <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+async function doPastDueOverride(){
+  const d=ui.modalDraft, bedId=d.bedId, s=pdueState(bedId), reason=String(d.reason||'').trim();
+  const items=s.items.filter(i=>s.sel.includes(pdueKey(i)));
+  if(!items.length){ toast('Select at least one item.'); return; }
+  if(reason.length<5){ toast('An explanation is required for an override.'); return; }
+  if(d.busy) return; d.busy=true; render();
+  try{
+    const r=await apiCall('override-past-due',{ bedId, reason, items:items.map(i=>({ kind:i.kind, key:i.key })) },60000);
+    const n=(r.cleared||[]).length, f=(r.failed||[]).length;
+    s.sel=[]; closeModal();
+    toast(n?`${n} item${n===1?'':'s'} cleared by override.`+(f?` ${f} could not be cleared.`:''):`Nothing was cleared${f?` (${f} failed: ${r.failed[0].error||'unknown error'})`:'.'}`,5000);
+    await loadToday(); await pdueLoad(bedId,true);
+  }catch(e){ d.busy=false; toast((e&&e.message)||'Override failed.',5000); await loadToday(); await pdueLoad(bedId,true); }   // a partial clear still changed the bed
 }
 
 /* ============================== TEAM + LABOR HOURS ==============================
@@ -6030,6 +6110,7 @@ const demoCatalog = [
 ].flatMap(([domain,names])=>names.map(name=>({ name, domain, description:'', allowedStages:[], requiresApproval:false }))).map((x,i)=>Object.assign(x,{id:'ACT_'+String(i+1).padStart(3,'0'), plantingRole:(x.name==='DirectSeeding'||x.name==='Transplanting')?'method':(x.name==='Replanting'?'recovery':'')}));  // demo only: same shape getActivityCatalog_() returns
 const demoSessionsByToken = {};
 let demoRejected = 0;
+const demoPastDue={};
 async function mockBackend(action, p){
   await new Promise(r=>setTimeout(r,150));
   const ok=data=>({ok:true,data}), bad=(error,code)=>({ok:false,error,code});
@@ -6047,6 +6128,24 @@ async function mockBackend(action, p){
   switch(action){
     case 'get-manager-today-view':
       return ok({ activityCatalog:demoCatalog, beds:demoBeds, sessions:demoSessions, exceptions:demoExceptions, harvestReady:demoHarvestReady, queueByBed:demoQueue, workers:demoWorkers });
+    case 'get-bed-past-due': {
+      const bed=demoBeds.find(x=>x.id===p.bedId); if(!bed) return bad('Bed not found.','NOT_FOUND');
+      if(!demoPastDue[bed.id]){
+        demoPastDue[bed.id]=bed.cohortId?[
+          { kind:'WINDOW', key:bed.cohortId, title:'Planted outside allowable window', detail:'Demo: planted outside the allowable window, no manager acceptance on record.', since:'2026-10-28', daysOverdue:6, severity:'HIGH' },
+          { kind:'QUEUE', key:'Q-DEMO-'+bed.id, title:'Fertilizer details missing', detail:'Demo: fertilizing was completed but type, brand and quantity were never entered.', since:'2026-10-29', daysOverdue:5, severity:'HIGH' },
+          { kind:'VERIFY', key:'SESS-DEMO-'+bed.id, title:'Irrigation awaiting verification', detail:'Demo: completed 2026-10-30, not yet verified.', since:'2026-10-30', daysOverdue:4, severity:'MEDIUM' },
+          { kind:'IRRIGATION', key:bed.cohortId, title:'Irrigation overdue', detail:'Demo: 0.5" every 2.5 days; was due 2026-11-01.', since:'2026-11-01', daysOverdue:2, severity:'MEDIUM' }
+        ]:[];
+      }
+      return ok({ bedId:bed.id, cohortId:bed.cohortId||'', asOf:new Date().toISOString().slice(0,10), items:demoPastDue[bed.id] });
+    }
+    case 'override-past-due': {
+      if(String(p.reason||'').trim().length<5) return bad('An explanation is required.','VALIDATION');
+      const list=demoPastDue[p.bedId]||[], cleared=[], failed=[];
+      (p.items||[]).forEach(r=>{ const at=list.findIndex(i=>i.kind===r.kind&&i.key===r.key); if(at<0) failed.push({ kind:r.kind, key:r.key, error:'No longer past due.' }); else { list.splice(at,1); cleared.push({ kind:r.kind, key:r.key }); } });
+      return ok({ cleared, failed, remaining:list.length });
+    }
     case 'start-session': {
       demoSessions.push({ id:'S-'+Math.floor(Math.random()*9000+1000), bedId:p.bedId, workerId:p.workerId, workerName:(demoWorkers.find(w=>w.workerId===p.workerId)||{}).name||p.workerId, activity:p.activity||'Task', status:'ASSIGNED', assignedTime:new Date().toISOString(), startTime:'' });
       return ok({done:true});
