@@ -65,6 +65,11 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .ptabs button{flex:0 0 auto;background:none;border:none;border-bottom:3px solid transparent;padding:12px 14px;font-family:inherit;font-size:13px;font-weight:700;color:var(--ink-soft);cursor:pointer;white-space:nowrap;}
 .ptabs button:hover{color:var(--ink);}
 .ptabs button.active{color:var(--forest);border-bottom-color:var(--forest);}
+.bb-blocks{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 0;}
+.bb-blocks button{display:flex;align-items:center;gap:8px;background:var(--paper);border:1.5px solid var(--line);border-radius:10px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer;}
+.bb-blocks button small{font-size:11px;font-weight:600;color:var(--ink-soft);}
+.bb-blocks button.on{background:var(--forest);border-color:var(--forest);color:#fff;} .bb-blocks button.on small{color:#C9D6CD;}
+.bb-blocks button:focus-visible{outline:2px solid var(--forest);outline-offset:2px;}
 .ptabs button:focus-visible,.bb-bed:focus-visible{outline:2px solid var(--forest);outline-offset:-2px;}
 .bb-lay{display:grid;grid-template-columns:190px minmax(0,1fr);gap:18px;align-items:start;max-width:1240px;margin:0 auto;}
 .bb-nav{position:sticky;top:0;display:flex;flex-direction:column;gap:3px;}
@@ -198,6 +203,8 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .cal-align.warn{color:var(--ink-soft);}
 .cal-align .h{font-weight:700;margin-bottom:3px;} .cal-align .r{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--ink-soft);} .cal-align em{color:var(--danger);font-style:normal;font-weight:700;}
 .cal-align details{margin-top:6px;} .cal-align summary{cursor:pointer;font-weight:600;} .cal-align .i{margin-top:4px;font-size:12px;color:var(--ink-soft);}
+.na-col{font-weight:600;font-size:10.5px;color:var(--ink-soft);opacity:.8;margin-left:4px;font-family:ui-monospace,Menlo,Consolas,monospace;}
+.cal-tag-cover{color:#5B5D14 !important;background:#ECEBC4 !important;}
 .cal-tag{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;margin-right:6px;color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);}
 @media (max-width:640px){ .cal{padding:10px;} .cal-cell{min-height:64px;padding:3px;} .cal-chip{font-size:9px;padding:1px 3px;} .cal-top h2{font-size:17px;} }
 @media print{ .topbar,.toolbar,.cal-noprint,.toast{display:none !important;} .cal{overflow:visible;padding:0;max-width:none;} .cal-cell{min-height:80px;break-inside:avoid;} body{background:#fff;} }
@@ -217,7 +224,18 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .btn-reject{background:transparent;color:var(--danger);border:1.5px solid var(--danger);} .btn-ghost{background:transparent;color:var(--ink-soft);font-weight:600;}
 .empty{text-align:center;color:var(--ink-soft);font-size:12.5px;padding:24px 10px;}
 .field{margin-bottom:12px;} .field label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:5px;}
-.loginwrap{max-width:380px;margin:60px auto;padding:0 16px;}
+.loginwrap{max-width:400px;margin:56px auto;padding:0 16px;}
+.login-card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:0;overflow:hidden;box-shadow:0 8px 28px rgba(20,38,29,.12);width:calc(100% - 32px);}
+.login-brand{background:var(--forest);color:#fff;padding:26px 24px 22px;text-align:center;}
+.login-mark{width:52px;height:52px;margin:0 auto 12px;border-radius:14px;background:#F5F1E6;color:var(--forest);font-weight:800;font-size:28px;line-height:52px;}
+.login-brand h1{font-size:22px;line-height:1.2;margin:0;font-weight:800;letter-spacing:.01em;}
+.login-brand h1 span{display:block;font-size:14px;font-weight:600;color:#C9D6CD;margin-top:3px;}
+.login-brand p{margin:10px 0 0;font-size:13px;color:#C9D6CD;}
+.login-body{padding:22px 24px 26px;}
+.login-body input{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:9px;font-family:inherit;font-size:15px;background:var(--paper);color:var(--ink);}
+.login-body input:focus{outline:2px solid var(--forest);outline-offset:1px;}
+.login-note{color:var(--ink-soft);font-size:13px;margin:0 0 16px;line-height:1.45;}
+.topbar button:disabled{opacity:.55;cursor:default;}
 .error{background:#F7DEDB;color:var(--danger);padding:10px 13px;border-radius:9px;font-size:12.5px;font-weight:600;margin-bottom:12px;}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;display:flex;align-items:center;justify-content:center;}
 .sheet{background:var(--paper);width:100%;max-width:420px;border-radius:14px;padding:18px;max-height:86vh;overflow-y:auto;margin:16px;}
@@ -432,7 +450,7 @@ const state = { managerId:null, name:null, role:null, token:null, beds:[], sessi
   pp:{} /* Planting Plan cache, keyed "year|blockId" -> getPlanningContext() result, or {error} */ };
 const YEAR_OPTIONS=[2027,2028,2029,2030]; // selectable years (only 2027 has data so far)
 const ui = { screen:'login', loginErr:'', overlay:'stage', selectedBed:null, tab:'overview', modal:null, modalDraft:{}, toast:'', queueTab:'', focusCohort:null, focusPending:false, generating:false, resetScroll:false, filter:'ALL', year:YEAR_OPTIONS[0], loading:false,
-  pMode:'infra', pBlock:'B1', pYear:2027, pSelectedCrop:null, pModifying:false, pSelBeds:[], pAdvOpen:false, pEditingRotation:false, pRotDraft:{},
+  pMode:'calendar', pBlock:'B1', pYear:2027, pSelectedCrop:null, pModifying:false, pSelBeds:[], pAdvOpen:false, pEditingRotation:false, pRotDraft:{},
   ppSelectedKey:null /* selected crop group key "cropId|wave" in real Planting Plan mode */, ppSelectedBed:null, ppBedModify:false, ppBedDraftCrop:'', ppBusy:false, ppHistoryOpen:false,
   calTab:'prop', calView:'month', calMonth:null, calDay:null, crSelectedId:null, crFilter:'', bedSearch:'' /* Crop Reference mode: selected crop id, list search text */ };
 const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1011,14 +1029,19 @@ function goPlanning(){ ui.screen='planning'; render(); }
 function goBoard(){ ui.screen='board'; render(); }
 
 function loginScreen(){
-  return `<div class="loginwrap">
-    <h1 style="font-size:22px;margin:40px 0 4px;">Activity Assignment Board</h1>
-    <p style="color:var(--ink-soft);font-size:13.5px;margin:0 0 20px;">Manager / Founder sign-in. Workers cannot access this board.</p>
-    ${ui.loginErr?`<div class="error">${esc(ui.loginErr)}</div>`:''}
-    <div class="field"><label>Worker ID</label><input id="in-id" placeholder="usr-manager1" autocomplete="off" value="${esc(ui.loginId||'')}"></div>
-    <div class="field"><label>PIN</label><input id="in-pin" type="password" inputmode="numeric" placeholder="••••"></div>
-    <button class="btn btn-primary" onclick="doLogin()">Log in</button>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin-top:14px;">Demo sign-ins: usr-manager1 / 1234, usr-founder1 / 1234 (PIN 1234).</p>
+  return `<div class="loginwrap login-card">
+    <div class="login-brand">
+      <div class="login-mark" aria-hidden="true">N</div>
+      <h1>Ngapori Ranch <span>(VPOS AAB)</span></h1>
+      <p>Activity Assignment Board</p>
+    </div>
+    <div class="login-body">
+      <p class="login-note">Manager / Founder sign-in. Workers cannot access this board.</p>
+      ${ui.loginErr?`<div class="error">${esc(ui.loginErr)}</div>`:''}
+      <div class="field"><label for="in-id">Worker ID</label><input id="in-id" placeholder="Enter your Worker ID" autocomplete="username" autocapitalize="off" value="${esc(ui.loginId||'')}"></div>
+      <div class="field"><label for="in-pin">PIN</label><input id="in-pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••"></div>
+      <button class="btn btn-primary" onclick="doLogin()">Log in</button>
+    </div>
   </div>`;
 }
 
@@ -1027,7 +1050,7 @@ function boardScreen(){
   ${IS_DEMO?`<div class="demo-strip">Demo mode with generated sample data. Set WEB_APP_URL to connect to your live backend.</div>`:''}
   <div class="topbar">
     <div><div class="brand">Activity Assignment Board</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()" title="Reload live data">${ui.loading?'Refreshing…':'↻ Refresh'}</button><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
   </div>
   <div class="wrap">
     <div class="mapcol">
@@ -1039,7 +1062,6 @@ function boardScreen(){
           <button class="${ui.overlay==='queue'?'active':''}" onclick="setOverlay('queue')">Queue</button>
         </div>
         <select onchange="setYear(this.value)" aria-label="Planning year">${YEAR_OPTIONS.map(y=>`<option value="${y}" ${y===ui.year?'selected':''}>${y}</option>`).join('')}</select>
-        <button class="btn btn-ghost" style="width:auto;margin:0;" ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing…':'↻ Refresh'}</button>
       </div>
       ${assignStrip()}
       ${filterBar()}
@@ -2710,12 +2732,12 @@ function lbCsv(){
  * modify-planting-layout / reset-planting-plan / mark-crop-planted / mark-bed-planted / mark-harvest-complete /
  * apply-cover-crop / get-rotation-plan / edit-rotation / approve-rotation) once those exist server-side. */
 const PLAN_TABS=[
+  {k:'calendar',label:'Production Calendar',views:[['calendar','Production calendars'],['irrigation','Irrigation calendar']]},
   {k:'infra',label:'Infrastructure & Crop Groups',views:[['infra','Block layout'],['rotation','Rotation editor'],['cropref','Crop profile'],['addcrop','Add crop']]},
-  {k:'beds',label:'Bed Status Board',views:[['bedboard','Bed status']]},
-  {k:'assign',label:'Assign Cohort',views:[['assigncohort','Ready beds']]},
-  {k:'ofo',label:'Open Field Operation',views:[['operation','Schedule editor'],['calendar','Production calendar'],['newactivity','New activity type']]},
+  {k:'ofo',label:'Open Field Operation',views:[['operation','Schedule editor'],['newactivity','Add new activity']]},
   {k:'plan',label:'Bed Planting Plan',views:[['smart','Smart allocation'],['plan','Bed layout'],['sheet','Bed plan sheet']]},
-  {k:'cohorts',label:'Cohorts',views:[['cohorts','Cohort production'],['exec','Planting execution'],['harvest','Harvest'],['irrigation','Irrigation calendar']]},
+  {k:'cohorts',label:'Cohorts',views:[['cohorts','Cohort production'],['assigncohort','Assign cohorts'],['exec','Planting execution'],['harvest','Harvest']]},
+  {k:'beds',label:'Bed Status Board',views:[['bedboard','Bed status']]},
   {k:'post',label:'Post-Harvest & Cover Crop',views:[['postharvest','Turnover & cover crop']]}
 ];
 const PLAN_MODES=PLAN_TABS.reduce((a,t)=>a.concat(t.views),[]);   /* flat [mode,label] list; the tab strip is built from PLAN_TABS */
@@ -2728,11 +2750,10 @@ const PLAN_MODES=PLAN_TABS.reduce((a,t)=>a.concat(t.views),[]);   /* flat [mode,
  *    file was generated and only the resolved data is embedded below.
  *  - CROP_PROPAGATION_PARAMETERS (lead-day breakdown) and RANCH_ALLOWABLE_PLANTING_CAL (planting window)
  *    already use CROP_REFERENCE's ID scheme, so no mapping was needed for those.
- *  - One unresolved gap: AMA-L (Amaranth, Leafy) has no CROP_LIFECYCLE record. CROP_LIFECYCLE's only
- *    "Mchicha / Amaranth" row was assigned to MCH; see that crop's `gap` field. Needs a ranch decision.
+ *  - AMA-L (Amaranth, Leafy) was removed: it is not in CROP_REFERENCE, so it is not a ranch crop. Amaranth Grain (AMG) is on file and stays.
  *  - Land allocation / bed / layout-status fields are intentionally NOT part of this master - those are
  *    per-cohort production facts that live in the Season Planning screens, not the crop identity record. */
-const CROP_MASTER = [{"id":"MCH","name":"Mchicha","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow (manager decision)"},"window":{"s1":"May 1","e1":"Jul 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":30,"harvestMax":45,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"AMA-L","name":"Amaranth (Leafy)","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"May 1","e1":"Aug 15","s2":null,"e2":null,"field":true,"gh":true},"life":null,"gap":"No CROP_LIFECYCLE record maps to this Crop_ID. CROP_LIFECYCLE's only entry naming Mchicha/Amaranth (\"Mchicha / Amaranth\") was assigned to MCH \u2014 confirm with the ranch whether Amaranth (Leafy) needs its own lifecycle record or is meant to be the same crop as Mchicha.","irrDetail":null},{"id":"SUK","name":"Sukuma Wiki","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":4,"nursery":28,"harden":7,"establish":14,"total":53,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 15","e1":"Aug 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":60,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"MUS","name":"Mustard Greens","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":4,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Mar 1","e1":"Sep 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":30,"harvestMax":45,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"March\u2013September"},"gap":null,"irrDetail":null},{"id":"CHD","name":"Swiss Chard","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":6,"nursery":28,"harden":7,"establish":14,"total":55,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 1","e1":"Sep 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":60,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"CPL","name":"Cowpea Leaves","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":4,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"May 15","e1":"Aug 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":30,"harvestMax":50,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"SPD","name":"Spider Plant","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":7,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"May 1","e1":"Aug 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":35,"harvestMax":50,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"BTL","name":"Bitter Leaf","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"CUTTING","dobType":"CUTTING_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"CUTTING","germ":7,"nursery":35,"harden":7,"establish":21,"total":70,"notes":"Indoor/permanent GH production"},"window":{"s1":"May 1","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":150,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"UGW","name":"Ugwu","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SOW","germ":7,"nursery":49,"harden":7,"establish":14,"total":77,"notes":"Indoor/permanent GH production"},"window":{"s1":"May 1","e1":"Jul 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":70,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"SP","name":"Sweet Potatoes","category":"Tropical Tubers & Perennials","cycleClass":"Annual","family":null,"propPath":"NURSERY","plantMethod":"SLIP","dobType":"SLIP_DOB","htEligible":false,"harvestTypeRef":"Storage","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SLIP","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Slip planting"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":90,"harvestMax":150,"windowType":"FULL_BLOCK","pattern":"Single full-block harvest","notes":"Root/tuber harvest; greenhouse production","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":[{"stage":"PreHarvest","depthIn":0.1,"freqDays":7,"heatMod":"NONE","dryDown":"REDUCE_DEPTH","lockout":"NONE","notes":"Reduce moisture to prevent tuber rot."}]},{"id":"TY","name":"True Yams","category":"Tropical Tubers & Perennials","cycleClass":"Annual","family":null,"propPath":"PERENNIAL","plantMethod":"SLIP","dobType":"SLIP_DOB","htEligible":false,"harvestTypeRef":"Storage","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SLIP","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"GH-only; perennial/root"},"window":{"s1":null,"e1":null,"s2":null,"e2":null,"field":false,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":180,"harvestMax":300,"windowType":"STAGGERED_BLOCK_HARVEST","pattern":"Staggered (block-by-block)","notes":"Tuber setts are pre-sprouted in a warm nursery before production planting. Staggered blocks support continuous harvest; mature yams may also be stored 4\u20136 months.","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":null},{"id":"CAS","name":"Cassava","category":"Tropical Tubers & Perennials","cycleClass":"Annual","family":null,"propPath":"PERENNIAL","plantMethod":"CUTTING","dobType":"CUTTING_DOB","htEligible":false,"harvestTypeRef":"Storage","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"CUTTING","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"GH-only; root crop"},"window":{"s1":null,"e1":null,"s2":null,"e2":null,"field":false,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":240,"harvestMax":365,"windowType":"STAGGERED_BLOCK_HARVEST","pattern":"Staggered (block-by-block)","notes":"Stem cuttings are planted directly into final production beds. Harvest individual plants as needed rather than clearing an entire block because fresh roots are highly perishable.","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":null},{"id":"PLN","name":"Plantains","category":"Tropical Tubers & Perennials","cycleClass":"Perennial","family":null,"propPath":"PERENNIAL","plantMethod":"SUCKER","dobType":"SUCKER_DOB","htEligible":false,"harvestTypeRef":"Perennial","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SUCKER","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"GH-only; tropical perennial"},"window":{"s1":null,"e1":null,"s2":null,"e2":null,"field":false,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":365,"harvestMax":540,"windowType":"STAGGERED_BUNCH_HARVEST","pattern":"Staggered (bunch-by-bunch)","notes":"Suckers/corms are sanitized and planted directly into greenhouse production beds. Mature plants produce bunches; after fruiting, the mother pseudostem is removed and one strong sucker is retained for succession.","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":null},{"id":"CAR","name":"Carrots","category":"Cool-Season Roots","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":7,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Mar 1","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":85,"windowType":"SINGLE_HARVEST","pattern":"Single harvest","notes":"Root harvest","allowableWindowNote":"March\u2013September"},"gap":null,"irrDetail":null},{"id":"BET","name":"Beets","category":"Cool-Season Roots","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Mar 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":50,"harvestMax":70,"windowType":"SINGLE_HARVEST","pattern":"Single harvest","notes":"Root harvest","allowableWindowNote":"March\u2013June; August\u2013September"},"gap":null,"irrDetail":null},{"id":"TUR","name":"Turnips","category":"Cool-Season Roots","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":4,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Apr 1","e1":"Sep 30","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":60,"windowType":"SINGLE_HARVEST","pattern":"Single harvest","notes":"Root harvest","allowableWindowNote":"March\u2013September"},"gap":null,"irrDetail":null},{"id":"ONI","name":"Onions","category":"Bulb Crops","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Storage","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED / PLUGS / SETS","germ":7,"nursery":77,"harden":7,"establish":14,"total":105,"notes":"Full GH-PROP schedule"},"window":{"s1":"Mar 1","e1":"May 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":150,"windowType":"BULB_SINGLE_HARVEST_CURED","pattern":"Single harvest + cure/storage","notes":"Bulb onion lifecycle. Single production block followed by harvest, curing, and storage inventory. Green onions are a separate lifecycle.","allowableWindowNote":"March\u2013May"},"gap":null,"irrDetail":[{"stage":"PreHarvest","depthIn":0,"freqDays":999,"heatMod":"NONE","dryDown":"STOP_IRRIGATION","lockout":"CURING","notes":"Stop irrigation to allow bulb skins to cure."}]},{"id":"ASP","name":"Asparagus","category":"Perennial Crown","cycleClass":"Perennial","family":null,"propPath":"PERENNIAL","plantMethod":"CROWN","dobType":"CROWN_DOB","htEligible":false,"harvestTypeRef":"Perennial","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"PERENNIAL_CROWN","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Crown planting"},"window":{"s1":"Feb 1","e1":"Mar 31","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":365,"harvestMax":730,"windowType":"SEASONAL_PERENNIAL","pattern":"Recurring, seasonal (perennial)","notes":"Long establishment period followed by seasonal recurring harvest","allowableWindowNote":"February\u2013March"},"gap":null,"irrDetail":null},{"id":"SB","name":"Scotch Bonnet","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":14,"nursery":63,"harden":7,"establish":14,"total":98,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":120,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pepper harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"HAB","name":"Habanero","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":14,"nursery":63,"harden":7,"establish":14,"total":98,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":120,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pepper harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"BEC","name":"Bird\u2019s Eye Chili","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":14,"nursery":63,"harden":7,"establish":14,"total":98,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":120,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pepper harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"BEL","name":"Bell Pepper","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":14,"nursery":63,"harden":7,"establish":14,"total":98,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":70,"harvestMax":100,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pepper harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"AFE","name":"African Eggplant","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":8,"nursery":63,"harden":7,"establish":14,"total":92,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 15","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":70,"harvestMax":100,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated fruit picking","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"EGG","name":"Eggplant","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":63,"harden":7,"establish":14,"total":89,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"May 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":80,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated fruit picking","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"TOM","name":"Tomatoes","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":63,"harden":7,"establish":14,"total":89,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"May 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":85,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated fruit harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":[{"stage":"Fruiting","depthIn":0.5,"freqDays":2.5,"heatMod":"INCREASE_FREQUENCY","dryDown":"NONE","lockout":"NONE","notes":"Maintain consistent moisture to reduce blossom-end rot risk."}]},{"id":"CUC","name":"Cucumber","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192GH_ESTABLISHMENT","germ":5,"nursery":21,"harden":3,"establish":10,"total":39,"notes":"GH-PROP; DOB = seed-sowing date"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":50,"harvestMax":65,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated fruit picking","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"OKR","name":"Okra","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":35,"harden":3,"establish":14,"total":57,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 15","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":50,"harvestMax":65,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pod picking","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":null},{"id":"LET","name":"Lettuce","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":28,"harden":7,"establish":10,"total":50,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 1","e1":"Aug 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":25,"harvestMax":35,"windowType":"PROGRESSIVE_MULTI_CUT","pattern":"Recurring","notes":"Progressive multi-cut harvest; Ranch treats this as a separate lettuce lifecycle","allowableWindowNote":"April\u2013August"},"gap":null,"irrDetail":null},{"id":"KAL","name":"Kale","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":35,"harden":7,"establish":14,"total":61,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jul 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":70,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"SPI","name":"Spinach","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Apr 1","e1":"Apr 30","s2":"Sep 1","e2":"Sep 30","field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":30,"harvestMax":50,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated harvest","allowableWindowNote":"March\u2013May; August\u2013September"},"gap":null,"irrDetail":null},{"id":"BRO","name":"Broccoli","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":4,"nursery":42,"harden":7,"establish":14,"total":67,"notes":"Full GH-PROP schedule"},"window":{"s1":"Mar 1","e1":"Aug 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":55,"harvestMax":75,"windowType":"MAIN_HEAD_PLUS_SIDE_SHOOTS","pattern":"Recurring (main + side shoots)","notes":"Main head followed by side-shoot harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"CAU","name":"Cauliflower","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":4,"nursery":42,"harden":7,"establish":14,"total":67,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 1","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":90,"windowType":"SINGLE_HEAD","pattern":"Single harvest","notes":"Main head harvest","allowableWindowNote":"April\u2013mid-July"},"gap":null,"irrDetail":null},{"id":"CAB","name":"Cabbage","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":4,"nursery":42,"harden":7,"establish":14,"total":67,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":70,"harvestMax":95,"windowType":"SINGLE_HEAD","pattern":"Single harvest","notes":"Head harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"COL","name":"Collard Greens","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"GH-PROP crop; propagation schedule not yet defined"},"window":{"s1":"Mar 1","e1":"Oct 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":80,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Full-size leaves approximately 60\u201380 days; baby leaves can be harvested earlier; repeated leaf harvest","allowableWindowNote":"March\u2013April; July\u2013mid-August"},"gap":null,"irrDetail":null},{"id":"AMG","name":"Amaranth Grain","category":"Grain Crops","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":120,"windowType":"FULL_BLOCK","pattern":"Single full-block harvest","notes":"Grain harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"CPG","name":"Cowpea Grain","category":"Grain Crops","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"May 15","e1":"Jul 31","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":90,"windowType":"FULL_BLOCK","pattern":"Single full-block harvest","notes":"Grain/seed harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"CLV","name":"Clover","category":"Cover Crops","cycleClass":"Cover","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":false,"harvestTypeRef":"Cover","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":7,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Cover crop"},"window":{"s1":"Sep 1","e1":"Oct 31","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":90,"windowType":"TERMINATION","pattern":"Terminated, not harvested for product","notes":"Cover-crop lifecycle; termination rather than restaurant harvest","allowableWindowNote":"September\u2013October"},"gap":null,"irrDetail":null},{"id":"RYE","name":"Rye","category":"Cover Crops","cycleClass":"Cover","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":false,"harvestTypeRef":"Cover","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Cover crop"},"window":{"s1":"Sep 1","e1":"Nov 15","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":180,"windowType":"TERMINATION","pattern":"Terminated, not harvested for product","notes":"Cover-crop lifecycle; exact Ranch termination point remains SOP-dependent","allowableWindowNote":"September\u2013October"},"gap":null,"irrDetail":null},{"id":"VET","name":"Vetch","category":"Cover Crops","cycleClass":"Cover","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":false,"harvestTypeRef":"Cover","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":7,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Cover crop"},"window":{"s1":"Sep 1","e1":"Nov 15","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":120,"windowType":"TERMINATION","pattern":"Terminated, not harvested for product","notes":"Cover-crop establishment and termination lifecycle","allowableWindowNote":"September\u2013October"},"gap":null,"irrDetail":null},{"id":"BKW","name":"Buckwheat","category":"Cover Crops","cycleClass":"Cover","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":false,"harvestTypeRef":"Cover","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":3,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Cover crop"},"window":{"s1":"Apr 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":70,"harvestMax":90,"windowType":"TERMINATION","pattern":"Terminated, not harvested for product","notes":"Cover-crop lifecycle; termination can precede seed maturity","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null}];
+const CROP_MASTER = [{"id":"MCH","name":"Mchicha","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow (manager decision)"},"window":{"s1":"May 1","e1":"Jul 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":30,"harvestMax":45,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"SUK","name":"Sukuma Wiki","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":4,"nursery":28,"harden":7,"establish":14,"total":53,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 15","e1":"Aug 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":60,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"MUS","name":"Mustard Greens","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":4,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Mar 1","e1":"Sep 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":30,"harvestMax":45,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"March\u2013September"},"gap":null,"irrDetail":null},{"id":"CHD","name":"Swiss Chard","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":6,"nursery":28,"harden":7,"establish":14,"total":55,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 1","e1":"Sep 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":60,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"CPL","name":"Cowpea Leaves","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":4,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"May 15","e1":"Aug 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":30,"harvestMax":50,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"SPD","name":"Spider Plant","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":7,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"May 1","e1":"Aug 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":35,"harvestMax":50,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"BTL","name":"Bitter Leaf","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"CUTTING","dobType":"CUTTING_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"CUTTING","germ":7,"nursery":35,"harden":7,"establish":21,"total":70,"notes":"Indoor/permanent GH production"},"window":{"s1":"May 1","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":150,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"UGW","name":"Ugwu","category":"African Leafy Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"DIRECT_SOW","germ":7,"nursery":49,"harden":7,"establish":14,"total":77,"notes":"Indoor/permanent GH production"},"window":{"s1":"May 1","e1":"Jul 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":70,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"SP","name":"Sweet Potatoes","category":"Tropical Tubers & Perennials","cycleClass":"Annual","family":null,"propPath":"NURSERY","plantMethod":"SLIP","dobType":"SLIP_DOB","htEligible":false,"harvestTypeRef":"Storage","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SLIP","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Slip planting"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":90,"harvestMax":150,"windowType":"FULL_BLOCK","pattern":"Single full-block harvest","notes":"Root/tuber harvest; greenhouse production","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":[{"stage":"PreHarvest","depthIn":0.1,"freqDays":7,"heatMod":"NONE","dryDown":"REDUCE_DEPTH","lockout":"NONE","notes":"Reduce moisture to prevent tuber rot."}]},{"id":"TY","name":"True Yams","category":"Tropical Tubers & Perennials","cycleClass":"Annual","family":null,"propPath":"PERENNIAL","plantMethod":"SLIP","dobType":"SLIP_DOB","htEligible":false,"harvestTypeRef":"Storage","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SLIP","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"GH-only; perennial/root"},"window":{"s1":null,"e1":null,"s2":null,"e2":null,"field":false,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":180,"harvestMax":300,"windowType":"STAGGERED_BLOCK_HARVEST","pattern":"Staggered (block-by-block)","notes":"Tuber setts are pre-sprouted in a warm nursery before production planting. Staggered blocks support continuous harvest; mature yams may also be stored 4\u20136 months.","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":null},{"id":"CAS","name":"Cassava","category":"Tropical Tubers & Perennials","cycleClass":"Annual","family":null,"propPath":"PERENNIAL","plantMethod":"CUTTING","dobType":"CUTTING_DOB","htEligible":false,"harvestTypeRef":"Storage","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"CUTTING","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"GH-only; root crop"},"window":{"s1":null,"e1":null,"s2":null,"e2":null,"field":false,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":240,"harvestMax":365,"windowType":"STAGGERED_BLOCK_HARVEST","pattern":"Staggered (block-by-block)","notes":"Stem cuttings are planted directly into final production beds. Harvest individual plants as needed rather than clearing an entire block because fresh roots are highly perishable.","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":null},{"id":"PLN","name":"Plantains","category":"Tropical Tubers & Perennials","cycleClass":"Perennial","family":null,"propPath":"PERENNIAL","plantMethod":"SUCKER","dobType":"SUCKER_DOB","htEligible":false,"harvestTypeRef":"Perennial","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SUCKER","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"GH-only; tropical perennial"},"window":{"s1":null,"e1":null,"s2":null,"e2":null,"field":false,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":365,"harvestMax":540,"windowType":"STAGGERED_BUNCH_HARVEST","pattern":"Staggered (bunch-by-bunch)","notes":"Suckers/corms are sanitized and planted directly into greenhouse production beds. Mature plants produce bunches; after fruiting, the mother pseudostem is removed and one strong sucker is retained for succession.","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":null},{"id":"CAR","name":"Carrots","category":"Cool-Season Roots","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":7,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Mar 1","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":85,"windowType":"SINGLE_HARVEST","pattern":"Single harvest","notes":"Root harvest","allowableWindowNote":"March\u2013September"},"gap":null,"irrDetail":null},{"id":"BET","name":"Beets","category":"Cool-Season Roots","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Mar 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":50,"harvestMax":70,"windowType":"SINGLE_HARVEST","pattern":"Single harvest","notes":"Root harvest","allowableWindowNote":"March\u2013June; August\u2013September"},"gap":null,"irrDetail":null},{"id":"TUR","name":"Turnips","category":"Cool-Season Roots","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":4,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Apr 1","e1":"Sep 30","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":60,"windowType":"SINGLE_HARVEST","pattern":"Single harvest","notes":"Root harvest","allowableWindowNote":"March\u2013September"},"gap":null,"irrDetail":null},{"id":"ONI","name":"Onions","category":"Bulb Crops","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Storage","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED / PLUGS / SETS","germ":7,"nursery":77,"harden":7,"establish":14,"total":105,"notes":"Full GH-PROP schedule"},"window":{"s1":"Mar 1","e1":"May 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":150,"windowType":"BULB_SINGLE_HARVEST_CURED","pattern":"Single harvest + cure/storage","notes":"Bulb onion lifecycle. Single production block followed by harvest, curing, and storage inventory. Green onions are a separate lifecycle.","allowableWindowNote":"March\u2013May"},"gap":null,"irrDetail":[{"stage":"PreHarvest","depthIn":0,"freqDays":999,"heatMod":"NONE","dryDown":"STOP_IRRIGATION","lockout":"CURING","notes":"Stop irrigation to allow bulb skins to cure."}]},{"id":"ASP","name":"Asparagus","category":"Perennial Crown","cycleClass":"Perennial","family":null,"propPath":"PERENNIAL","plantMethod":"CROWN","dobType":"CROWN_DOB","htEligible":false,"harvestTypeRef":"Perennial","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"PERENNIAL_CROWN","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Crown planting"},"window":{"s1":"Feb 1","e1":"Mar 31","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":365,"harvestMax":730,"windowType":"SEASONAL_PERENNIAL","pattern":"Recurring, seasonal (perennial)","notes":"Long establishment period followed by seasonal recurring harvest","allowableWindowNote":"February\u2013March"},"gap":null,"irrDetail":null},{"id":"SB","name":"Scotch Bonnet","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":14,"nursery":63,"harden":7,"establish":14,"total":98,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":120,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pepper harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"HAB","name":"Habanero","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":14,"nursery":63,"harden":7,"establish":14,"total":98,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":120,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pepper harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"BEC","name":"Bird\u2019s Eye Chili","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":14,"nursery":63,"harden":7,"establish":14,"total":98,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":120,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pepper harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"BEL","name":"Bell Pepper","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":14,"nursery":63,"harden":7,"establish":14,"total":98,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":70,"harvestMax":100,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pepper harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"AFE","name":"African Eggplant","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":8,"nursery":63,"harden":7,"establish":14,"total":92,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 15","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":70,"harvestMax":100,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated fruit picking","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"EGG","name":"Eggplant","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":63,"harden":7,"establish":14,"total":89,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"May 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":80,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated fruit picking","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"TOM","name":"Tomatoes","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":63,"harden":7,"establish":14,"total":89,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"May 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":85,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated fruit harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":[{"stage":"Fruiting","depthIn":0.5,"freqDays":2.5,"heatMod":"INCREASE_FREQUENCY","dryDown":"NONE","lockout":"NONE","notes":"Maintain consistent moisture to reduce blossom-end rot risk."}]},{"id":"CUC","name":"Cucumber","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":false,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192GH_ESTABLISHMENT","germ":5,"nursery":21,"harden":3,"establish":10,"total":39,"notes":"GH-PROP; DOB = seed-sowing date"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":50,"harvestMax":65,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated fruit picking","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"OKR","name":"Okra","category":"Warm-Season Fruiting Crops","cycleClass":"Annual","family":"Solanaceae","propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-HEAVY","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":35,"harden":3,"establish":14,"total":57,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 15","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"GREENHOUSE","harvestMin":50,"harvestMax":65,"windowType":"CONTINUOUS_PICK","pattern":"Recurring","notes":"Repeated pod picking","allowableWindowNote":"GREENHOUSE ONLY"},"gap":null,"irrDetail":null},{"id":"LET","name":"Lettuce","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":28,"harden":7,"establish":10,"total":50,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 1","e1":"Aug 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":25,"harvestMax":35,"windowType":"PROGRESSIVE_MULTI_CUT","pattern":"Recurring","notes":"Progressive multi-cut harvest; Ranch treats this as a separate lettuce lifecycle","allowableWindowNote":"April\u2013August"},"gap":null,"irrDetail":null},{"id":"KAL","name":"Kale","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":5,"nursery":35,"harden":7,"establish":14,"total":61,"notes":"Full GH-PROP schedule"},"window":{"s1":"May 1","e1":"Jul 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":45,"harvestMax":70,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated leaf harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"SPI","name":"Spinach","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"Apr 1","e1":"Apr 30","s2":"Sep 1","e2":"Sep 30","field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":30,"harvestMax":50,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Repeated harvest","allowableWindowNote":"March\u2013May; August\u2013September"},"gap":null,"irrDetail":null},{"id":"BRO","name":"Broccoli","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":4,"nursery":42,"harden":7,"establish":14,"total":67,"notes":"Full GH-PROP schedule"},"window":{"s1":"Mar 1","e1":"Aug 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":55,"harvestMax":75,"windowType":"MAIN_HEAD_PLUS_SIDE_SHOOTS","pattern":"Recurring (main + side shoots)","notes":"Main head followed by side-shoot harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"CAU","name":"Cauliflower","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":4,"nursery":42,"harden":7,"establish":14,"total":67,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 1","e1":"Jul 15","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":90,"windowType":"SINGLE_HEAD","pattern":"Single harvest","notes":"Main head harvest","allowableWindowNote":"April\u2013mid-July"},"gap":null,"irrDetail":null},{"id":"CAB","name":"Cabbage","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":4,"nursery":42,"harden":7,"establish":14,"total":67,"notes":"Full GH-PROP schedule"},"window":{"s1":"Apr 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":70,"harvestMax":95,"windowType":"SINGLE_HEAD","pattern":"Single harvest","notes":"Head harvest","allowableWindowNote":"March\u2013August"},"gap":null,"irrDetail":null},{"id":"COL","name":"Collard Greens","category":"Cool-Season Brassicas & Greens","cycleClass":"Annual","family":null,"propPath":"GH_PROP","plantMethod":"TRANSPLANT","dobType":"TRANSPLANT_DOB","htEligible":true,"harvestTypeRef":"Continuous","irrProfile":"IRR-STD","prefBlock":null,"lead":{"method":"SEED\u2192TRANSPLANT","germ":0,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"GH-PROP crop; propagation schedule not yet defined"},"window":{"s1":"Mar 1","e1":"Oct 31","s2":null,"e2":null,"field":true,"gh":true},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":80,"windowType":"RECURRING_LEAF","pattern":"Recurring","notes":"Full-size leaves approximately 60\u201380 days; baby leaves can be harvested earlier; repeated leaf harvest","allowableWindowNote":"March\u2013April; July\u2013mid-August"},"gap":null,"irrDetail":null},{"id":"AMG","name":"Amaranth Grain","category":"Grain Crops","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"May 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":120,"windowType":"FULL_BLOCK","pattern":"Single full-block harvest","notes":"Grain harvest","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null},{"id":"CPG","name":"Cowpea Grain","category":"Grain Crops","cycleClass":"Annual","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":true,"harvestTypeRef":"Storage","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Direct sow"},"window":{"s1":"May 15","e1":"Jul 31","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":90,"windowType":"FULL_BLOCK","pattern":"Single full-block harvest","notes":"Grain/seed harvest","allowableWindowNote":"May\u2013June"},"gap":null,"irrDetail":null},{"id":"CLV","name":"Clover","category":"Cover Crops","cycleClass":"Cover","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":false,"harvestTypeRef":"Cover","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":7,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Cover crop"},"window":{"s1":"Sep 1","e1":"Oct 31","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":90,"windowType":"TERMINATION","pattern":"Terminated, not harvested for product","notes":"Cover-crop lifecycle; termination rather than restaurant harvest","allowableWindowNote":"September\u2013October"},"gap":null,"irrDetail":null},{"id":"RYE","name":"Rye","category":"Cover Crops","cycleClass":"Cover","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":false,"harvestTypeRef":"Cover","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":5,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Cover crop"},"window":{"s1":"Sep 1","e1":"Nov 15","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":90,"harvestMax":180,"windowType":"TERMINATION","pattern":"Terminated, not harvested for product","notes":"Cover-crop lifecycle; exact Ranch termination point remains SOP-dependent","allowableWindowNote":"September\u2013October"},"gap":null,"irrDetail":null},{"id":"VET","name":"Vetch","category":"Cover Crops","cycleClass":"Cover","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":false,"harvestTypeRef":"Cover","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":7,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Cover crop"},"window":{"s1":"Sep 1","e1":"Nov 15","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":60,"harvestMax":120,"windowType":"TERMINATION","pattern":"Terminated, not harvested for product","notes":"Cover-crop establishment and termination lifecycle","allowableWindowNote":"September\u2013October"},"gap":null,"irrDetail":null},{"id":"BKW","name":"Buckwheat","category":"Cover Crops","cycleClass":"Cover","family":null,"propPath":"FIELD_DIRECT","plantMethod":"DIRECT_SEED","dobType":"SEED_DOB","htEligible":false,"harvestTypeRef":"Cover","irrProfile":"IRR-LOW","prefBlock":null,"lead":{"method":"DIRECT_SEED","germ":3,"nursery":0,"harden":0,"establish":0,"total":0,"notes":"Cover crop"},"window":{"s1":"Apr 1","e1":"Jun 30","s2":null,"e2":null,"field":true,"gh":false},"life":{"productionPath":"FIELD","harvestMin":70,"harvestMax":90,"windowType":"TERMINATION","pattern":"Terminated, not harvested for product","notes":"Cover-crop lifecycle; termination can precede seed maturity","allowableWindowNote":"May\u2013July"},"gap":null,"irrDetail":null}];
 
 const PLAN_BLOCKS=['B1','B2','B3','B4','Z5']; // canonical short Block_ID, matches BLOCK_ROTATION_PLAN / BED_PLANTING_PLAN / BED_MASTER Bed_ID prefix
 const BLOCK_LABELS={B1:'Block 1',B2:'Block 2',B3:'Block 3',B4:'Block 4',Z5:'Zone 5'};
@@ -2789,7 +2810,22 @@ function chipClassFor(s){ return {Confirmed:'chip-ok',Planted:'chip-ok',Complete
 function setPMode(m){ if(m==='newactivity'&&ui.pMode!=='newactivity'){ ui.modal=null; ui.modalDraft={}; } if(m==='sheet'&&sh.init&&!sh.busy){ delete state.pp[ppKey(sh.tgtYear,sh.tgtBlock)]; shLoadTarget(true,true); } ui.ppMulti=false; ui.ppSel=[]; ui.pMode=m; ui.pSelectedCrop=null; ui.pModifying=false; ui.pSelBeds=[]; ui.pAdvOpen=false; ui.pEditingRotation=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPBlock(b){ ui.ppMulti=false; ui.ppSel=[]; ui.pBlock=b; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
 function setPYear(y){ ui.pYear=+y; ui.pSelectedCrop=null; ui.pModifying=false; ui.ppSelectedKey=null; ui.ppSelectedBed=null; ui.ppBedModify=false; ui.ppHistoryOpen=false; render(); }
-function refreshPlanning(){ if(ui.pMode==='infra'||ui.pMode==='smart') infraLoad(true); if(ui.pMode==='bedboard'){ bbLoad(true); loadToday(); } if(ui.pMode==='postharvest') loadToday(); if(ui.pMode==='assigncohort'){ loadToday(); asg.tried=false; ensureAcLoaded(true); } if(ui.pMode==='calendar') loadCalendar(true); if(ui.pMode==='irrigation') irrLoad(true); if(ui.pMode==='operation') opReload(); if(ui.pMode==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); } if(ui.pMode==='exec'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); execEnsureBoard(true); } toast('Planning data refreshed.'); render(); }
+function refreshPlanning(){ const m=ui.pMode;
+  if(m==='infra'||m==='smart') infraLoad(true);
+  if(m==='bedboard'){ bbLoad(true); loadToday(); }
+  if(m==='postharvest') loadToday();
+  if(m==='assigncohort'){ loadToday(); asg.tried=false; ensureAcLoaded(true); }
+  if(m==='calendar') loadCalendar(true);
+  if(m==='irrigation') irrLoad(true);
+  if(m==='operation') opReload();
+  if(m==='newactivity'){ naLoadId(true); loadToday(); }
+  if(m==='plan'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); }
+  if(m==='sheet'){ Object.keys(state.pp).forEach(k=>delete state.pp[k]); shLoadTarget(true); }
+  if(m==='exec'){ delete state.pp[ppKey(ui.pYear,ui.pBlock)]; loadPlanningContext(true); execEnsureBoard(true); }
+  if(m==='cohorts') loadCohortStatus(true);
+  if(m==='rotation'){ rotLoad.tried=false; loadRotationPlan(); }
+  if(m==='cropref'||m==='addcrop'||m==='harvest'||m==='cover') loadToday();
+  toast('Planning data refreshed.'); render(); }
 function selectCrop(id){ ui.pSelectedCrop=id; ui.pModifying=false; render(); }
 function selectCropByBed(n){ const c=getPlan(ui.pBlock,ui.pYear).crops.find(x=>x.bedNums.includes(n)); if(c){ ui.pSelectedCrop=c.id; render(); } }
 
@@ -2953,7 +2989,7 @@ function ppStatusChip(status){ const s=String(status||'').toUpperCase(); return 
  * Actions: get-crop-form-spec, get-crop-registry, validate-new-crop, add-crop, get-planner-options, save-plan-bed,
  * save-plan-beds, confirm-plan-rows, get-cohort-production-status, preview-cohort-production, run-cohort-production.
  * "Normal" refusals arrive as ok:true data ({saved:false,errors} / {ran:false,code}) and are shown inline, not thrown. */
-const ac={ spec:null, reg:null, form:{windows:[{start:'',end:''}]}, errors:{}, warnings:[], preview:null, busy:false, allowNew:false, result:null, err:'' };
+const ac={ spec:null, reg:null, form:{windows:[{start:'',end:''}]}, errors:{}, warnings:[], preview:null, busy:false, allowNew:false, result:null, err:'', idTouched:false };
 const cp={}; /* year -> {status, preview, run, busy, err, ack, recs, skip} */
 const po={}; /* year -> get-planner-options data */
 const ppEd={ cropId:'', date:'', msg:null };   /* shared draft for the bed editor / bulk apply */
@@ -2971,11 +3007,41 @@ async function loadAddCrop(force){
   catch(e){ ac.err=errMsg(e); }
   ac.busy=false; render();
 }
-function acSet(k,v,rerender){ ac.form[k]=v; ac.preview=null; if(rerender) render(); }
+/* Crop ID follows the format already on file: 3 capital letters, unique (MCH, SUK, TOM, CPG ...). It is filled in from the crop name as it
+ * is typed, in the same pattern as the existing codes: first three letters of the name (Tomatoes = TOM, Bell Pepper = BEL); when another crop
+ * already starts with the same first word, first two letters + the initial of the last word (Amaranth Grain = AMG, Cowpea Grain = CPG).
+ * The manager can overwrite it; once they type in the ID box it is left alone. */
+function acUsedIds(){ const u=new Set(); ((ac.reg&&ac.reg.crops)||[]).forEach(c=>c.cropId&&u.add(String(c.cropId).toUpperCase()));
+  (typeof CROP_MASTER!=='undefined'?CROP_MASTER:[]).forEach(c=>c.id&&u.add(String(c.id).toUpperCase()));
+  (((po[ui.pYear]||{}).crops)||[]).forEach(c=>c.cropId&&u.add(String(c.cropId).toUpperCase())); return u; }
+function acCodeFor(name){
+  const L=w=>String(w||'').replace(/[^A-Z]/g,''), words=String(name||'').toUpperCase().split(/[^A-Z0-9]+/).filter(w=>L(w));
+  if(!words.length) return '';
+  const used=acUsedIds(), w0=L(words[0]), wl=L(words[words.length-1]), cons=w=>w.slice(1).replace(/[AEIOU]/g,'');
+  const names=[]; ((ac.reg&&ac.reg.crops)||[]).forEach(c=>names.push(String(c.cropName||'').toUpperCase())); (typeof CROP_MASTER!=='undefined'?CROP_MASTER:[]).forEach(c=>names.push(String(c.name||'').toUpperCase()));
+  const sibling=words.length>1&&names.some(n=>n.split(/[^A-Z0-9]+/)[0]===words[0]);
+  const c=[]; const add=x=>{ x=L(x).slice(0,3); if(x.length>=Math.min(3,L(words.join('')).length)&&!c.includes(x)) c.push(x); };
+  if(words.length>1){ if(sibling){ add(w0.slice(0,2)+wl[0]); add(w0[0]+(cons(w0)[0]||'')+wl[0]); add(w0.slice(0,3)); } else { add(w0.slice(0,3)); add(w0.slice(0,2)+wl[0]); add(w0[0]+(cons(w0)[0]||'')+wl[0]); }
+    add(words.map(w=>L(w)[0]).join('')); }
+  else { add(w0.slice(0,3)); add(w0[0]+cons(w0)); }
+  for(const x of c) if(!used.has(x)) return x;
+  const base=(c[0]||w0.slice(0,3)).slice(0,2);                                   /* every pattern taken: vary the third letter */
+  for(const ch of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'){ const x=base+ch; if(!used.has(x)) return x; }
+  return c[0]||'';
+}
+function acIdHint(){ const id=String(ac.form.cropId||'').toUpperCase(); if(!id) return 'Filled in from the crop name (3 capital letters, same format as the crops on file). You can change it.';
+  const n=((ac.reg&&ac.reg.crops)||[]).find(c=>String(c.cropId).toUpperCase()===id);
+  return n?`${id} is already used by ${n.cropName}. Pick a different ID.`:(ac.idTouched?'ID entered by hand.':'Filled in from the crop name. You can change it.'); }
+function acSet(k,v,rerender){
+  if(k==='cropId'){ v=String(v||'').toUpperCase().replace(/[^A-Z0-9-]/g,''); ac.idTouched=!!v; const e=document.getElementById('ac-cropId'); if(e&&e.value!==v) e.value=v; }
+  ac.form[k]=v; ac.preview=null;
+  if(k==='cropName'&&!ac.idTouched){ ac.form.cropId=acCodeFor(v); const e=document.getElementById('ac-cropId'); if(e) e.value=ac.form.cropId; }
+  if(k==='cropName'||k==='cropId'){ const h=document.getElementById('ac-cropId-h'); if(h) h.textContent=acIdHint(); }
+  if(rerender) render(); }
 function acWin(i,k,v){ ac.form.windows[i][k]=v; ac.preview=null; }
 function acAddWin(){ if(ac.form.windows.length<2){ ac.form.windows.push({start:'',end:''}); render(); } }
 function acDelWin(i){ ac.form.windows.splice(i,1); if(!ac.form.windows.length) ac.form.windows.push({start:'',end:''}); render(); }
-function acReset(){ ac.form={windows:[{start:'',end:''}]}; ac.errors={}; ac.warnings=[]; ac.preview=null; ac.result=null; ac.err=''; render(); }
+function acReset(){ ac.idTouched=false; ac.form={windows:[{start:'',end:''}]}; ac.errors={}; ac.warnings=[]; ac.preview=null; ac.result=null; ac.err=''; render(); }
 function acPayload(){ const f=Object.assign({},ac.form); f.windows=ac.form.windows.filter(w=>w.start||w.end); return { crop:f, allowNewValues:ac.allowNew }; }
 function acApply(res){ ac.errors={}; (res.errors||[]).forEach(e=>{ ac.errors[e.field]=(ac.errors[e.field]?ac.errors[e.field]+' ':'')+e.message; }); ac.warnings=res.warnings||[]; }
 async function acValidate(){
@@ -2989,7 +3055,7 @@ async function acSave(){
   ac.busy=true; ac.err=''; render();
   try{
     const r=await apiCall('add-crop',acPayload()); acApply(r);
-    if(r.saved){ ac.result=r; ac.preview=null; ac.form={windows:[{start:'',end:''}]}; ac.spec=null; ac.reg=null; delete po[ui.pYear]; await loadAddCrop(true); return; }
+    if(r.saved){ ac.result=r; ac.preview=null; ac.idTouched=false; ac.form={windows:[{start:'',end:''}]}; ac.spec=null; ac.reg=null; delete po[ui.pYear]; await loadAddCrop(true); return; }
     else toast('Fix the highlighted fields.');
   }catch(e){ ac.err=errMsg(e); }
   ac.busy=false; render();
@@ -3013,7 +3079,7 @@ function acField(f){
     const direct=ac.form.plantingMethod==='DIRECT_SEED'&&['nurseryDays','hardenDays','establishDays'].includes(f.key);
     inp=`<input id="${id}" type="${f.type==='number'?'number':'text'}" ${f.type==='number'?`min="${f.min||0}" step="1"`:`maxlength="${f.maxLength||60}"`} value="${esc(direct?0:(v==null?'':v))}" ${direct?'disabled':''} oninput="acSet('${f.key}',this.value)" style="${bad}">`;
   }
-  return `<div class="field">${lab}${inp}${hint}${fieldErr(f.key)}${fieldWarn(f.key)}</div>`;
+  return `<div class="field">${lab}${inp}${f.key==='cropId'?`<div class="note" id="ac-cropId-h" style="margin:3px 0 0;">${esc(acIdHint())}</div>`:hint}${fieldErr(f.key)}${fieldWarn(f.key)}</div>`;
 }
 function acRegistryHTML(){
   const r=ac.reg; if(!r) return '';
@@ -3132,7 +3198,7 @@ function ppEditActionsHTML(){
 const SHEET_BLOCKS=['B1','B2','B3','B4'];
 const sh={ init:false, srcYear:2027, srcBlock:'B1', tgtYear:2027, tgtBlock:'B1', rows:[], N:BLOCK_BEDS, names:{}, tgtNow:{}, tgtBeds:null,
   loadingSrc:false, loadingTgt:false, busy:false, progress:'', err:'', msg:null, dirty:false, clearBlank:false, confirmAfter:true,
-  range:{from:1,to:10,cropId:'',date:''}, srcNote:'' };
+  range:{from:1,to:10,cropId:'',date:''}, srcNote:'', drafts:{}, rowsKey:null };   /* drafts: each block+year keeps its OWN rows; rowsKey says which block+year sh.rows currently belongs to */
 const shIso=v=>{ const s=String(v||''); return /^\d{4}-\d{2}-\d{2}/.test(s)?s.slice(0,10):''; };
 const shLeap=y=>y%4===0&&(y%100!==0||y%400===0);
 function shToYear(d,y){ if(!d) return ''; let s=y+d.slice(4); if(s.slice(5)==='02-29'&&!shLeap(+y)) s=y+'-02-28'; return s; }
@@ -3141,6 +3207,21 @@ const shBedId=pos=>sh.tgtBlock+'-'+shPad(pos);
 const shPos=bedId=>parseInt(String(bedId).split('-').pop(),10);
 function shEnsureRows(n){ for(let i=sh.rows.length;i<n;i++) sh.rows.push({pos:i+1,cropId:'',date:''}); sh.N=Math.max(sh.N,n); }
 function shBlankRows(){ sh.rows=[]; shEnsureRows(sh.N); }
+/* Each block + year has its own crops and planting dates. Switching block never carries the previous block's rows over:
+ * the sheet shows what the chosen block really has in BED_PLANTING_PLAN (or the unsaved edits you made earlier on that block). */
+const shKey=(y,b)=>y+'|'+b;
+function shStashDraft(){ if(sh.rowsKey) sh.drafts[sh.rowsKey]={rows:sh.rows.map(r=>Object.assign({},r)),dirty:sh.dirty,srcNote:sh.srcNote}; }
+function shSeedForTarget(){
+  const k=shKey(sh.tgtYear,sh.tgtBlock); if(sh.rowsKey===k) return;
+  const d=sh.drafts[k]; shBlankRows();
+  if(d){ sh.rows=d.rows.map(r=>Object.assign({},r)); shEnsureRows(sh.N); sh.dirty=!!d.dirty; sh.srcNote=d.srcNote||''; }
+  else{
+    let n=0; Object.keys(sh.tgtNow).forEach(id=>{ const p=sh.tgtNow[id], pos=shPos(id), c=shNowCrop(p); if(!c||!(pos>0)) return;
+      shEnsureRows(pos); sh.rows[pos-1]={pos,cropId:c,date:shIso(p.plantingDate)}; n++; });
+    sh.dirty=false; sh.srcNote=n?('Showing what '+BLOCK_LABELS[sh.tgtBlock]+' '+sh.tgtYear+' has now ('+n+' beds).'):(BLOCK_LABELS[sh.tgtBlock]+' '+sh.tgtYear+' has no planted beds yet. Start from another block\'s layout or fill the rows in.');
+  }
+  sh.rowsKey=k;
+}
 function shCropName(id){ const c=((po[sh.tgtYear]||{}).crops||[]).find(x=>x.cropId===id); return (c&&c.cropName)||sh.names[id]||id||''; }
 function shCropObj(id){ return ((po[sh.tgtYear]||{}).crops||[]).find(x=>x.cropId===id); }
 const shNowCrop=p=>p&&p.cropId&&String(p.cropId).toUpperCase()!=='OPEN'?p.cropId:'';
@@ -3159,8 +3240,10 @@ async function shLoadCrops(){
 }
 function shInit(){
   sh.srcYear=sh.tgtYear=ui.pYear; sh.srcBlock=sh.tgtBlock=SHEET_BLOCKS.includes(ui.pBlock)?ui.pBlock:'B1';
-  shBlankRows(); sh.loadingSrc=sh.loadingTgt=true;
-  Promise.all([shLoadCrops(),shLoadTarget(true,true)]).then(()=>shLoadSource(true));
+  shBlankRows(); sh.loadingSrc=false; sh.loadingTgt=true;
+  /* The sheet opens on the target block's OWN plan. A source layout is copied only when the manager presses "Load this layout":
+   * it used to be copied automatically after this load, so a block switched to in the meantime received Block 1's crops and dates. */
+  Promise.all([shLoadCrops(),shLoadTarget(true,true)]).then(()=>render());
 }
 async function shLoadTarget(force,noRender){
   const y=sh.tgtYear,b=sh.tgtBlock; sh.loadingTgt=true; if(!noRender) render();
@@ -3170,28 +3253,31 @@ async function shLoadTarget(force,noRender){
     sh.tgtNow={}; ((ctx.plan&&ctx.plan.found&&ctx.plan.beds)||[]).forEach(p=>{ sh.tgtNow[p.bedId]=p; if(p.cropId) sh.names[p.cropId]=p.cropName||sh.names[p.cropId]; });
     const pbs=ctx.physicalBeds||[]; sh.tgtBeds=pbs.length?new Set(pbs.map(x=>x.bedId)):null;
     if(pbs.length) shEnsureRows(Math.max(...pbs.map(x=>shPos(x.bedId)).filter(n=>n>0)));
-  }catch(e){ if(y===sh.tgtYear&&b===sh.tgtBlock){ sh.tgtNow={}; sh.tgtBeds=null; sh.err='Could not read '+BLOCK_LABELS[b]+' '+y+': '+errMsg(e); } }
+    shSeedForTarget();
+  }catch(e){ if(y===sh.tgtYear&&b===sh.tgtBlock){ sh.tgtNow={}; sh.tgtBeds=null; sh.err='Could not read '+BLOCK_LABELS[b]+' '+y+': '+errMsg(e); shSeedForTarget(); } }
   if(y===sh.tgtYear&&b===sh.tgtBlock){ sh.loadingTgt=false; render(); }
 }
 async function shLoadSource(initial){
   if(!initial&&sh.dirty&&!confirm('Replace the layout you are editing with the one from '+BLOCK_LABELS[sh.srcBlock]+' '+sh.srcYear+'?')) return;
+  const tk=shKey(sh.tgtYear,sh.tgtBlock);
   sh.loadingSrc=true; sh.err=''; sh.msg=null; render();
   try{
     const ctx=await shFetchCtx(sh.srcYear,sh.srcBlock,!initial);
+    if(shKey(sh.tgtYear,sh.tgtBlock)!==tk){ sh.loadingSrc=false; render(); return; }   /* target changed while loading: never write into another block */
     shBlankRows(); let n=0;
     const beds=(ctx.plan&&ctx.plan.found&&ctx.plan.beds)||[];
     beds.forEach(p=>{ const pos=shPos(p.bedId), id=shNowCrop(p); if(!id||!(pos>0)) return;
       shEnsureRows(pos); sh.rows[pos-1]={pos,cropId:id,date:shToYear(shIso(p.plantingDate),sh.tgtYear)}; sh.names[id]=p.cropName||sh.names[id]; n++; });
     sh.srcNote=n?('Layout copied from '+BLOCK_LABELS[sh.srcBlock]+' '+sh.srcYear+' ('+n+' beds'+(sh.srcYear!==sh.tgtYear?', dates moved to '+sh.tgtYear:'')+').')
                  :('There is no plan yet for '+BLOCK_LABELS[sh.srcBlock]+' '+sh.srcYear+' — starting with an empty sheet.');
-    sh.dirty=false;
+    sh.dirty=!(sh.srcYear===sh.tgtYear&&sh.srcBlock===sh.tgtBlock); sh.rowsKey=shKey(sh.tgtYear,sh.tgtBlock);
   }catch(e){ sh.err='Could not load that layout: '+errMsg(e); }
   sh.loadingSrc=false; render();
 }
-function shStartBlank(){ if(sh.dirty&&!confirm('Clear the layout you are editing?')) return; shBlankRows(); sh.dirty=false; sh.srcNote='Empty sheet.'; sh.msg=null; render(); }
+function shStartBlank(){ if(sh.dirty&&!confirm('Clear the layout you are editing?')) return; shBlankRows(); sh.dirty=false; sh.rowsKey=shKey(sh.tgtYear,sh.tgtBlock); sh.srcNote='Empty sheet.'; sh.msg=null; render(); }
 function shSetSrc(k,v){ sh[k]=k==='srcYear'?+v:v; }
-function shSetTgtBlock(b){ if(sh.busy||b===sh.tgtBlock) return; sh.tgtBlock=b; sh.msg=null; sh.err=''; sh.tgtNow={}; shLoadTarget(false); }
-function shSetTgtYear(y){ if(sh.busy) return; sh.tgtYear=+y; sh.rows.forEach(r=>{ r.date=shToYear(r.date,sh.tgtYear); }); sh.msg=null; sh.err=''; sh.tgtNow={}; sh.loadingTgt=true; render(); shLoadCrops().then(()=>shLoadTarget(false)); }
+function shSetTgtBlock(b){ if(sh.busy||sh.loadingSrc||b===sh.tgtBlock) return; shStashDraft(); sh.tgtBlock=b; sh.rowsKey=null; shBlankRows(); sh.msg=null; sh.err=''; sh.tgtNow={}; shLoadTarget(false); }
+function shSetTgtYear(y){ if(sh.busy||sh.loadingSrc||+y===sh.tgtYear) return; shStashDraft(); sh.tgtYear=+y; sh.rowsKey=null; shBlankRows(); sh.msg=null; sh.err=''; sh.tgtNow={}; sh.loadingTgt=true; render(); shLoadCrops().then(()=>shLoadTarget(false)); }
 function shDefaultDate(cropId){ const c=shCropObj(cropId); return c&&(c.windows||[]).length?sh.tgtYear+'-'+c.windows[0].start:''; }
 function shSetCrop(i,v){
   const r=sh.rows[i]; r.cropId=v; if(v&&!r.date) r.date=shDefaultDate(v); if(!v) r.date='';
@@ -3334,10 +3420,10 @@ function sheetScreen(){
   const busy=sh.busy||sh.loadingSrc;
   return `<div class="mapcol"><div class="mapscroll"><div style="max-width:1020px;margin:0 auto;">
     <h2 style="margin:0 0 4px;">Bed Plan Sheet</h2>
-    <div class="note" style="margin-top:0;">One layout, any block. Bed numbers are the same in every block, so pick where it goes and the crops and dates carry over bed-for-bed. Change only what is different this season.</div>
+    <div class="note" style="margin-top:0;">Each block has its own crops and planting dates. Pick a block to see what it holds, edit the rows, then deploy. To reuse another block's layout, load it in step 1: its crops and dates are copied bed-for-bed into the block you are deploying to.</div>
     ${sh.err?`<div class="error">${esc(sh.err)}</div>`:''}
     <div class="card">
-      <div class="dc-sec" style="margin:0 0 8px;"><h2 style="margin:0 0 6px;">1 · Layout to start from</h2></div>
+      <div class="dc-sec" style="margin:0 0 8px;"><h2 style="margin:0 0 6px;">1 · Copy a layout into ${esc(BLOCK_LABELS[sh.tgtBlock])} <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></h2></div>
       <div class="sh-ctl">
         <div><label>Year</label><select ${busy?'disabled':''} onchange="shSetSrc('srcYear',this.value)">${yopt(sh.srcYear)}</select></div>
         <div><label>Block</label><select ${busy?'disabled':''} onchange="shSetSrc('srcBlock',this.value)">${SHEET_BLOCKS.map(b=>`<option value="${b}" ${b===sh.srcBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select></div>
@@ -3349,10 +3435,10 @@ function sheetScreen(){
     <div class="card">
       <div class="dc-sec" style="margin:0 0 8px;"><h2 style="margin:0 0 6px;">2 · Deploy to block</h2></div>
       <div class="sh-ctl">
-        <div class="seg sh-blocks">${SHEET_BLOCKS.map(b=>`<button class="${b===sh.tgtBlock?'active':''}" ${sh.busy?'disabled':''} onclick="shSetTgtBlock('${b}')">${esc(BLOCK_LABELS[b])}</button>`).join('')}</div>
+        <div class="seg sh-blocks">${SHEET_BLOCKS.map(b=>`<button class="${b===sh.tgtBlock?'active':''}" ${sh.busy||sh.loadingSrc?'disabled':''} onclick="shSetTgtBlock('${b}')">${esc(BLOCK_LABELS[b])}</button>`).join('')}</div>
         <div><label>Year</label><select ${sh.busy?'disabled':''} onchange="shSetTgtYear(this.value)">${yopt(sh.tgtYear)}</select></div>
       </div>
-      <div class="note" style="margin:8px 0 0;">Switching block relabels the beds (${esc(shBedId(1))} … ${esc(shBedId(sh.N))}) and keeps every crop and date you have set below.</div>
+      <div class="note" style="margin:8px 0 0;">Showing ${esc(BLOCK_LABELS[sh.tgtBlock])} (${esc(shBedId(1))} … ${esc(shBedId(sh.N))}). Switching block shows that block's own crops and dates; edits you have not deployed are kept for each block.</div>
     </div>
     <div class="card">
       <div class="dc-sec" style="margin:0 0 8px;"><h2 style="margin:0 0 6px;">3 · Quick edit a range of beds <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></h2></div>
@@ -3433,8 +3519,7 @@ function cohortScreen(){
     ${r&&!r.ran&&r.code!=='REMOVALS_NEED_CONFIRMATION'?admNotice('bad',esc(r.message)):''}
     <label class="note" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" ${s.recs?'checked':''} onchange="cpS().recs=this.checked"> Also build bed recommendations after (keeps approved assignments; replaces rejected proposals)</label>
     <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-outline" style="width:auto;padding:11px 20px;" ${s.busy?'disabled':''} onclick="cpPreview()">${s.busy?'Working…':'Preview'}</button>
-      <button class="btn btn-primary" style="width:auto;padding:11px 20px;" ${s.busy||!st.ready||(removals&&!s.ack)?'disabled':''} onclick="cpRun()">Run cohort production</button>
-      <button class="btn btn-ghost" style="width:auto;" ${s.busy?'disabled':''} onclick="loadCohortStatus(true)">↻ Refresh</button></div>`);
+      <button class="btn btn-primary" style="width:auto;padding:11px 20px;" ${s.busy||!st.ready||(removals&&!s.ack)?'disabled':''} onclick="cpRun()">Run cohort production</button></div>`);
 }
 
 /* ============================== BED PROFILE ARCHITECTURE ==============================
@@ -3724,7 +3809,7 @@ function ppRightHTML(){
  *   (open field must sit inside the Oregon allowable window). Each wave is filed under the month of its
  *   first harvest (max 2 per month: "Harvest 1" / "Harvest 2"). */
 const OP_DEF_INT=14, OP_MAX=24, OP_MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const opState={target:'GREENHOUSE',data:{},busy:false,error:null,filter:'',open:{},saving:false};
+const opState={target:'FIELD',data:{},busy:false,error:null,filter:'',open:{},saving:false};
 const opIso=n=>new Date(n*864e5).toISOString().slice(0,10);
 const opSig=r=>JSON.stringify([r.first,r.waves,r.interval,r.custom]);
 const opRows=()=>opState.data[opState.target]||[];
@@ -3801,7 +3886,7 @@ function opSet(i,field,val){ const r=opRows()[i]; if(!r) return;
   r[field]=field==='waves'?(val===''?'':Number(val)):val; opRefresh(i); }
 function opToggle(i){ const k=opState.target+i; opState.open[k]=!opState.open[k]; render(); }
 function opFilter(v){ opState.filter=v; document.querySelectorAll('#op-body tr[data-q]').forEach(tr=>{ tr.style.display=(!v||tr.dataset.q.includes(v.toLowerCase()))?'':'none'; }); }
-function opSetTarget(t){ if(t===opState.target) return; opState.target=t; opState.open={}; render(); }
+function opSetTarget(t){ if(t!=='FIELD'||t===opState.target) return; opState.target=t; opState.open={}; render(); }
 function opReload(){ const rows=opRows(); if(rows.some(r=>r.orig!==opSig(r))&&!confirm('Discard your unsaved changes and reload from the workbook?')) return; opState.data[opState.target]=null; opLoad(true); }
 async function opSave(){
   const tg=opState.target, rows=opRows(), sheet=tg==='FIELD'?'Open Field Operation':'Master Calendar';
@@ -3829,12 +3914,12 @@ async function opSave(){
 function opScreen(){
   const tg=opState.target; if(!opState.data[tg]&&!opState.busy&&!opState.error) opLoad();
   const head=(inner)=>`<div class="op"><div class="op-top"><div><h2>Operation planner</h2><div class="sum" id="op-sum">${opState.data[tg]?opSummary().txt:'Loading…'}</div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" id="op-save" style="width:auto;margin:0" onclick="opSave()">${opState.data[tg]&&opSummary().dirty?'Save ('+opSummary().dirty+')':'Save'}</button><button class="btn btn-outline" style="width:auto;margin:0" onclick="opReload()">Reload</button><button class="btn btn-outline" style="width:auto;margin:0" onclick="goBoard()">Close</button></div></div>${inner}</div>`;
-  const seg=`<div class="seg"><button class="${tg==='GREENHOUSE'?'active':''}" onclick="opSetTarget('GREENHOUSE')">Greenhouse</button><button class="${tg==='FIELD'?'active':''}" onclick="opSetTarget('FIELD')">Open field</button></div>`;
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" id="op-save" style="width:auto;margin:0" onclick="opSave()">${opState.data[tg]&&opSummary().dirty?'Save ('+opSummary().dirty+')':'Save'}</button><button class="btn btn-outline" style="width:auto;margin:0" onclick="goBoard()">Close</button></div></div>${inner}</div>`;
+  const seg=`<div class="seg"><button class="active" disabled style="opacity:1;cursor:default;">Open field</button></div>`;
   if(opState.busy&&!opState.data[tg]) return head(`<div class="op-ctl">${seg}</div><div class="card">Loading operation planner…</div>`);
   if(opState.error&&!opState.data[tg]) return head(`<div class="op-ctl">${seg}</div><div class="card">${esc(opState.error)}<br><button class="btn btn-outline" style="width:auto;margin-top:8px" onclick="opState.error=null;opLoad(true)">Retry</button></div>`);
   const rows=opRows(), sheet=tg==='FIELD'?'Open Field Operation':'Master Calendar';
-  const help=`Enter the first planting date and the number of waves (0 to ${OP_MAX}); leave the interval blank to use ${OP_DEF_INT} days. Sow (propagation) date = planting date minus the crop's lead days; harvest = planting date plus days to first harvest. Saving rewrites each changed crop in <b>${sheet}</b>, filing every wave under the month of its first harvest (max 2 per month).${tg==='FIELD'?' Open-field waves must be inside the crop\'s Oregon allowable window.':' Greenhouse planting is not limited to the Oregon window.'}${IS_DEMO?' <b>Demo mode: nothing is written.</b>':''}`;
+  const help=`Enter the first planting date and the number of waves (0 to ${OP_MAX}); leave the interval blank to use ${OP_DEF_INT} days. Sow (propagation) date = planting date minus the crop's lead days; harvest = planting date plus days to first harvest. Saving rewrites each changed crop in <b>${sheet}</b>, filing every wave under the month of its first harvest (max 2 per month).${' Open-field waves must be inside the crop\'s Oregon allowable window.'}${IS_DEMO?' <b>Demo mode: nothing is written.</b>':''}`;
   const th=['Crop','Days to 1st harvest','Propagation lead','First planting date','Waves','Interval (days)','First sow','First harvest','Last planting','Last harvest ends','Check',''].map(h=>`<th>${h}</th>`).join('');
   return head(`<div class="op-ctl">${seg}<input type="search" placeholder="Find a crop" value="${esc(opState.filter)}" oninput="opFilter(this.value)"></div><div class="op-help">${help}</div>
     <div class="op-wrap"><table class="op-t"><thead><tr>${th}</tr></thead><tbody id="op-body">${rows.map((r,i)=>opRowHTML(r,i,tg)).join('')}</tbody></table></div>`)
@@ -3868,11 +3953,43 @@ function calWave(w){ // phase dates + task list, all derived backwards from w.pl
   ev.push({d:calAdd(w.plant,w.hmin),t:'First harvest ('+w.slot+')',k:'harvest'});
   return {tot,phases,ev,sow:calAdd(w.plant,-tot),h1:calAdd(w.plant,w.hmin),h2:calAdd(w.plant,w.hmax),dobLabel};
 }
-const CAL_TABS=[['prop','Propagation'],['plant','Planting'],['harv','First-harvest windows']];
+const CAL_TABS=[['prop','Propagation'],['plant','Planting'],['harv','First-harvest windows'],['cover','Cover crops']];
+/* COVER CROP SOP (RANCH_ALLOWABLE_PLANTING_CAL, CROP_REFERENCE Cycle_Class=Cover, BED_STATUS_RULES R08/R16):
+ * a cover crop is a bed-turnover step (Plant Cover Crop, ACT_043), not a cash crop. It is sown only inside its own allowable window,
+ * has no propagation phase, no first-harvest window and is never harvested. So cover crops are kept OFF the Propagation, Planting and
+ * First-harvest calendars and listed only on the Cover crops tab, with their own colour and a "not harvested" tag. */
+/* NGAPORI RANCH COVER CROP SOP (the standard; applied here, not read from RANCH_ALLOWABLE_PLANTING_CAL).
+ * Cover cropping is a mandatory Post-Harvest sequence, never a cash-crop planting: ACT_053 TerminateCohort -> Field Cleanup
+ * (ACT_037-039) -> Cover Crop Establishment (ACT_041 Prep, 042 Pack, 043 Plant, 044 Water) -> Manager Verification Gate (R11, bed
+ * AVAILABLE). The mix is chosen by the month the final harvest is terminated. R16 lets a manager skip ACT_041-044 with a written log.
+ * Boundary: Aug 15 is the last day of the Mid-Summer Exit window (the SOP lists it in both windows). */
+const COVER_SOP=[
+  {id:'MID',name:'Mid-Summer Exit',from:[7,1],to:[8,15],label:'Buckwheat (BKW)',short:'Buckwheat',crops:['BKW'],purpose:'Fast 30\u201345 day smother crop, suppresses summer weeds, cycles phosphorus.'},
+  {id:'FALL',name:'Fall Closeout',from:[8,15],to:[10,20],label:'Winter Rye (RYE) + Crimson Clover (CLV) + Vetch (VET)',short:'Rye + Clover + Vetch',crops:['RYE','CLV','VET'],purpose:'Overwinters; fixes atmospheric nitrogen, prevents erosion from winter rain, builds root biomass.'}];
+const COVER_SOP_MON=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const coverSopLbl=a=>COVER_SOP_MON[a[0]]+' '+a[1];
+function coverSopFor(iso){ const m=+String(iso).slice(5,7), d=+String(iso).slice(8,10), md=m*100+d; if(!m||!d) return null;
+  if(md>=701&&md<=815) return COVER_SOP[0]; if(md>815&&md<=1020) return COVER_SOP[1]; return null; }
+function coverSopMix(iso){ const w=coverSopFor(iso);
+  return w?{openNow:true,label:w.label,purpose:w.purpose,window:w.name,exitDate:iso}
+          :{openNow:false,label:'Outside both SOP windows (Jul 1 \u2013 Oct 20). No standard mix: the manager decides, or issues a Rule R16 Override to skip ACT_041\u2013ACT_044.',exitDate:iso}; }
+function coverSopWindows(){ const out=[]; COVER_SOP.forEach(w=>w.crops.forEach(c=>out.push({crop:c,name:({BKW:'Buckwheat',RYE:'Winter Rye',CLV:'Crimson Clover',VET:'Vetch'})[c],windowNo:1,startLabel:coverSopLbl(w.from),endLabel:coverSopLbl(w.to),sop:w.name}))); return out; }
+(function(){ const by={}; coverSopWindows().forEach(w=>by[w.crop]=w);   /* crop profile screens show the SOP window too */
+  (typeof CROP_MASTER!=='undefined'?CROP_MASTER:[]).forEach(c=>{ const w=by[c.id]; if(!w||!c.window) return; c.window.s1=w.startLabel; c.window.e1=w.endLabel; c.window.s2=null; c.window.e2=null; if(c.life) c.life.allowableWindowNote=w.sop+' ('+w.startLabel+' \u2013 '+w.endLabel+')'; }); })();
+function calCoverEvents(){ const out=[], y0=+calToday().slice(0,4);
+  [y0,y0+1].forEach(y=>COVER_SOP.forEach(w=>{ const f=`${y}-${String(w.from[0]).padStart(2,'0')}-${String(w.from[1]).padStart(2,'0')}`, t=`${y}-${String(w.to[0]).padStart(2,'0')}-${String(w.to[1]).padStart(2,'0')}`;
+    const base={loc:'FIELD',crop:w.short,cid:'',pd:''};
+    out.push({...base,d:f,k:'cover',t:w.name+' window opens',sub:`Cohorts terminated (ACT_053) ${coverSopLbl(w.from)} \u2013 ${coverSopLbl(w.to)} get ${w.label} at Plant Cover Crop (ACT_043). ${w.purpose}`});
+    out.push({...base,d:t,k:'coverEnd',t:w.name+' window closes',sub:`Last day a cohort terminated in this window takes this mix. Not a planting and never harvested.`}); }));
+  return out; }
+function calIsCover(w){
+  const m=(typeof CROP_MASTER!=='undefined'?CROP_MASTER:[]).find(x=>x.id===w.crop);
+  return [w.cat,w.category,w.cycleClass,w.htype,m&&m.cycleClass,m&&m.category,m&&m.harvestTypeRef].some(v=>{ v=String(v||'').toLowerCase().trim(); return v==='cover'||v==='cover crop'||v==='cover crops'; });
+}
 const CAL_LOC={FIELD:['#E4F1E5','#2E7D32','Open field'],GREENHOUSE:['#E3EEF9','#1565C0','Greenhouse']};
-const CAL_KIND={prop:'Sow',plant:'Plant',open:'Harvest',close:'Close'};
-const CAL_KCOL={prop:'#3A78C9',plant:'#2E7D32',open:'#2E7D32',close:'#C77700'};
-const CAL_TABCOL={prop:'#3A78C9',plant:'#7A5C2E',harv:'#2E7D32'};
+const CAL_KIND={prop:'Sow',plant:'Plant',open:'Harvest',close:'Close',cover:'Opens',coverEnd:'Closes'};
+const CAL_KCOL={prop:'#3A78C9',plant:'#2E7D32',open:'#2E7D32',close:'#C77700',cover:'#7D7F2A',coverEnd:'#A9AB55'};
+const CAL_TABCOL={prop:'#3A78C9',plant:'#7A5C2E',harv:'#2E7D32',cover:'#7D7F2A'};
 const calFull=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const calLong=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const calToday=()=>new Date().toISOString().slice(0,10);
@@ -3930,9 +4047,13 @@ function calRebuild(){
   calState.data=kept;
 }
 function calEvents(tab){
+  if(tab==='cover') return calCoverEvents().sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.k<b.k?-1:1);   /* SOP windows, never per-crop plantings */
   const f=ui.calLoc||'ALL', out=[];
   (calState.data||[]).forEach(w=>{ if(f!=='ALL'&&w.loc!==f) return;
+    const cover=calIsCover(w);
+    if(cover!==(tab==='cover')) return;     /* cover crops appear ONLY on the Cover crops tab; cash crops never appear there */
     const c=calWave(w), who=`${w.crop||w.id}`, base={loc:w.loc,crop:w.name,cid:w.crop,pd:w.plant};
+    if(tab==='cover'){ out.push({...base,d:w.plant,k:'cover',t:'Cover crop sowing (turnover step)',sub:`${who} · Plant Cover Crop (ACT_043) on a bed in post-harvest turnover${w.window?' · allowed '+w.window:''} · no harvest`}); return; }
     if(tab==='prop'&&c.tot>0) out.push({...base,d:c.sow,k:'prop',t:'Start propagation',sub:`${who} · ${c.phases.map(p=>p.name+' '+p.days+'d').join(' + ')} · transplant ${calFull(w.plant)}`});
     if(tab==='plant') out.push({...base,d:w.plant,k:'plant',t:c.dobLabel,sub:`${who} · first harvest ${calFull(c.h1)} (${w.hmin} days)`});
     if(tab==='harv'){ out.push({...base,d:c.h1,k:'open',t:'Harvest window opens',sub:`${who} · planting ${calFull(w.plant)} (${w.hmin} days to first harvest)`});
@@ -3948,7 +4069,7 @@ function calCSV(){ const rows=[['Date','Event','Crop','Location','Details']].con
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n')],{type:'text/csv'})); a.download='production-calendar-'+(ui.calTab||'prop')+'.csv'; a.click(); }
 function calSetView(v){ ui.calView=v; render(); }
 function calItem(e){ const c=CAL_LOC[e.loc], kc=CAL_KCOL[e.k];
-  return `<div class="cal-item" style="--c:${kc};--lc:${c[1]}"><div class="kind">${esc(e.t)}</div><div class="nm">${esc(e.crop)}</div><div class="sb"><span class="loc">${c[2]}</span>${calState.missSet&&calState.missSet.has(e.cid+'|'+e.pd)?'<span class="cal-tag">No bed plan yet</span>':''}${esc(e.sub)}</div></div>`; }
+  return `<div class="cal-item" style="--c:${kc};--lc:${c[1]}"><div class="kind">${esc(e.t)}</div><div class="nm">${esc(e.crop)}</div><div class="sb">${e.k==='cover'||e.k==='coverEnd'?'':`<span class="loc">${c[2]}</span>`}${e.k==='cover'||e.k==='coverEnd'?'<span class="cal-tag cal-tag-cover">Post-harvest step · not a cash crop</span>':''}${calState.missSet&&calState.missSet.has(e.cid+'|'+e.pd)?'<span class="cal-tag">No bed plan yet</span>':''}${esc(e.sub)}</div></div>`; }
 function calScreen(){
   if(!calState.data&&!calState.busy&&!calState.error) loadCalendar();
   const shell=inner=>`<div class="cal"><div class="cal-top"><h2>Production calendars</h2><button class="btn btn-outline cal-noprint" style="width:auto;margin:0" onclick="goBoard()">Close</button></div>${inner}</div>`;
@@ -3960,14 +4081,14 @@ function calScreen(){
   if(!ui.calMonth){ const nx=all.find(e=>e.d>=t)||all[0]; ui.calMonth=(nx?nx.d:t).slice(0,7); }
   const [y,m]=ui.calMonth.split('-').map(Number), mname=new Date(Date.UTC(y,m-1,1)).toLocaleDateString('en-US',{month:'long',year:'numeric',timeZone:'UTC'});
   const inMonth=all.filter(e=>e.d.slice(0,7)===ui.calMonth), by={}; inMonth.forEach(e=>(by[e.d]=by[e.d]||[]).push(e));
-  const cards=[['prop','Propagation','Next: '+nextOf('prop')],['plant','Planting',n7+' in next 7 days'],['harv','Harvest','Next: '+nextOf('harv')]]
+  const cards=[['prop','Propagation','Next: '+nextOf('prop')],['plant','Planting',n7+' in next 7 days'],['harv','Harvest','Next: '+nextOf('harv')],['cover','Cover crops','Next: '+nextOf('cover')]]
     .map(([k,l,v])=>`<button class="cal-card ${tab===k?'active':''}" style="--c:${CAL_TABCOL[k]}" onclick="calSetTab('${k}')"><div class="k">${l}</div><div class="v">${v}</div></button>`).join('');
-  const lead=tab==='harv'?'windows opening':tab==='prop'?'propagation starts':'plantings', starts=inMonth.filter(e=>e.k!=='close'), nOpen=starts.length;
+  const lead=tab==='harv'?'windows opening':tab==='prop'?'propagation starts':tab==='cover'?'cover crop windows opening':'plantings', starts=inMonth.filter(e=>e.k!=='close'&&e.k!=='coverEnd'), nOpen=starts.length;
   // Insight line: how many crops have 2+ events of the main kind in this month
   const perCrop={}; starts.forEach(e=>perCrop[e.crop]=(perCrop[e.crop]||0)+1);
   const nCrops=Object.keys(perCrop).length, nMulti=Object.values(perCrop).filter(n=>n>=2).length;
-  const noun=tab==='harv'?'harvests':tab==='prop'?'propagation starts':'plantings';
-  const insight=!nCrops?'':(nMulti===nCrops?`All ${nCrops} crops have 2 or more ${noun} in ${mname}.`:`${nMulti} of ${nCrops} crops have 2 or more ${noun} in ${mname}; ${nCrops-nMulti} have just one.`);
+  const noun=tab==='harv'?'harvests':tab==='prop'?'propagation starts':tab==='cover'?'cover crop sowings':'plantings';
+  const insight=(tab==='cover'||!nCrops)?'':(nMulti===nCrops?`All ${nCrops} crops have 2 or more ${noun} in ${mname}.`:`${nMulti} of ${nCrops} crops have 2 or more ${noun} in ${mname}; ${nCrops-nMulti} have just one.`);
   const days=Object.keys(by).sort(), selDay=ui.calDay||days[0]||null;
   const first=new Date(Date.UTC(y,m-1,1)).getUTCDay(), dim=new Date(Date.UTC(y,m,0)).getUTCDate(); let cells='';
   ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>cells+=`<div class="cal-dow">${d}</div>`);
@@ -3980,16 +4101,17 @@ function calScreen(){
   const locSeg='';
   const viewSeg=seg([['month','Month'],['agenda','Agenda']],view,'calSetView');
   const dot=(c,l)=>`<span><i style="background:${c}"></i>${l}</span>`;
-  const leg=tab==='harv'?dot(CAL_KCOL.open,'Harvest window opens')+dot(CAL_KCOL.close,'Harvest window closes'):tab==='prop'?dot(CAL_KCOL.prop,'Start propagation'):dot(CAL_KCOL.plant,'Planting (DOB)');
+  const leg=tab==='harv'?dot(CAL_KCOL.open,'Harvest window opens')+dot(CAL_KCOL.close,'Harvest window closes'):tab==='prop'?dot(CAL_KCOL.prop,'Start propagation'):tab==='cover'?dot(CAL_KCOL.cover,'SOP window opens (mix set by harvest termination date)')+dot(CAL_KCOL.coverEnd,'SOP window closes'):dot(CAL_KCOL.plant,'Planting (DOB)');
+  const coverSop=tab==='cover'?`<div class="cal-align ok" style="margin-bottom:10px"><div class="h">Ngapori Ranch Cover Crop SOP</div><div class="r" style="display:block;line-height:1.5">Cover cropping is a mandatory post-harvest sequence, not a planting. After the final harvest the manager terminates the cohort (<b>ACT_053</b>), then: <b>Field cleanup</b> ACT_037 Pull plastic &amp; drip tape, ACT_038 Mow residue, ACT_039 Till &amp; incorporate; <b>Cover establishment</b> ACT_041 Prep cover beds, ACT_042 Pack seedbed, ACT_043 Plant cover crop, ACT_044 Water cover crop; then the <b>Manager verification gate</b> (Rule R11) releases the bed to AVAILABLE.<br>${COVER_SOP.map(w=>`<b>${w.name} (${coverSopLbl(w.from)} \u2013 ${coverSopLbl(w.to)}):</b> ${esc(w.label)}. ${esc(w.purpose)}`).join('<br>')}<br><b>Rule R16 Override:</b> a late-fall bed going straight to bare-soil prep or a secondary cash crop can skip ACT_041\u2013044 with a written log entry. Cover crops have no propagation, planting wave or harvest, so they never appear on the other calendars.</div></div>`:'';
   return shell(`<div class="cal-cards">${cards}</div>
   <div class="cal-bar"><h3>${CAL_TABS.find(x=>x[0]===tab)[1]}</h3>${viewSeg}<span class="cal-noprint">${locSeg}</span><span class="grow"></span>
     <button class="btn btn-outline cal-noprint" style="width:auto;margin:0" onclick="calCSV()">Download CSV</button><button class="btn btn-outline cal-noprint" style="width:auto;margin:0" onclick="window.print()">Print</button></div>
   <div class="cal-legend" style="margin-bottom:10px">${leg}</div>
-  ${calAlignHTML()}
+  ${coverSop}${tab==='cover'?'':calAlignHTML()}
   ${insight?`<div class="cal-insight">${insight}</div>`:''}
   <div class="cal-nav"><button class="cal-noprint" onclick="calNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b>${mname}</b><span>${nOpen} ${lead}</span></div><button class="cal-noprint" onclick="calNav(1)" aria-label="Next month">›</button><button class="cal-noprint" onclick="calGoToday()">Today</button></div>
   ${view==='agenda'?agendaBody:monthBody}
-  <div class="cal-note">Read live from the workbook. Every entry comes from Open Field Operation, the source of truth for planting dates. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).${calState.missing&&calState.missing.length?` <b style="color:var(--danger)">${calState.missing.length} Open Field Operation planting(s) are missing from the calendar feed: ${esc(calState.missing.slice(0,6).join(', '))}${calState.missing.length>6?'…':''}.</b>`:''}${!IS_DEMO&&!calState.ofoSet?' <b style="color:var(--warn)">Could not re-read Open Field Operation to verify; showing the feed\'s open-field plantings.</b>':''}${calState.hidden&&calState.hidden.length?` ${calState.hidden.length} Master Calendar slot(s) not in Open Field Operation are not shown.`:''} ${IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
+  <div class="cal-note">${tab==='cover'?'These are bed-turnover windows from the Cover Crop SOP, keyed to the date the cohort is terminated. They are not plantings and are not read from Open Field Operation.':'Read live from the workbook. Every entry comes from Open Field Operation, the source of truth for planting dates. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).'}${tab!=='cover'&&calState.missing&&calState.missing.length?` <b style="color:var(--danger)">${calState.missing.length} Open Field Operation planting(s) are missing from the calendar feed: ${esc(calState.missing.slice(0,6).join(', '))}${calState.missing.length>6?'…':''}.</b>`:''}${tab!=='cover'&&!IS_DEMO&&!calState.ofoSet?' <b style="color:var(--warn)">Could not re-read Open Field Operation to verify; showing the feed\'s open-field plantings.</b>':''}${tab!=='cover'&&calState.hidden&&calState.hidden.length?` ${calState.hidden.length} Master Calendar slot(s) not in Open Field Operation are not shown.`:''} ${tab!=='cover'&&IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
 }
 
 /* ============================== IRRIGATION CALENDAR ==============================
@@ -4112,16 +4234,17 @@ function irrScreen(){
  * ui.pMode is still the single "which view" switch (every older function keys off it), so a tab is only a grouping.
  *   Infrastructure & Crop Groups  block capacity, rotation family, crop groups per block; rotation editor; crop profile; add crop
  *   Bed Status Board              every bed's Bed_Status by block, Verify Bed Ready, start-of-operations block release
- *   Open Field Operation          OFO schedule editor, production calendar
+ *   Production Calendar           propagation, planting and first-harvest calendars (cash crops only; cover crops are a turnover step)
+ *   Open Field Operation          OFO schedule editor, add new activity (ACTIVITY_REFERENCE)
  *   Bed Planting Plan             Smart allocation dashboard (generate-season), bed layout (BED_PLANTING_PLAN), bed plan sheet
- *   Cohorts                       cohort production, planting execution, harvest, irrigation calendar
+ *   Cohorts                       cohort production, assign cohorts (ready beds), planting execution, harvest, irrigation calendar
  *   Post-Harvest & Cover Crop     beds in turnover with the cover crop mix chosen by exit date
  * NO new Bed_Status value is introduced. "Ready" is the AVAILABLE state itself: BED_STATUS_RULES says AVAILABLE means
  * physically usable and is entered only by the manager's Verify Bed Ready (R11/R13/R14/R15). */
 const MOCK_MODES={ harvest:1, cover:1 };   /* client-side preview screens: nothing is written to the workbook */
 function ptabOf(mode){ return PLAN_TABS.find(t=>t.views.some(v=>v[0]===mode))||PLAN_TABS[0]; }
 function setPTab(k){ const t=PLAN_TABS.find(x=>x.k===k); if(t) setPMode(t.views[0][0]); }
-function planTabStrip(){
+function planTabStrip(){ /* single-view tabs (Production Calendar) show no sub-menu */
   const cur=ptabOf(ui.pMode);
   return `<div class="ptabs" role="tablist">${PLAN_TABS.map(t=>`<button role="tab" aria-selected="${t.k===cur.k}" class="${t.k===cur.k?'active':''}" onclick="setPTab('${t.k}')">${esc(t.label)}</button>`).join('')}</div>`;
 }
@@ -4133,12 +4256,13 @@ function planToolbarControls(){
   const m=ui.pMode;
   const yr=`<select onchange="setPYear(this.value)" aria-label="Year">${PLAN_YEARS.map(y=>`<option value="${y}" ${y===ui.pYear?'selected':''}>${y}</option>`).join('')}</select>`;
   const blk=`<select onchange="setPBlock(this.value)" aria-label="Block">${PLAN_BLOCKS.map(b=>`<option value="${b}" ${b===ui.pBlock?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select>`;
-  const refresh=`<button class="btn btn-ghost" style="width:auto;margin:0;" onclick="refreshPlanning()">↻ Refresh</button>`;
+  const refresh='';   /* Refresh now lives in the top bar */
   if(m==='addcrop'||m==='calendar'||m==='irrigation'||m==='operation'||m==='sheet'||m==='newactivity') return '';
   if(m==='cohorts') return yr;
   if(m==='cropref') return `<input id="cr-search" placeholder="Search crops…" value="${esc(ui.crFilter)}" oninput="setCrFilter(this.value)" style="min-width:180px;">`;
   if(m==='infra'||m==='smart') return yr+refresh;
-  if(m==='bedboard'||m==='postharvest') return refresh;
+  if(m==='bedboard') return `<select onchange="bbSelect(this.value)" aria-label="Block">${PLAN_BLOCKS.map(b=>`<option value="${b}" ${b===bb.sel?'selected':''}>${esc(BLOCK_LABELS[b])}</option>`).join('')}</select>`;
+  if(m==='postharvest') return refresh;
   return blk+yr+refresh+(m==='plan'?`<button class="btn btn-outline" style="width:auto;margin:0;" onclick="openBedEdit('')">+ Add bed</button>`:'');
 }
 function mockNotice(){
@@ -4245,9 +4369,9 @@ const BB_SHORT={'UNVERIFIED':'Not verified','POST-HARVEST ACTIVITIES':'Post-harv
 function bbMapSVG(){
   const cols=BEDS_PER_ROW, cw=84, ch=58, gap=6, blockGap=26, pvc=pvCounts();
   let svg='', curY=16, any=false;
-  PLAN_BLOCKS.forEach(blk=>{
-    const d=bb.data[blk], isSel=bb.sel===blk;
-    const lab=extra=>`<text class="blocklabel" x="10" y="${curY-5}" style="cursor:pointer;${isSel?'fill:var(--forest);':''}" onclick="bbSelect('${blk}')"><title>Select ${esc(BLOCK_LABELS[blk])} for Start of operations</title>${esc(BLOCK_LABELS[blk])}${extra?' \u00b7 '+esc(extra):''}${isSel?' \u00b7 selected for release':''}</text>`;
+  PLAN_BLOCKS.filter(b=>b===bb.sel).forEach(blk=>{   /* one block at a time, chosen from the block tabs (same idea as Bed layout) */
+    const d=bb.data[blk], isSel=true;
+    const lab=extra=>`<text class="blocklabel" x="10" y="${curY-5}">${esc(BLOCK_LABELS[blk])}${extra?' \u00b7 '+esc(extra):''}</text>`;
     if(!d||d.error||!d.beds){
       svg+=lab('')+`<text class="blocklabel" x="10" y="${curY+14}" style="font-weight:600;${d&&d.error?'fill:var(--danger);':''}">${esc(d&&d.error?d.error:(bb.busy?'Loading\u2026':'Not loaded'))}</text>`;
       curY+=30+blockGap; return;
@@ -4288,6 +4412,14 @@ function bbMapSVG(){
   if(!any&&!bb.busy) return `<div class="empty">No beds loaded.</div>`;
   const W=10+cols*(cw+gap);
   return `<svg viewBox="0 0 ${W} ${curY}" width="${W}" height="${curY}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;">${svg}</svg>`;
+}
+/* Block tabs for the Bed status board: pick one block, see its beds as a single grid (no long scroll through every block). */
+function bbBlockTabs(){
+  const pvc=pvCounts();
+  return `<div class="bb-blocks" role="tablist" aria-label="Choose a block">${PLAN_BLOCKS.map(b=>{
+    const d=bb.data[b], n=d&&d.beds?d.beds.length:null, w=pvc[b]||0;
+    return `<button role="tab" aria-selected="${b===bb.sel}" class="${b===bb.sel?'on':''}" onclick="bbSelect('${b}')"><span>${esc(BLOCK_LABELS[b])}</span><small>${n===null?(d&&d.error?'error':'\u2026'):n+' beds'}</small>${w?`<span class="chip chip-warn">${w}</span>`:''}</button>`;
+  }).join('')}</div>`;
 }
 function bbSec(k){ bb.sec=k; render(); }
 function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; render(); }
@@ -4699,89 +4831,166 @@ function rbPanel(){
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
     ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${chk}${ver}${recent}</div>`;
 }
-/* New activity type: every ACTIVITY_REFERENCE field, saved through 'create-activity' {full:true} (ActivityAdmin.gs validates and assigns the ACT_ id). */
-const NA_GROUPS=['State','CropCare','Planting','Prep','Field Cleanup & Prep','Cover Cropping','Harvest','Next-Season Prep','Post-Harvest','Lifecycle'];
-const NA_STAGES=[['PrePlanting','Pre-planting (cohort assigned, not yet planted)'],['Growing','Growing'],['HarvestReady','Harvest ready'],['HarvestComplete','Harvest complete (bed turnover)']];
-const NA_UNITS=['none','lbs','gal','acres','days'];
-const NA_RULES=[['','Any crop'],['Cycle_Class!=Perennial','Every crop except perennials'],['Cycle_Class=Perennial','Perennials only'],['__custom','Custom rule...']];
+/* ADD NEW ACTIVITY. The form follows the ACTIVITY_REFERENCE tab column by column (Activity_ID ... Is_Fertilizer) and the
+ * "Row preview" at the bottom shows the row exactly as it will be appended. Saved through 'create-activity' {full:true}
+ * (ActivityAdmin.gs validates and writes the row).
+ *  - Activity_ID is never typed: it is read from the last ID on the ACTIVITY_REFERENCE tab ('get-next-activity-id') and shown read-only.
+ *  - The manager only picks from fixed options (Domain, group, stages, unit, rule, start month/day) and types a name, a description and
+ *    optional notes. Domain (Bed / Crop) decides which groups and lifecycle stages are offered, matching how the tab is already filled in. */
+const NA_GROUPS_BY_SCOPE={ CROP:['Planting','CropCare','Harvest','State','Lifecycle'], BED:['Field Cleanup & Prep','Cover Cropping','Prep','Next-Season Prep','Post-Harvest'] };
+const NA_STAGES_BY_SCOPE={ CROP:[['PrePlanting','PrePlanting · cohort assigned, not yet planted'],['Growing','Growing'],['HarvestReady','HarvestReady · ready to pick']],
+                           BED:[['HarvestComplete','HarvestComplete · bed turnover, no living crop']] };
+const NA_UNITS=['lbs','gal','acres','days'];
+const NA_RULES=[['','Any crop'],['Cycle_Class!=Perennial','Every crop except perennials'],['Cycle_Class=Perennial','Perennials only']];
+const NA_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const na={ id:'', last:'', st:'idle', note:'', cropQ:'' };   /* st: idle | loading | ok | estimated */
+function naNextFromCatalog(){
+  let mx=0, w=3; (state.activityCatalog||[]).forEach(c=>{ const m=/^ACT_(\d+)$/i.exec(String(c.id||c.activityId||'')); if(m){ mx=Math.max(mx,+m[1]); w=Math.max(w,m[1].length); } });
+  return mx?{last:'ACT_'+String(mx).padStart(w,'0'),next:'ACT_'+String(mx+1).padStart(w,'0')}:null;
+}
+async function naLoadId(force){
+  if(na.st==='loading'||(na.st==='ok'&&!force)) return;
+  na.st='loading'; na.note=''; naPaintId();
+  try{ const r=await apiCall('get-next-activity-id',{}); na.id=String(r.nextActivityId||''); na.last=String(r.lastActivityId||''); na.st=na.id?'ok':'idle'; }
+  catch(e){
+    const c=naNextFromCatalog();
+    if(c){ na.id=c.next; na.last=c.last; na.st='estimated'; na.note='The server could not read ACTIVITY_REFERENCE just now ('+errMsg(e)+'). This is the next number after the last activity the board can see; the server assigns the final ID when you save.'; }
+    else{ na.id=''; na.last=''; na.st='idle'; na.note='Could not read the last Activity_ID: '+errMsg(e); }
+  }
+  naPaintId(); if(ui.pMode==='newactivity'||ui.modal==='new-activity') render();
+}
+function naPaintId(){ const e=document.getElementById('na-id'); if(e) e.value=na.st==='loading'?'Reading ACTIVITY_REFERENCE…':(na.id||'—'); }
 function naInit(){ const d=ui.modalDraft; if(d._init) return d;
-  Object.assign(d,{_init:1,name:'',group:'',groupOther:'',scope:'',cls:'',description:'',notes:'',worker:true,manager:true,approval:false,stages:[],crops:'',ruleKind:'',ruleCustom:'',
-    qty:false,unit:'none',unitOther:'',trigger:false,target:'Growing',exception:false,isFertilizer:false,ph:false,phSeq:'',bufDays:'',bufMax:'',startMonth:'',startDay:'',adv:false}); return d; }
-function naGroupVal(d){ return d.group==='__other'?(d.groupOther||'').trim():d.group; }
-function naUnitVal(d){ return d.unit==='__other'?(d.unitOther||'').trim():d.unit; }
-function naReady(d){ return (d.name||'').trim().length>=3&&!!naGroupVal(d)&&!!d.scope&&!!d.cls&&d.stages.length>0&&(!d.qty||(naUnitVal(d)&&naUnitVal(d)!=='none')); }
-function naSet(k,v){ ui.modalDraft[k]=v; if(k==='scope'&&v==='BED') ui.modalDraft.isFertilizer=false; if(k==='scope'&&v==='CROP') ui.modalDraft.ph=false; render(); }
-function naTxt(k,v){ ui.modalDraft[k]=v; naSync(); }
-function naStage(s,on){ const a=ui.modalDraft.stages; const i=a.indexOf(s); if(on&&i<0) a.push(s); if(!on&&i>=0) a.splice(i,1); naSync(); }
-function naSync(){ const d=ui.modalDraft, b=document.getElementById('na-go'); if(b) b.disabled=!naReady(d); }
+  Object.assign(d,{_init:1,name:'',group:'',scope:'',cls:'',description:'',notes:'',worker:true,manager:true,approval:false,stages:[],crops:[],ruleKind:'',
+    qty:false,unit:'',trigger:false,target:'Growing',exception:false,isFertilizer:false,ph:false,phSeq:'',bufDays:'',bufMax:'',startMonth:'',startDay:'',err:''});
+  naLoadId(true); return d; }
+function naGroupVal(d){ return d.group; }
+function naUnitVal(d){ return d.qty?d.unit:'none'; }
+function naNum(v){ return String(v||'').trim()===''?null:Number(v); }
+function naProblems(d){
+  const out=[], nm=(d.name||'').trim();
+  if(nm.length<3) out.push('Enter an activity name (at least 3 characters).');
+  else if((state.activityCatalog||[]).some(c=>String(c.name||'').toLowerCase()===nm.toLowerCase())) out.push('An activity named "'+nm+'" already exists.');
+  if(!d.scope) out.push('Choose the Domain (Bed or Crop).');
+  if(!d.group) out.push('Choose the Activity_Domain group.');
+  if(!d.cls) out.push('Choose the Governance_Class.');
+  if(!d.stages.length) out.push('Tick at least one allowed lifecycle stage.');
+  if(d.qty&&!d.unit) out.push('Choose the Default_Unit for a quantity-based activity.');
+  if(d.ph){ const q=naNum(d.phSeq); if(q===null||!Number.isInteger(q)||q<1) out.push('Enter the post-harvest checklist step number (a whole number, 1 or more).');
+    const bd=naNum(d.bufDays), bm=naNum(d.bufMax);
+    if((bd!==null&&(!Number.isInteger(bd)||bd<0))||(bm!==null&&(!Number.isInteger(bm)||bm<0))) out.push('Waiting-period days must be whole numbers, 0 or more.');
+    else if(bd!==null&&bm!==null&&bm<bd) out.push('Buffer_Max_Days cannot be less than Buffer_Duration_Days.'); }
+  if((d.startMonth===''&&d.startDay!=='')||(d.startMonth!==''&&d.startDay==='')) out.push('Earliest start needs both a month and a day, or neither.');
+  if(d.startMonth!==''&&d.startDay!==''){ const dim=new Date(2027,+d.startMonth,0).getDate(); if(+d.startDay>dim) out.push('Earliest start: '+NA_MONTHS[+d.startMonth-1]+' has only '+dim+' days.'); }
+  if(!na.id) out.push('Activity_ID has not loaded yet. Press Reload ID.');
+  return out;
+}
+function naReady(d){ return naProblems(d).length===0; }
+function naSet(k,v){ const d=ui.modalDraft; d[k]=v;
+  if(k==='scope'){ d.stages=[]; d.group=''; d.crops=[]; d.ruleKind=''; if(v==='BED') d.isFertilizer=false; if(v==='CROP'){ d.ph=false; d.phSeq=''; d.bufDays=''; d.bufMax=''; }
+    if(v==='BED') d.stages=['HarvestComplete']; }
+  if(k==='qty'&&!v) d.unit='';
+  if(k==='startMonth'&&v==='') d.startDay='';
+  if(k==='trigger'&&v) d.target='Growing';
+  if(k==='ph'&&!v){ d.phSeq=''; d.bufDays=''; d.bufMax=''; }
+  render(); }
+function naTxt(k,v){ ui.modalDraft[k]=v; naSync(); naPreviewPaint(); }
+function naStage(st,on){ const a=ui.modalDraft.stages, i=a.indexOf(st); if(on&&i<0) a.push(st); if(!on&&i>=0) a.splice(i,1); render(); }
+function naCrop(id,on){ const a=ui.modalDraft.crops, i=a.indexOf(id); if(on&&i<0) a.push(id); if(!on&&i>=0) a.splice(i,1); render(); }
+function naCropQ(v){ na.cropQ=v; render(); keepFocus('na-cropq'); }
+function naSync(){ const d=ui.modalDraft, b=document.getElementById('na-go'); if(b) b.disabled=!naReady(d); const e=document.getElementById('na-prob'); if(e) e.innerHTML=naProbHTML(d); }
+function naProbHTML(d){ const pr=naProblems(d); return pr.length?`<div class="note" style="margin:10px 0 0;color:var(--warn);font-weight:600;">Before you can save:<br>${pr.map(x=>'• '+esc(x)).join('<br>')}</div>`:''; }
+/* the row as it will be written, in ACTIVITY_REFERENCE column order */
+function naRow(d){
+  const rule=d.ruleKind||'', yn=v=>v?'TRUE':'FALSE';
+  return [['Activity_ID',na.id||'—'],['Activity_Name',(d.name||'').trim()],['Activity_Domain',d.group],['Description',d.description],['Allowed_Lifecycle_Stages',d.stages.join(', ')],
+    ['Allowed_Crops',d.scope==='CROP'?d.crops.join(', '):''],['Triggers_State_Change',yn(d.trigger)],['State_Change_Target',d.trigger?d.target:''],['Generates_Exception',yn(d.exception)],
+    ['Requires_Manager_Approval',yn(d.approval)],['Is_Worker_Executable',yn(d.worker)],['Is_Manager_Executable',yn(d.manager)],['Is_Quantity_Based',yn(d.qty)],['Default_Unit',naUnitVal(d)],
+    ['Notes',d.notes],['Post_Harvest_Sequence',d.ph?d.phSeq:''],['Requires_Post_Harvest',yn(d.ph)],['Buffer_Duration_Days',d.ph?d.bufDays:''],['Buffer_Max_Days',d.ph?d.bufMax:''],
+    ['Crop_Applicability_Rule',d.scope==='CROP'?rule:''],['Earliest_Start_Month',d.startMonth],['Earliest_Start_Day',d.startDay],['Domain',d.scope],['Governance_Class',d.cls],['Is_Fertilizer',yn(d.scope==='CROP'&&d.isFertilizer)]];
+}
+function naPreviewInner(d){ return naRow(d).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v===''||v===undefined?'<span style="opacity:.4;">(blank)</span>':esc(v)}</td></tr>`).join(''); }
+function naPreviewPaint(){ const e=document.getElementById('na-prev'); if(e) e.innerHTML=naPreviewInner(ui.modalDraft); }
 function newActivityModal(){
-  const d=naInit(), cat=(state.activityCatalog||[]).map(c=>c.domain).filter(Boolean);
-  const groups=Array.from(new Set(NA_GROUPS.concat(cat)));
+  const d=naInit(), sc=d.scope, groups=NA_GROUPS_BY_SCOPE[sc]||[], stages=NA_STAGES_BY_SCOPE[sc]||[];
+  const col=n=>`<span class="na-col">${n}</span>`;
   const radio=(key,val,title,desc)=>`<label class="dp-row ${d[key]===val?'on':''}"><input type="radio" name="na-${key}" ${d[key]===val?'checked':''} onchange="naSet('${key}','${val}')"><span><b>${title}</b><span class="d">${desc}</span></span></label>`;
   const chk=(key,title,desc,dis)=>`<label class="dp-row ${d[key]?'on':''} ${dis?'off':''}"><input type="checkbox" ${d[key]?'checked':''} ${dis?'disabled':''} onchange="naSet('${key}',this.checked)"><span><b>${title}</b><span class="d">${desc}</span></span></label>`;
-  const sel=(key,opts,extra)=>`<select onchange="naSet('${key}',this.value)">${opts.map(o=>{const v=Array.isArray(o)?o[0]:o,l=Array.isArray(o)?o[1]:o;return `<option value="${esc(v)}" ${d[key]===v?'selected':''}>${esc(l)}</option>`;}).join('')}${extra||''}</select>`;
-  const inp=(key,ph,w,attrs)=>`<input value="${esc(d[key]||'')}" placeholder="${esc(ph||'')}" ${attrs||''} style="${w?'max-width:'+w+';':''}" oninput="naTxt('${key}',this.value)">`;
-  const h3=t=>`<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);margin:16px 0 6px;border-bottom:1px solid var(--line);padding-bottom:3px;">${t}</div>`;
-  const grp=`<option value="" ${d.group?'':'selected'}>Choose a group...</option>`+groups.map(g=>`<option value="${esc(g)}" ${d.group===g?'selected':''}>${esc(g)}</option>`).join('')+`<option value="__other" ${d.group==='__other'?'selected':''}>Other (type a new group)...</option>`;
-  return `<h2 style="font-size:15px;">New activity type</h2>
+  const h3=t=>`<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);margin:18px 0 6px;border-bottom:1px solid var(--line);padding-bottom:3px;">${t}</div>`;
+  const opt=(v,l,cur)=>`<option value="${esc(v)}" ${String(cur)===String(v)?'selected':''}>${esc(l)}</option>`;
+  const cropsAll=(typeof CROP_MASTER!=='undefined'?CROP_MASTER:[]).filter(c=>String(c.cycleClass||'').toLowerCase()!=='cover').slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  const q=(na.cropQ||'').trim().toLowerCase(), cropsShown=cropsAll.filter(c=>!q||(c.name+' '+c.id).toLowerCase().includes(q)||d.crops.includes(c.id));
+  const idNote=na.st==='estimated'?`<div class="note" style="margin:4px 0 0;color:var(--warn);">${esc(na.note)}</div>`:(na.note?`<div class="note" style="margin:4px 0 0;color:var(--danger);">${esc(na.note)}</div>`:'');
+  return `<h2 style="font-size:16px;margin:0 0 4px;">Add New Activity</h2>
+  <div class="note" style="margin:0 0 6px;">Follows the ACTIVITY_REFERENCE tab column by column; the small grey names are the tab's column headers. Pick from the lists wherever there is one.</div>
   ${d.err?`<div class="error">${esc(d.err)}</div>`:''}
-  ${h3('Basics')}
-  <div class="field"><label>Name *</label><input maxlength="60" value="${esc(d.name)}" oninput="naTxt('name',this.value)"></div>
-  <div class="field"><label>Group * <span style="font-weight:400;">(how the activity is listed in the picker)</span></label><select onchange="naSet('group',this.value)">${grp}</select>
-    ${d.group==='__other'?`<div style="margin-top:6px;">${inp('groupOther','New group name',null,'maxlength="40"')}</div>`:''}</div>
-  <div class="field"><label>Description <span style="font-weight:400;">(shown to workers and managers)</span></label><textarea style="width:100%;min-height:60px;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;" maxlength="500" oninput="naTxt('description',this.value)">${esc(d.description)}</textarea></div>
-  <div class="field"><label>Internal notes</label>${inp('notes','Optional',null,'maxlength="500"')}</div>
-  ${h3('Domain and governance')}
-  <div class="field"><label>Domain *</label>
-    ${radio('scope','BED','Bed','Land, soil, bed structure, reset. Available only when no living crop is on the bed.')}
-    ${radio('scope','CROP','Crop','Living crop care, from verified planting to termination. Needs a verified, living cohort.')}</div>
-  <div class="field"><label>Governance class *</label>
-    ${radio('cls','VERIFIED','Verified','A manager verifies it after the worker finishes (stamped on the Review Board).')}
-    ${radio('cls','CHECKED','Checked','Appears on the Review Board for oversight. Never blocks a bed, cohort, schedule or assignment.')}</div>
+  ${h3('Identity')}
+  <div class="field"><label for="na-id">Activity ID ${col('Activity_ID')}</label>
+    <div style="display:flex;gap:8px;align-items:center;"><input id="na-id" readonly value="${esc(na.st==='loading'?'Reading ACTIVITY_REFERENCE…':(na.id||'—'))}" style="max-width:180px;font-weight:800;background:var(--sand);" aria-describedby="na-id-h">
+      <button class="btn btn-ghost" style="width:auto;margin:0;padding:6px 10px;font-size:12px;" ${na.st==='loading'?'disabled':''} onclick="naLoadId(true)">Reload ID</button></div>
+    <div class="note" id="na-id-h" style="margin:4px 0 0;">Filled in automatically: the next number after the last ID on the tab${na.last?' ('+esc(na.last)+')':''}. It cannot be edited.</div>${idNote}</div>
+  <div class="field"><label for="na-name">Activity name * ${col('Activity_Name')}</label><input id="na-name" maxlength="60" value="${esc(d.name)}" oninput="naTxt('name',this.value)"></div>
+  <div class="field"><label>Domain * ${col('Domain')}</label>
+    ${radio('scope','BED','Bed','Land, soil and bed work. Only when no living crop is on the bed (stage HarvestComplete).')}
+    ${radio('scope','CROP','Crop','Living-crop care, from planting to termination. Needs a verified, living cohort.')}</div>
+  <div class="field"><label for="na-group">Activity group * ${col('Activity_Domain')}</label>
+    <select id="na-group" ${sc?'':'disabled'} onchange="naSet('group',this.value)"><option value="" ${d.group?'':'selected'}>${sc?'Choose a group…':'Choose the Domain first'}</option>${groups.map(g=>opt(g,g,d.group)).join('')}</select></div>
+  <div class="field"><label for="na-desc">Description ${col('Description')}</label><textarea id="na-desc" style="width:100%;min-height:56px;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;" maxlength="300" oninput="naTxt('description',this.value)">${esc(d.description)}</textarea></div>
+  <div class="field"><label for="na-notes">Notes ${col('Notes')} <span style="font-weight:400;">(optional)</span></label><input id="na-notes" maxlength="200" value="${esc(d.notes)}" oninput="naTxt('notes',this.value)"></div>
+  ${h3('Governance')}
+  <div class="field"><label>Governance class * ${col('Governance_Class')}</label>
+    ${radio('cls','VERIFIED','Verified','A manager verifies it after the worker finishes.')}
+    ${radio('cls','CHECKED','Checked','Appears on the Review Board for oversight; never blocks a bed, cohort or assignment.')}</div>
+  ${chk('approval','Needs manager approval','Requires_Manager_Approval · the server asks for approval before it can start.')}
   ${h3('Who can run it')}
-  ${chk('worker','Workers can start it','Shows in the worker app and the New Activity picker. The picker needs BOTH worker and manager ticked.')}
-  ${chk('manager','Managers can assign it','Managers can dispatch it to a worker from the board.')}
-  ${chk('approval','Needs manager approval','The server asks for manager approval before it can start.')}
+  ${chk('worker','Workers can start it','Is_Worker_Executable · shows in the worker app. The New Activity picker needs both worker and manager ticked.')}
+  ${chk('manager','Managers can assign it','Is_Manager_Executable · managers can dispatch it from the board.')}
   ${h3('When it is allowed')}
-  <div class="field"><label>Lifecycle stages * <span style="font-weight:400;">(tick every stage where it may be started)</span></label>
-    ${NA_STAGES.map(([v,l])=>`<label class="dp-row ${d.stages.includes(v)?'on':''}"><input type="checkbox" ${d.stages.includes(v)?'checked':''} onchange="naStage('${v}',this.checked);render()"><span><b>${esc(l)}</b></span></label>`).join('')}</div>
-  <div class="field"><label>Only these crops <span style="font-weight:400;">(Crop IDs, comma separated; blank = all crops)</span></label>${inp('crops','e.g. TOM, SB, AFE')}</div>
-  <div class="field"><label>Crop rule</label>${sel('ruleKind',NA_RULES)}
-    ${d.ruleKind==='__custom'?`<div style="margin-top:6px;">${inp('ruleCustom','Cycle_Class!=Perennial  |  Category=Cool-Season Roots  |  Crop_ID=TOM,SB')}</div>`:''}</div>
+  <div class="field"><label>Allowed lifecycle stages * ${col('Allowed_Lifecycle_Stages')}</label>
+    ${sc?stages.map(([v,l])=>`<label class="dp-row ${d.stages.includes(v)?'on':''}"><input type="checkbox" ${d.stages.includes(v)?'checked':''} ${sc==='BED'?'disabled':''} onchange="naStage('${v}',this.checked)"><span><b>${esc(l)}</b></span></label>`).join(''):`<div class="note" style="margin:0;">Choose the Domain first.</div>`}</div>
+  ${sc==='CROP'?`<div class="field"><label>Only these crops ${col('Allowed_Crops')} <span style="font-weight:400;">(leave all unticked for every crop)</span></label>
+    <input id="na-cropq" placeholder="Search crops…" value="${esc(na.cropQ)}" oninput="naCropQ(this.value)" style="margin-bottom:6px;">
+    <div style="max-height:170px;overflow:auto;border:1.5px solid var(--line);border-radius:8px;padding:4px 8px;">${cropsShown.map(c=>`<label style="display:flex;gap:8px;align-items:center;padding:3px 0;font-size:13px;"><input type="checkbox" ${d.crops.includes(c.id)?'checked':''} onchange="naCrop('${esc(c.id)}',this.checked)">${esc(c.name)} <span class="qsub">${esc(c.id)}</span></label>`).join('')||'<div class="qsub">No crops match.</div>'}</div>
+    ${d.crops.length?`<div class="qsub" style="margin-top:4px;">${d.crops.length} selected: ${esc(d.crops.join(', '))}</div>`:''}</div>
+  <div class="field"><label for="na-rule">Crop rule ${col('Crop_Applicability_Rule')}</label><select id="na-rule" onchange="naSet('ruleKind',this.value)">${NA_RULES.map(([v,l])=>opt(v,l,d.ruleKind)).join('')}</select></div>`:''}
+  <div class="field"><label>Earliest start each year ${col('Earliest_Start_Month')} ${col('Earliest_Start_Day')} <span style="font-weight:400;">(optional)</span></label>
+    <div style="display:flex;gap:8px;"><select aria-label="Earliest start month" onchange="naSet('startMonth',this.value)"><option value="">No earliest date</option>${NA_MONTHS.map((m,i)=>opt(i+1,m,d.startMonth)).join('')}</select>
+    <select aria-label="Earliest start day" ${d.startMonth===''?'disabled':''} onchange="naSet('startDay',this.value)"><option value="">Day</option>${Array.from({length:31},(_,i)=>opt(i+1,i+1,d.startDay)).join('')}</select></div></div>
   ${h3('Measurement')}
-  ${chk('qty','Records a quantity','The worker enters an amount when finishing (weight, volume, area...).')}
-  ${d.qty?`<div class="field"><label>Unit *</label>${sel('unit',NA_UNITS.filter(u=>u!=='none'),'<option value="__other"'+(d.unit==='__other'?' selected':'')+'>Other...</option>')}${d.unit==='__other'?`<div style="margin-top:6px;">${inp('unitOther','Unit name',null,'maxlength="20"')}</div>`:''}</div>`:''}
+  ${chk('qty','Records a quantity','Is_Quantity_Based · the worker enters an amount when finishing.')}
+  ${d.qty?`<div class="field"><label for="na-unit">Unit * ${col('Default_Unit')}</label><select id="na-unit" onchange="naSet('unit',this.value)"><option value="" ${d.unit?'':'selected'}>Choose a unit…</option>${NA_UNITS.map(u=>opt(u,u,d.unit)).join('')}</select></div>`:''}
   ${h3('Effects')}
-  ${chk('trigger','Moves the cohort to a new stage','Completing it changes the cohort stage (like Transplanting moves it to Growing).')}
-  ${d.trigger?`<div class="field"><label>Moves it to</label>${sel('target',['Growing'])}</div>`:''}
-  ${chk('exception','Can raise an exception','Findings logged by this activity open an exception for the manager.')}
-  ${chk('isFertilizer','Fertilizer activity','When you assign it, you enter the fertilizer type, brand name and quantity. Crop domain only.',d.scope!=='CROP')}
-  <details ${d.adv||d.ph?'open':''} style="margin-top:14px;"><summary style="cursor:pointer;font-size:12px;font-weight:700;" onclick="ui.modalDraft.adv=!ui.modalDraft.adv">Advanced: bed turnover checklist and start date</summary>
-    ${chk('ph','Part of the post-harvest turnover checklist','A required step before a bed is released. Bed domain only. It joins the checklist of every bed in turnover.',d.scope==='CROP')}
-    ${d.ph?`<div class="field"><label>Checklist step number *</label>${inp('phSeq','e.g. 11',null,'inputmode="numeric"')}<div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:3px;">Steps run in number order. Each number can be used once; the save tells you which are taken.</div></div>
-    <div class="field"><label>Waiting period (only for a time-gate buffer, not a task)</label><div style="display:flex;gap:8px;">${inp('bufDays','Days',null,'inputmode="numeric"')}${inp('bufMax','Max days',null,'inputmode="numeric"')}</div>
-      <div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:3px;">A waiting period is a timed gate (like Sanitation Break), never assigned to a worker.</div></div>`:''}
-    <div class="field"><label>Earliest start date each year <span style="font-weight:400;">(optional, month and day)</span></label><div style="display:flex;gap:8px;">${inp('startMonth','Month 1-12',null,'inputmode="numeric"')}${inp('startDay','Day 1-31',null,'inputmode="numeric"')}</div></div>
-  </details>
-  <div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:12px;">A new activity gets the next ACT_ number automatically. It never changes a bed or cohort stage by itself beyond the stage you choose above.</div>
-  <button id="na-go" class="btn btn-primary" ${naReady(d)?'':'disabled'} onclick="doCreateActivity()">Create activity</button>
+  ${chk('trigger','Moves the cohort to a new stage','Triggers_State_Change · completing it changes the cohort stage.')}
+  ${d.trigger?`<div class="field"><label for="na-target">Moves it to ${col('State_Change_Target')}</label><select id="na-target" onchange="naSet('target',this.value)">${opt('Growing','Growing',d.target)}</select></div>`:''}
+  ${chk('exception','Can raise an exception','Generates_Exception · findings logged by this activity open an exception for the manager.')}
+  ${sc==='CROP'?chk('isFertilizer','Fertilizer activity','Is_Fertilizer · you enter the fertilizer type, brand and quantity when you assign it.'):''}
+  ${sc==='BED'?`${h3('Post-harvest turnover')}
+  ${chk('ph','Part of the post-harvest turnover checklist','Requires_Post_Harvest · a required step before a bed is released. It joins the checklist of every bed in turnover.')}
+  ${d.ph?`<div class="field"><label for="na-phseq">Checklist step number * ${col('Post_Harvest_Sequence')}</label><input id="na-phseq" inputmode="numeric" placeholder="e.g. 11" style="max-width:120px;" value="${esc(d.phSeq)}" oninput="naTxt('phSeq',this.value)"><div class="qsub" style="margin-top:3px;">Steps run in number order. Each number can be used once; the save tells you which are taken.</div></div>
+  <div class="field"><label>Waiting period ${col('Buffer_Duration_Days')} ${col('Buffer_Max_Days')} <span style="font-weight:400;">(only for a timed gate such as Sanitation Break)</span></label><div style="display:flex;gap:8px;"><input inputmode="numeric" placeholder="Days" aria-label="Buffer duration days" value="${esc(d.bufDays)}" oninput="naTxt('bufDays',this.value)"><input inputmode="numeric" placeholder="Max days" aria-label="Buffer max days" value="${esc(d.bufMax)}" oninput="naTxt('bufMax',this.value)"></div></div>`:''}`:''}
+  ${h3('Row preview')}
+  <details style="margin-bottom:6px;"><summary style="cursor:pointer;font-size:12px;font-weight:700;">Show the row as it will appear in ACTIVITY_REFERENCE</summary>
+    <div class="bb-wrap" style="max-height:300px;margin-top:6px;"><table class="bb-t"><thead><tr><th>Column</th><th>Value</th></tr></thead><tbody id="na-prev">${naPreviewInner(d)}</tbody></table></div></details>
+  <div id="na-prob">${naProbHTML(d)}</div>
+  <div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:12px;">The new activity never changes a bed or cohort stage by itself beyond the stage you choose above.</div>
+  <button id="na-go" class="btn btn-primary" ${naReady(d)?'':'disabled'} onclick="doCreateActivity()">Add activity</button>
   <button class="btn btn-ghost" onclick="${ui.modal?'closeModal()':'naReset()'}">${ui.modal?'Cancel':'Clear form'}</button>`;
 }
 /* Inline page under Open Field Operation (the same form the modal draws). */
-function naReset(){ ui.modalDraft={}; render(); }
+function naReset(){ ui.modalDraft={}; na.cropQ=''; render(); }
 function newActivityScreen(){
   if(ui.modal) return '';
   return `<div class="mapcol"><div class="mapscroll"><div style="max-width:720px;margin:0 auto;padding-bottom:40px;">${newActivityModal()}</div></div></div>`;
 }
 async function doCreateActivity(){
-  const d=ui.modalDraft; d.err='';
-  const rule=d.ruleKind==='__custom'?(d.ruleCustom||'').trim():(d.ruleKind||'');
-  const body={full:true,activity:{name:(d.name||'').trim(),group:naGroupVal(d),scope:d.scope,governanceClass:d.cls,description:d.description||'',notes:d.notes||'',
-    workerExecutable:!!d.worker,managerExecutable:!!d.manager,requiresApproval:!!d.approval,allowedStages:d.stages.slice(),allowedCrops:d.crops||'',cropRule:rule,
-    quantityBased:!!d.qty,defaultUnit:d.qty?naUnitVal(d):'none',triggersStateChange:!!d.trigger,stateChangeTarget:d.trigger?d.target:'',generatesException:!!d.exception,
+  const d=ui.modalDraft; d.err=''; if(!naReady(d)){ render(); return; }
+  const body={full:true,activity:{name:(d.name||'').trim(),group:d.group,scope:d.scope,governanceClass:d.cls,description:d.description||'',notes:d.notes||'',
+    workerExecutable:!!d.worker,managerExecutable:!!d.manager,requiresApproval:!!d.approval,allowedStages:d.stages.slice(),allowedCrops:d.scope==='CROP'?d.crops.join(', '):'',cropRule:d.scope==='CROP'?(d.ruleKind||''):'',
+    quantityBased:!!d.qty,defaultUnit:naUnitVal(d),triggersStateChange:!!d.trigger,stateChangeTarget:d.trigger?d.target:'',generatesException:!!d.exception,
     isFertilizer:d.scope==='CROP'&&!!d.isFertilizer,requiresPostHarvest:!!d.ph,postHarvestSequence:d.ph?d.phSeq:'',bufferDurationDays:d.ph?d.bufDays:'',bufferMaxDays:d.ph?d.bufMax:'',
     earliestStartMonth:d.startMonth||'',earliestStartDay:d.startDay||''}};
-  try{ const r=await apiCall('create-activity',body); toast('Activity '+(r&&r.activityId?r.activityId+' ':'')+'created.'+(r&&r.note?' '+r.note:''),5200); if(ui.modal) closeModal(); else { ui.modalDraft={}; render(); } await loadToday(); }
+  try{ const r=await apiCall('create-activity',body); toast('Activity '+(r&&r.activityId?r.activityId+' ':'')+'added.'+(r&&r.note?' '+r.note:''),5200);
+    na.st='idle'; na.id=''; if(ui.modal) closeModal(); else { ui.modalDraft={}; na.cropQ=''; render(); } await loadToday(); }
   catch(e){ d.err=e.message; render(); const el=document.querySelector('.sheet')||document.querySelector('.mapscroll'); if(el) el.scrollTop=0; }
 }
 const pv={ sel:{}, busy:false };
@@ -4845,14 +5054,6 @@ function pvBedBlock(bedId){
 function bbScreen(){
   bbEnsure();
   const pvc=pvCounts();
-  const head=`<th>Block</th>${BB_STATUS.map(s=>`<th title="${esc(s[1])}">${esc(s[1])}</th>`).join('')}<th>Total</th><th title="Activities, plantings and beds waiting for your verification">Waiting for verification</th>`;
-  const rows=PLAN_BLOCKS.map(b=>{
-    const d=bb.data[b];
-    if(!d) return `<tr><td><b>${esc(BLOCK_LABELS[b])}</b></td><td colspan="${BB_STATUS.length+2}">${bb.busy?'Loading…':'Not loaded'}</td></tr>`;
-    if(d.error) return `<tr><td><b>${esc(BLOCK_LABELS[b])}</b></td><td colspan="${BB_STATUS.length+1}" style="color:var(--danger);">${esc(d.error)}</td></tr>`;
-    const cnt={}; d.beds.forEach(x=>{ const s=bbStatusOf(x); cnt[s]=(cnt[s]||0)+1; });
-    return `<tr class="${b===bb.sel?'sel':''}" onclick="bbSelect('${b}')"><td><b>${esc(BLOCK_LABELS[b])}</b></td>${BB_STATUS.map(s=>`<td>${cnt[s[0]]||'<span style="opacity:.35;">0</span>'}</td>`).join('')}<td><b>${d.beds.length}</b></td><td>${pvc[b]?`<span class="chip chip-warn">${pvc[b]}</span>`:'<span style="opacity:.35;">0</span>'}</td></tr>`;
-  }).join('');
   const cur=bb.data[bb.sel], beds=(cur&&cur.beds)||[];
   const grid=bbMapSVG();
   const legend=BB_STATUS.map(s=>`<span><i class="sw" style="background:${s[2]};border:1px solid var(--line);"></i>${esc(s[1])}</span>`).join('');
@@ -4868,11 +5069,10 @@ function bbScreen(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
       <button class="btn btn-outline" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy?'disabled':''} onclick="bbCount()">${bb.relBusy?'Working…':'Count beds'}</button>
       <button id="bb-release" class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy||!d||!d.eligible||bb.reason.trim().length<5||!bb.confirm?'disabled':''} onclick="bbRelease()">Release ${d?d.eligible:''} bed${d&&d.eligible===1?'':'s'}</button></div></div>`;
-  const overview=`<h2 style="margin:0 0 4px;">Bed status board</h2>
-    <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Click a bed on the map to open its profile on the right. Pick a section on the left to work on verification, reviews, tasks or Start of operations. Not verified and Blocked beds can be verified ready from the bed profile.</div>
-    <div class="bb-wrap"><table class="bb-t"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
-    <div style="margin:14px 0 6px;">${grid||`<div class="empty">${bb.busy?'Loading\u2026':'No beds loaded.'}</div>`}</div>
-    <div class="qsub" style="margin:0 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed, a red dot an open exception. An amber number means that many things on the bed are waiting for your verification. Click a block name to choose it for Start of operations.</div>`;
+  const overview=`<h2 style="margin:0 0 4px;">Bed status board · ${esc(BLOCK_LABELS[bb.sel])}</h2>
+    <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Pick a block on the left, click a bed to open its profile on the right. Not verified and Blocked beds can be verified ready from the bed profile.</div>
+    <div style="margin:10px 0 6px;">${grid||`<div class="empty">${bb.busy?'Loading\u2026':'No beds loaded.'}</div>`}</div>
+    <div class="qsub" style="margin:0 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed, a red dot an open exception. An amber number means that many things on the bed are waiting for your verification. The block you pick is also the one Start of operations works on.</div>`;
   const nVerify=state.lastSync?(pvActivities().length+pvPlantings().length+pvReadyBeds().length):0;
   const nReview=(!IS_DEMO&&!rb.hide&&rb.data)?((rb.data.toCheck||[]).length+(rb.data.toVerify||[]).length):0;
   const nTasks=(state.sessions||[]).filter(x=>String(x.status||'').toUpperCase()!=='COMPLETED').length;
@@ -4880,14 +5080,22 @@ function bbScreen(){
     .filter(x=>x[0]!=='review'||(!IS_DEMO&&!rb.hide));
   if(!SECS.some(x=>x[0]===bb.sec)) bb.sec='overview';
   const navBtns=SECS.map(x=>`<button class="${x[0]===bb.sec?'on':''}" aria-current="${x[0]===bb.sec?'page':'false'}" onclick="bbSec('${x[0]}')"><span>${esc(x[1])}</span>${x[2]?`<span class="chip chip-warn">${x[2]}</span>`:''}</button>`).join('');
+  /* left list = one card per block (like the crop cards on Bed layout); the map in the middle shows ONE block at a time */
+  const blockCards=PLAN_BLOCKS.map(b=>{
+    const d=bb.data[b];
+    if(!d) return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span class="chip chip-neutral">${bb.busy?'Loading\u2026':'Not loaded'}</span></div></div>`;
+    if(d.error) return `<div class="card qwarn" onclick="bbSelect('${b}')" style="cursor:pointer;"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span></div><div class="note" style="color:var(--danger);">${esc(d.error)}</div></div>`;
+    const cnt={}; d.beds.forEach(x=>{ const k=bbStatusOf(x); cnt[k]=(cnt[k]||0)+1; });
+    const lines=BB_STATUS.filter(st=>cnt[st[0]]).map(st=>`<div class="row"><span><i class="sw" style="display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;background:${st[2]};border:1px solid var(--line);"></i>${esc(BB_SHORT[st[0]]||st[1])}</span><span>${cnt[st[0]]}</span></div>`).join('');
+    return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;${b===bb.sel?'outline:2px solid var(--forest);':''}"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span>${d.beds.length} beds${pvc[b]?` <span class="chip chip-warn" title="Waiting for your verification">${pvc[b]}</span>`:''}</span></div>${lines}</div>`;
+  }).join('');
   const secHtml=(SECS.find(x=>x[0]===bb.sec)||SECS[0])[3];
-  return `<div class="mapcol">
+  return `<div class="leftpanel"><nav class="bb-nav" aria-label="Bed status board sections" style="position:static;margin-bottom:12px;">${navBtns}</nav>${blockCards}</div>
+    <div class="mapcol">
     ${bb.sec==='overview'?bbFilterBar()+`<div class="legend">${legend}</div>`:''}
-    <div class="mapscroll"><div class="bb-lay">
-    <nav class="bb-nav" aria-label="Bed status board sections">${navBtns}</nav>
-    <div class="bb-main">
+    <div class="mapscroll"><div class="bb-main">
     ${bb.err?`<div class="error">${esc(bb.err)}</div>`:''}
-    ${secHtml}</div></div></div></div>
+    ${secHtml}</div></div></div>
     <div class="panel ${bb.bedSel?'':'closed'}">${bb.bedSel?bbPanelHTML():''}</div>`;
 }
 function bbSyncRelease(){ const b=document.getElementById('bb-release'); if(b) b.disabled=!!(bb.relBusy||!bb.dry||!bb.dry.eligible||bb.reason.trim().length<5||!bb.confirm); }
@@ -5076,8 +5284,7 @@ const coverLoad={done:false,busy:false,tried:false,err:''};
 async function loadCoverWindows(){
   if(coverLoad.busy) return; coverLoad.busy=true; coverLoad.tried=true; coverLoad.err='';
   try{
-    const d=await apiCall('get-cover-windows',{});
-    COVER_WINDOWS=d.windows||[]; coverLoad.done=true;
+    COVER_WINDOWS=coverSopWindows(); coverLoad.done=true;   /* the SOP is the standard: windows are not taken from the workbook tab */
     /* keep the Crop profile screen in step: overwrite the embedded cover-crop planting windows with the tab's */
     const by={}; COVER_WINDOWS.forEach(w=>{ (by[w.crop]=by[w.crop]||[]).push(w); });
     CROP_MASTER.forEach(c=>{ const w=by[c.id]; if(!w||!c.window) return;
@@ -5091,8 +5298,7 @@ async function phSetDate(v){
   ph.date=v; ph.mix=null;
   const o=document.getElementById('ph-out'); if(!/^\d{4}-\d{2}-\d{2}$/.test(v||'')){ if(o) o.innerHTML=phPreviewHTML(); return; }
   ph.busy=true; if(o) o.innerHTML=phPreviewHTML();
-  try{ const d=await apiCall('get-cover-windows',{date:v}); if(ph.date===v) ph.mix=d.mix||null; }
-  catch(e){ ph.mix={label:e.message||'Could not check that date.'}; }
+  ph.mix=coverSopMix(v);
   ph.busy=false; const o2=document.getElementById('ph-out'); if(o2) o2.innerHTML=phPreviewHTML();
 }
 function phPreviewHTML(){
@@ -5149,14 +5355,14 @@ function phaSelect(kind){
 function postHarvestScreen(){
   const all=phaBeds(), beds=phaVisible();
   Object.keys(pha.sel).forEach(id=>{ if(!all.some(b=>b.id===id)) delete pha.sel[id]; });   /* a bed that left turnover cannot stay selected */
-  const rows=beds.map(b=>{ const p=b.postHarvest, m=p.coverMix||{}, steps=p.stepCount||(p.steps||[]).length, nxt=p.readyToVerify?'Ready to verify':(p.nextStep?'Step '+(p.nextStepNumber||'?')+' of '+steps+': '+p.nextStep:'—'), can=phaSelectable(b), why=phaWhy(b);
+  const rows=beds.map(b=>{ const p=b.postHarvest, m=(p.coverMix&&p.coverMix.exitDate?coverSopMix(String(p.coverMix.exitDate).slice(0,10)):p.coverMix)||{}, steps=p.stepCount||(p.steps||[]).length, nxt=p.readyToVerify?'Ready to verify':(p.nextStep?'Step '+(p.nextStepNumber||'?')+' of '+steps+': '+p.nextStep:'—'), can=phaSelectable(b), why=phaWhy(b);
     return `<tr><td><input type="checkbox" class="pha-cb" data-id="${esc(b.id)}" ${pha.sel[b.id]?'checked':''} ${can?'':'disabled'} title="${esc(can?'':why)}" onchange="phaTog(this.dataset.id,this.checked)"></td><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button></td><td>${esc(b.cohortId||'bed-level')}</td><td>${esc(m.exitDate||'—')}</td><td style="white-space:normal;min-width:190px;">${esc(m.label||'No standard mix: manager decides')}</td><td style="white-space:normal;min-width:180px;">${esc(nxt)}</td><td style="white-space:normal;min-width:190px;">${phaCrewCell(b)}</td><td style="white-space:nowrap;"><button class="dc-mini" ${phaCanAssign(b)?'':'disabled'} title="${esc(phaCanAssign(b)?'':why)}" onclick="phaOpenAssign(['${esc(b.id)}'])">${phaAssigned(b.id).length?'Edit crew':'Assign'}</button></td><td><span class="chip ${p.readyToVerify?'chip-ok':'chip-warn'}">${p.readyToVerify?'Verify bed ready':'In turnover'}</span></td></tr>`; }).join('');
   return admWrap(`<h2 style="margin:0 0 4px;">Post-harvest & cover crop sequence</h2>
     <div class="note" style="margin-top:0;">When a cohort is terminated (ACT_053), the bed goes through field cleanup (ACT_037–039) and cover crop establishment (ACT_041–044), in any order. Any step can be skipped by a manager override with a written explanation. Only the manager's Verify Bed Ready returns the bed to Available.</div>
     ${crSectionHead('Cover crop planting windows')}<div class="card">
       ${coverLoad.err?`<div class="notice">${esc(coverLoad.err)} <button class="dc-mini" onclick="coverLoad.tried=false;loadCoverWindows()">Retry</button></div>`:''}
       ${COVER_WINDOWS.length?COVER_WINDOWS.map(w=>`<div class="row"><span><b>${esc(w.name)} (${esc(w.crop)})</b></span><span style="text-align:right;">${esc(w.startLabel)} – ${esc(w.endLabel)}</span></div>`).join(''):`<div class="note">${coverLoad.busy?'Loading windows…':'No cover crop windows loaded.'}</div>`}
-      <div class="note">Read from the RANCH_ALLOWABLE_PLANTING_CAL tab (the single source). The recommended mix is every cover crop whose window is open on the day production ended. If none is open, the next window to open is shown and the manager decides. Edit the tab to change a window.</div>
+      <div class="note">Set by the Ngapori Ranch Cover Crop SOP: Mid-Summer Exit (Jul 1 – Aug 15) = Buckwheat; Fall Closeout (Aug 15 – Oct 20) = Winter Rye + Crimson Clover + Vetch. The mix follows the date the cohort is terminated (ACT_053). Outside both windows there is no standard mix: the manager decides, or issues a Rule R16 Override.</div>
       <div class="field" style="margin-top:6px;"><label>Check a date</label><input type="date" value="${esc(ph.date)}" oninput="phSetDate(this.value)"></div><div id="ph-out">${phPreviewHTML()}</div></div>
     ${crSectionHead('Beds in turnover')}${all.length?`<div id="pha-bar">${phaBarHTML()}</div><div class="bb-wrap"><table class="bb-t"><thead><tr><th></th><th>Bed</th><th>Cohort</th><th>Production ended</th><th>Cover crop mix</th><th>Next</th><th>Crew</th><th></th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
       :`<div class="card"><div class="empty">No beds are in post-harvest turnover right now.</div><button class="btn btn-ghost" style="width:auto;" onclick="loadToday()">↻ Reload beds</button></div>`}`);
@@ -5254,7 +5460,7 @@ async function phaClearSelected(){
 }
 
 function phCoverRow(p){
-  const m=p&&p.coverMix; if(!m||!m.label) return '';
+  let m=p&&p.coverMix; if(m&&m.exitDate) m=coverSopMix(String(m.exitDate).slice(0,10)); if(!m||!m.label) return '';
   return m.openNow?`<div class="row"><span>Cover crop mix</span><span style="text-align:right;max-width:62%;">${esc(m.label)}</span></div><div class="note" style="margin:2px 0 6px;">${esc(m.purpose||'')} Production ended ${esc(m.exitDate||'')}.</div>`
     :`<div class="note" style="margin:2px 0 6px;">${esc(m.label)}</div>`;
 }
@@ -5339,7 +5545,7 @@ function planningScreen(){
   if(ui.pMode==='rotation'||ui.pMode==='infra') ensureRotationLoaded();
   return `<div class="topbar">
     <div><div class="brand">Season Planning</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')} · Season ${ui.pYear}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><button onclick="goBoard()">← Daily board</button><button onclick="openUrgent()" style="background:#B4231A;color:#fff;border-color:#B4231A;">+ Urgent production</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
+    <div style="display:flex;align-items:center;gap:8px;"><button onclick="goBoard()">← Daily board</button><button onclick="refreshPlanning()" title="Reload this screen's data">↻ Refresh</button><button onclick="openUrgent()" style="background:#B4231A;color:#fff;border-color:#B4231A;">+ Urgent production</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
   </div>
   ${planTabStrip()}
   <div class="toolbar">${planSubViews()}${planToolbarControls()}</div>
@@ -6277,11 +6483,8 @@ async function mockBackend(action, p){
         { sessionId:'S-1', workerId:'jo', worker:'Jo Lindqvist', activity:'Weeding', bedId:'B1-02', start:'2026-10-13 08:00', end:'2026-10-13 10:30', minutes:150 },
         { sessionId:'S-2', workerId:'jo', worker:'Jo Lindqvist', activity:'Planting', bedId:'B1-03', start:'2026-10-14 08:00', end:'2026-10-14 09:15', minutes:75 } ] });
     case 'get-cover-windows': {
-      const wins=[{crop:'CLV',name:'Clover',windowNo:1,startLabel:'Mar 1',endLabel:'Apr 15'},{crop:'BKW',name:'Buckwheat',windowNo:1,startLabel:'May 15',endLabel:'Jul 15'},
-                  {crop:'CLV',name:'Clover',windowNo:2,startLabel:'Sep 1',endLabel:'Oct 15'},{crop:'RYE',name:'Rye',windowNo:1,startLabel:'Sep 1',endLabel:'Oct 20'},{crop:'VET',name:'Vetch',windowNo:1,startLabel:'Sep 1',endLabel:'Oct 15'}];
-      const out={source:'RANCH_ALLOWABLE_PLANTING_CAL',windows:wins};
-      if(p.date){ const md=+p.date.slice(5,7)*100+ +p.date.slice(8,10), open=md>=901&&md<=1015?'Clover + Rye + Vetch':md>=515&&md<=715?'Buckwheat':'';
-        out.mix=open?{openNow:true,label:open,purpose:'',exitDate:p.date}:{openNow:false,label:'No cover crop window is open on '+p.date+' (demo data).',exitDate:p.date}; }
+      const out={source:'Ngapori Ranch Cover Crop SOP',windows:coverSopWindows()};
+      if(p.date) out.mix=coverSopMix(p.date);
       return ok(out);
     }
     case 'get-urgent-options': return ok({label:'Shortfall crop year',maxWaves:12,maxCrops:10,defaultGapDays:14,crops:[
@@ -6290,6 +6493,8 @@ async function mockBackend(action, p){
     case 'get-rotation-plan': return ok({rows:[],statusByYear:{},families:[],editableBlocks:['B1','B2','B3','B4']});
     case 'save-rotation': return ok({year:p.year,status:'Draft',assignments:p.assignments});
     case 'approve-rotation': return ok({year:p.year,status:'Approved'});
+    case 'get-next-activity-id': { let mx=0; demoCatalog.forEach(c=>{ const m=/^ACT_(\d+)$/.exec(c.id); if(m) mx=Math.max(mx,+m[1]); }); const f=n=>'ACT_'+String(n).padStart(3,'0'); return ok({lastActivityId:f(mx),nextActivityId:f(mx+1),source:'ACTIVITY_REFERENCE (demo)'}); }
+    case 'create-activity': return ok({activityId:'ACT_'+String(demoCatalog.length+1).padStart(3,'0'),note:'Demo mode: nothing was written.'});
     default: return bad('That action is not available.','UNKNOWN_ACTION');
   }
 }
