@@ -3948,7 +3948,8 @@ const opSig=r=>JSON.stringify([r.first,r.waves,r.interval,r.custom]);
 const opRows=()=>opState.data[opState.target]||[];
 function opTypicalGap(d){ if(d.length<2) return ''; const g=[]; for(let i=1;i<d.length;i++) g.push(calDay(d[i])-calDay(d[i-1])); g.sort((a,b)=>a-b); return g[Math.floor(g.length/2)]; }
 function opMakeRow(c){ const d=(c.dates||[]).slice().sort();
-  const r=Object.assign({},c,{first:d[0]||'',waves:d.length||'',interval:'',custom:d.length>0,existing:d,gap:opTypicalGap(d),srv:'',srvSig:''}); r.orig=opSig(r); return r; }
+  const gaps=[]; for(let k=1;k<d.length;k++) gaps.push(calDay(d[k])-calDay(d[k-1]));
+  const r=Object.assign({},c,{first:d[0]||'',waves:d.length||'',interval:'',custom:d.length>0,existing:d,gap:opTypicalGap(d),uneven:gaps.length>0&&(Math.max.apply(null,gaps)-Math.min.apply(null,gaps))>2,srv:'',srvSig:''}); r.orig=opSig(r); return r; }
 function opDemoCrops(){ const seen={}, out=[];
   (typeof CAL_DATA!=='undefined'?CAL_DATA:[]).forEach(w=>{ if(seen[w.name]) return; seen[w.name]=1;
     const lead=(w.pre[1]+w.pre[2]+w.pre[3]>0)?w.pre.reduce((a,b)=>a+b,0):0;
@@ -3993,12 +3994,12 @@ function opDetail(r,e){ if(!e.waves.length) return '<div class="dim">No waves pl
 function opRowHTML(r,i,tg){ const e=opEval(r,tg), c=opCells(r,e), dis=r.cropId?'':'disabled', dirty=r.orig!==opSig(r), open=!!opState.open[tg+i];
   const hide=opState.filter&&!(r.name+' '+r.cropId).toLowerCase().includes(opState.filter.toLowerCase());
   return `<tr id="op-r-${i}" data-q="${esc((r.name+' '+r.cropId).toLowerCase())}" class="${dirty?'dirty':''}" ${hide?'style="display:none"':''}>
-    <td><div class="nm">${esc(r.name)}</div><div class="id">${esc(r.cropId||'no match')}</div></td>
+    <td><div class="nm">${esc(r.name)}</div><div class="id">${esc(r.cropId||'no match')}</div>${r.custom&&r.existing.length?`<div class="id" style="margin-top:3px;white-space:normal;max-width:210px;" title="Saved planting dates in the workbook. These are the dates the Bed Planting Plan and calendars use.">${r.uneven?'Saved dates (uneven): ':'Saved dates: '}${r.existing.map(x=>esc(calShort(x))).join(' · ')}</div>`:''}</td>
     <td class="calc">${r.hmin} d</td>
     <td class="calc">${r.lead?r.lead+' d':'<span class="dim">none</span>'}<div class="mt">${esc(r.method||'')}</div></td>
     <td><input type="date" value="${esc(r.first)}" ${dis} onchange="opSet(${i},'first',this.value)" aria-label="First planting date ${esc(r.name)}"></td>
     <td><input type="number" min="0" max="${OP_MAX}" step="1" value="${esc(r.waves)}" ${dis} onchange="opSet(${i},'waves',this.value)" aria-label="Waves ${esc(r.name)}"></td>
-    <td><input type="number" min="1" step="1" value="${esc(r.interval)}" placeholder="${r.gap||OP_DEF_INT}" ${dis} onchange="opSet(${i},'interval',this.value)" aria-label="Interval days ${esc(r.name)}"></td>
+    <td><input type="number" min="1" step="1" value="${esc(r.interval)}" placeholder="${r.uneven&&r.custom?'varies':(r.gap||OP_DEF_INT)}" title="${r.uneven&&r.custom?'The saved dates are not evenly spaced, so there is no single interval. Typing here replaces them with an even pattern.':''}" ${dis} onchange="opSet(${i},'interval',this.value)" aria-label="Interval days ${esc(r.name)}"></td>
     <td class="calc" data-k="sow">${c.sow}</td><td class="calc" data-k="h1">${c.h1}</td><td class="calc" data-k="lp">${c.lp}</td><td class="calc" data-k="he">${c.he}</td>
     <td class="chkc"><span class="op-chk ${e.level}" data-k="chk">${esc(e.text)}</span></td>
     <td><button class="btn btn-ghost" style="width:auto;margin:0;padding:4px 10px" onclick="opToggle(${i})">${open?'Hide':'Waves'}</button></td></tr>`
@@ -4015,7 +4016,7 @@ function opRefresh(i){ const r=opRows()[i], tg=opState.target, tr=document.getEl
   const d=document.getElementById('op-d-'+i); if(d) d.firstElementChild.innerHTML=opDetail(r,e);
   opChrome(); }
 function opSet(i,field,val){ const r=opRows()[i]; if(!r) return;
-  if(r.custom){ /* first edit of an existing plan: switch to generated mode from what is shown */ r.custom=false; }
+  if(r.custom){ /* first edit of an existing plan: switch to generated mode from what is shown */ r.custom=false; if(r.interval===''&&field!=='interval'&&r.gap) r.interval=r.gap; }
   r[field]=field==='waves'?(val===''?'':Number(val)):val; opRefresh(i); }
 function opToggle(i){ const k=opState.target+i; opState.open[k]=!opState.open[k]; render(); }
 function opFilter(v){ opState.filter=v; document.querySelectorAll('#op-body tr[data-q]').forEach(tr=>{ tr.style.display=(!v||tr.dataset.q.includes(v.toLowerCase()))?'':'none'; }); }
@@ -4052,7 +4053,7 @@ function opScreen(){
   if(opState.busy&&!opState.data[tg]) return head(`<div class="op-ctl">${seg}</div><div class="card">Loading operation planner…</div>`);
   if(opState.error&&!opState.data[tg]) return head(`<div class="op-ctl">${seg}</div><div class="card">${esc(opState.error)}<br><button class="btn btn-outline" style="width:auto;margin-top:8px" onclick="opState.error=null;opLoad(true)">Retry</button></div>`);
   const rows=opRows(), sheet=tg==='FIELD'?'Open Field Operation':'Master Calendar';
-  const help=`Enter the first planting date and the number of waves (0 to ${OP_MAX}); leave the interval blank to use ${OP_DEF_INT} days. Sow (propagation) date = planting date minus the crop's lead days; harvest = planting date plus days to first harvest. Saving rewrites each changed crop in <b>${sheet}</b>, filing every wave under the month of its first harvest (max 2 per month).${' Open-field waves must be inside the crop\'s Oregon allowable window.'}${IS_DEMO?' <b>Demo mode: nothing is written.</b>':''}`;
+  const help=`Enter the first planting date and the number of waves (0 to ${OP_MAX}); leave the interval blank to use ${OP_DEF_INT} days. Sow (propagation) date = planting date minus the crop's lead days; harvest = planting date plus days to first harvest. A crop already in the workbook shows its <b>saved dates</b> under its name; the first date and wave count are just the start and size of that list, and the interval reads <i>varies</i> when the saved dates are unevenly spaced. Typing in any of those three boxes replaces the saved dates with an evenly spaced pattern. Saving rewrites each changed crop in <b>${sheet}</b>, filing every wave under the month of its first harvest (max 2 per month).${' Open-field waves must be inside the crop\'s Oregon allowable window.'}${IS_DEMO?' <b>Demo mode: nothing is written.</b>':''}`;
   const th=['Crop','Days to 1st harvest','Propagation lead','First planting date','Waves','Interval (days)','First sow','First harvest','Last planting','Last harvest ends','Check',''].map(h=>`<th>${h}</th>`).join('');
   return head(`<div class="op-ctl">${seg}<input type="search" placeholder="Find a crop" value="${esc(opState.filter)}" oninput="opFilter(this.value)"></div><div class="op-help">${help}</div>
     <div class="op-wrap"><table class="op-t"><thead><tr>${th}</tr></thead><tbody id="op-body">${rows.map((r,i)=>opRowHTML(r,i,tg)).join('')}</tbody></table></div>`)
