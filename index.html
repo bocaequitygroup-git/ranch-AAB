@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Activity Assignment Board — Ngapori Ranch</title>
+<link rel="preconnect" href="https://script.google.com" crossorigin>
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -425,6 +427,20 @@ button.vp-busy-btn:disabled{opacity:.82;}
 .gt-next{border-top:2px solid var(--forest);padding-top:8px;margin-top:6px;}
 .gt-next-h{font-size:11px;font-weight:800;color:var(--ink-soft);} .gt-next-s{font-size:13.5px;font-weight:800;margin-top:2px;}
 @media (prefers-reduced-motion:reduce){.gt-tabs button{transition:none;}}
+.rl-wrap{padding:14px 16px 40px;max-width:1000px;width:100%;margin:0 auto;}
+.rl-card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+.rl-card h3{margin:0 0 4px;font-size:13px;}
+.rl-note{font-size:11.5px;color:var(--ink-soft);line-height:1.45;}
+.rl-svg{overflow-x:auto;}.rl-svg svg{display:block;min-width:620px;width:100%;height:auto;}
+.rl-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;}
+.rl-chip{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;background:var(--sand);border:1px solid var(--line);}
+.rl-infra{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-top:8px;}
+.rl-infra>div{border:1.5px dashed var(--line);border-radius:10px;padding:8px 10px;font-size:11.5px;color:var(--ink-soft);}
+.rl-infra b{display:block;font-size:12px;color:var(--ink);}
+.rl-tbl{width:100%;border-collapse:collapse;font-size:12px;}.rl-tbl th,.rl-tbl td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);}
+.rl-top{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
+.rl-top select{padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--paper);color:var(--ink);}
+.rl-top label{font-size:12px;color:var(--ink-soft);display:flex;gap:5px;align-items:center;}
 </style>
 </head>
 <body><div id="app"></div>
@@ -483,14 +499,14 @@ async function apiCall(action, payload={}, timeoutMs){
         try{
           const resp=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({action},body)),redirect:'follow',signal:ctrl.signal});
           if(!resp.ok){
-            if(attempt<tries && (resp.status===404||resp.status===429||resp.status>=500)){ await new Promise(r=>setTimeout(r,700*attempt)); continue; }
+            if(attempt<tries && (resp.status===404||resp.status===429||resp.status>=500)){ await new Promise(r=>setTimeout(r,300*attempt)); continue; }
             throw apiError('The server answered with status '+resp.status+'.','HTTP');
           }
           json = JSON.parse(await resp.text());
           break;
         }catch(e2){
           if(e2 && e2.isApiError) throw e2;
-          if(attempt<tries){ await new Promise(r=>setTimeout(r,700*attempt)); continue; }
+          if(attempt<tries){ await new Promise(r=>setTimeout(r,300*attempt)); continue; }
           throw e2;
         }
         finally{ clearTimeout(timer); }
@@ -517,7 +533,7 @@ function forceLogout(msg){ clearSession(); Object.assign(state,{managerId:null,n
  * "not signed in" answer, and when the tab is closed). Wrapped in try/catch because storage can be blocked. */
 const SESSION_KEY='ranch_aab_session';
 function saveSession(){ try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify({managerId:state.managerId,name:state.name,role:state.role,token:state.token})); }catch(e){} }
-function clearSession(){ try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){} }
+function clearSession(){ try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){} if(window.vpCacheClear) window.vpCacheClear(); }
 function restoreSession(){
   try{ const s=JSON.parse(sessionStorage.getItem(SESSION_KEY)||'null');
     if(s&&s.token&&s.managerId){ Object.assign(state,{managerId:s.managerId,name:s.name,role:s.role,token:s.token}); return true; } }catch(e){}
@@ -532,7 +548,7 @@ async function doLogin(){
   try{
     const res = await apiCall('login', { workerId:id, pin, app:APP_NAME, device:deviceLabel() });
     Object.assign(state, { managerId:res.workerId, name:res.name, role:res.role, token:res.token });
-    saveSession(); ui.loginErr=''; ui.loginId=''; ui.screen='board'; render();
+    saveSession(); ui.loginErr=''; ui.loginId=''; ui.screen='ranch'; render();
     await loadToday();
   }catch(e){ ui.loginErr=e.message; render(); }
   finally{ _loginBusy=false; }
@@ -864,10 +880,11 @@ async function verifyHarvestComplete(cohortId){
  * planned cohort (crop block rule, bed availability over time, rotation, planting window); the manager
  * approves or changes it. Nothing here asks the manager to pick from the full bed list. */
 async function loadAssignmentQueue(){
-  try{ const d=await apiCall('get-assignment-queue', { year: ui.year }); state.aq=Object.assign({ loaded:true, error:'' }, d); }
+  /* Reconciliation is explanatory only: start it at the same time as the queue and do not wait for it. */
+  const reconP = IS_DEMO ? Promise.resolve(null) : apiCall('get-assignment-reconciliation', { year: ui.year }).catch(e=>{ console.warn('reconciliation unavailable', e); return null; });
+  try{ const d=await apiCall('get-assignment-queue', { year: ui.year }); state.aq=Object.assign({ loaded:true, error:'', recon:(state.aq&&state.aq.recon)||null }, d); }
   catch(e){ state.aq.error=(e.code?('['+e.code+'] '):'')+e.message; throw e; }
-  /* Where EVERY cohort is and why (AssignmentReconcile.gs). Explanatory only, so a failure here never blocks the board. */
-  try{ state.aq.recon = IS_DEMO ? null : await apiCall('get-assignment-reconciliation', { year: ui.year }); }catch(e){ state.aq.recon=null; console.warn('reconciliation unavailable', e); }
+  reconP.then(r=>{ state.aq.recon=r; if(window.vpPaint) window.vpPaint(); });
 }
 /* One panel that adds up to the cohort total. Field exceptions (EXCEPTION_LOG) are a different list from assignment exceptions. */
 function reconPanel(){
@@ -1031,7 +1048,114 @@ function bedSessions(bedId){ return state.sessions.filter(x=>x.bedId===bedId && 
 function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0;
   const ms0=$('.mapscroll'), pb0=$('.panelbody'), kMap=ui.screen+'|'+(ui.pMode||'')+((ui.screen==='planning'&&ui.pMode==='bedboard')?'|'+bb.sec:''); let kPan=''; try{ kPan=(ui.selectedBed||'')+'|'+ui.tab+'|'+(bb.bedSel||'')+'|'+bb.tab; }catch(e){}
   const msT=(ms0&&render._kMap===kMap&&!ui.resetScroll)?ms0.scrollTop:0, pbT=(pb0&&render._kPan===kPan)?pb0.scrollTop:0; render._kMap=kMap; render._kPan=kPan;
-  ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : ui.screen==='planning' ? planningScreen() : ui.screen==='labor' ? laborScreen() : boardScreen(); attachMapEvents(); attachPlanningEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const ms1=$('.mapscroll'); if(ms1&&msT) ms1.scrollTop=msT; const pb1=$('.panelbody'); if(pb1&&pbT) pb1.scrollTop=pbT; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
+  ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : ui.screen==='ranch' ? ranchScreen() : ui.screen==='planning' ? planningScreen() : ui.screen==='labor' ? laborScreen() : boardScreen(); attachMapEvents(); attachPlanningEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const ms1=$('.mapscroll'); if(ms1&&msT) ms1.scrollTop=msT; const pb1=$('.panelbody'); if(pb1&&pbT) pb1.scrollTop=pbT; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
+/* ============================== RANCH LAYOUT (default landing page) ==============================
+ * Logical, north-up spatial schematic of the vegetable production area: B1-B4 x 55 positions = 220 production beds,
+ * plus 11 separate Zone 5 registry markers (not counted). Each block is an 11 x 5 INDEXING grid only; it is not a claim about
+ * physical rows, bed lengths, coordinates or pipe routes. Cell colours come from the same bedView()/bedState() the Daily Board uses. */
+const RL_BLOCKS=[['B1',1,'Succession / high-frequency crops'],['B2',2,'African / supplemental greens'],['B3',3,'Roots / brassicas / alliums'],['B4',4,'Perennials / specialty crops']];
+const RL_INFRA=[['Seven irrigation zones','Independent hydraulic overlay. Bed membership is not drawn here.'],['11 Zone 5 markers','Separate physical registry layer (shown above, outside the 220 count).'],['Farm access roads','Surveyed road alignment. Not drawn.'],['Main water supply','Verified pipe routing. Not drawn.'],['Pump and reservoir','Actual surveyed position. Not drawn.'],['Packhouse','50\u2032 \u00d7 80\u2032 footprint; site position to be confirmed.'],['Drainage and wastewater','Independent engineering / environmental layer. Not drawn.']];
+function rlS(){ return ui.rl||(ui.rl={block:'ALL',sel:null,infra:true}); }
+function goRanch(){ ui.screen='ranch'; render(); }
+function rlBlock(k){ const R=rlS(); R.block=k; R.sel=null; render(); }
+function rlPick(id){ const R=rlS(); R.sel=(R.sel===id?null:id); render(); }
+function rlOpenBed(id){ ui.screen='board'; selectBed(id); }
+function rlInfra(on){ rlS().infra=!!on; render(); }
+function rlBeds(g){
+  const m={}; gridBeds().forEach(b=>{ const p=parseLocationId(b.id); if(p&&p.kind==='BLOCK'&&p.group===g) m[p.bed]=b; });
+  return Array.from({length:55},(_,i)=>{ const n=i+1, b=m[n]; return { n, id:'B'+g+'-'+String(n).padStart(2,'0'), real:b?b.id:null, v:b?bedView(b):null }; });
+}
+function rlZ5(){
+  const m={}; gridBeds().forEach(b=>{ const p=parseLocationId(b.id); if(p&&p.kind==='ZONE'&&p.group===5) m[p.bed]=b; });
+  return Array.from({length:11},(_,i)=>{ const n=i+1, b=m[n]; return { n, id:'Z5-'+String(n).padStart(2,'0'), real:b?b.id:null, v:b?bedView(b):null }; });
+}
+function rlFill(v){
+  if(!v) return null; const st=bedState(v);
+  if(st==='OCCUPIED') return STAGE_COLOR[v.currentStage]||'#8FBF8A';
+  if(st==='PROPOSED') return PROPOSED_FILL; if(st==='POST_HARVEST') return POST_HARVEST_FILL; if(st==='UNVERIFIED') return UNVERIFIED_FILL; return '#EEE';
+}
+function rlStats(cells){
+  const s={OCCUPIED:0,PROPOSED:0,POST_HARVEST:0,UNVERIFIED:0,AVAILABLE:0,NONE:0};
+  cells.forEach(c=>{ s[c.v?bedState(c.v):'NONE']++; }); return s;
+}
+function rlChips(s){
+  return `<div class="rl-chips"><span class="rl-chip">${s.OCCUPIED} occupied</span><span class="rl-chip">${s.PROPOSED} proposed</span><span class="rl-chip">${s.AVAILABLE} available</span><span class="rl-chip">${s.POST_HARVEST} post-harvest</span><span class="rl-chip">${s.UNVERIFIED} not verified</span>${s.NONE?`<span class="rl-chip">${s.NONE} with no register record loaded</span>`:''}</div>`;
+}
+function rlCell(c,x,y,w,h,full,onclick){
+  const v=c.v, f=rlFill(v), occ=v&&v.cohortId, tc=f?(DARK_FILLS.includes(f)?'#fff':'#1B1B18'):'var(--ink-soft)';
+  const tip=c.id+' \u00b7 '+(occ?(v.cohortId+' \u00b7 '+(v.cropName||'')+' \u00b7 '+String(v.currentStage||v.cohortStatus||'').replace(/_/g,' ')):(v?bedState(v).replace(/_/g,' ').toLowerCase():'no register record loaded'));
+  let t=`<text x="${x+4}" y="${y+10}" font-size="${full?8:6.5}" font-weight="700" style="fill:${tc}" opacity=".7">${String(c.n).padStart(2,'0')}</text>`;
+  if(full&&occ) t+=`<text x="${x+w/2}" y="${y+27}" text-anchor="middle" font-size="10" font-weight="800" style="fill:${tc}">${esc(v.cohortId)}</text><text x="${x+w/2}" y="${y+38}" text-anchor="middle" font-size="8.5" font-weight="600" style="fill:${tc}">${esc(String(v.cropName||'').slice(0,12))}</text><text x="${x+w/2}" y="${y+48}" text-anchor="middle" font-size="6.5" font-weight="700" style="fill:${tc}" opacity=".85">${esc(String(v.currentStage||v.cohortStatus||'').replace(/_/g,' '))}</text>`;
+  else if(full&&v) t+=`<text x="${x+w/2}" y="${y+33}" text-anchor="middle" font-size="7.5" font-weight="700" style="fill:${tc}" opacity=".8">${esc(bedState(v).replace(/_/g,' '))}</text>`;
+  const sel=rlS().sel&&rlS().sel===c.real;
+  return `<g ${onclick?`style="cursor:pointer" onclick="${onclick}"`:''}><title>${esc(tip)}</title><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${full?6:3}" ${f?`fill="${f}"`:'style="fill:none;stroke:var(--line);stroke-dasharray:3 2"'} ${sel?'stroke="#1F3A2E" stroke-width="2.5"':(f?'stroke="rgba(0,0,0,.12)"':'')}></rect>${t}</g>`;
+}
+/* One block as an 11-column x 5-row indexing grid (positions 01-55, left to right, top to bottom). */
+function rlGrid(g,ox,oy,full){
+  const cells=rlBeds(g), w=full?70:34, h=full?54:28, px=full?74:37, py=full?58:31, lx=full?44:30; let svg='';
+  for(let r=0;r<5;r++){ svg+=`<text x="${ox}" y="${oy+r*py+h/2+3}" font-size="${full?9:7}" style="fill:var(--ink-soft)">${String(r*11+1).padStart(2,'0')}\u2013${String(r*11+11).padStart(2,'0')}</text>`; }
+  cells.forEach((c,i)=>{ const x=ox+lx+(i%11)*px, y=oy+Math.floor(i/11)*py; svg+=rlCell(c,x,y,w,h,full,full?(c.real?`rlPick('${c.real}')`:''):`rlBlock('B${g}')`); });
+  return svg;
+}
+function rlMaster(){
+  let svg=`<text x="470" y="16" text-anchor="middle" font-size="11" font-weight="800" style="fill:var(--ink-soft)">NORTH \u25b2</text>`;
+  const pos={B1:[15,26],B2:[475,26],B3:[15,318],B4:[475,318]};
+  RL_BLOCKS.forEach(([k,g,desc])=>{
+    const [x,y]=pos[k], cells=rlBeds(g), s=rlStats(cells);
+    svg+=`<g style="cursor:pointer" onclick="rlBlock('${k}')"><rect x="${x}" y="${y}" width="450" height="232" rx="10" style="fill:var(--paper);stroke:var(--line)"/><text x="${x+10}" y="${y+18}" font-size="13" font-weight="800" style="fill:var(--ink)">${k} \u2014 BLOCK ${g}</text><text x="${x+10}" y="${y+32}" font-size="9.5" style="fill:var(--ink-soft)">55 beds \u00b7 ${desc} \u00b7 ${k}-01 to ${k}-55</text></g>`;
+    svg+=rlGrid(g,x+6,y+42,false);
+    svg+=`<text x="${x+10}" y="${y+224}" font-size="9" style="fill:var(--ink-soft)">55 bed positions \u00b7 ${s.OCCUPIED} occupied \u00b7 click to open</text>`;
+  });
+  svg+=`<rect x="15" y="268" width="910" height="40" rx="6" style="fill:var(--sand);stroke:var(--line);stroke-dasharray:5 3"/><text x="470" y="285" text-anchor="middle" font-size="10.5" font-weight="800" style="fill:var(--ink-soft)">CENTRAL ACCESS / SERVICE CORRIDOR</text><text x="470" y="299" text-anchor="middle" font-size="8.5" style="fill:var(--ink-soft)">Proposed access separation; width and alignment require site verification.</text>`;
+  svg+=`<text x="470" y="568" text-anchor="middle" font-size="11" font-weight="800" style="fill:var(--ink-soft)">SOUTH \u25bc</text>`;
+  return `<div class="rl-svg"><svg viewBox="0 0 940 576" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Master production-area schematic, north-up, not to scale">${svg}</svg></div>`;
+}
+function rlCohorts(cells){
+  const by={}; cells.forEach(c=>{ const v=c.v; if(v&&v.cohortId){ const o=by[v.cohortId]=by[v.cohortId]||{id:v.cohortId,crop:v.cropName,stage:v.currentStage||v.cohortStatus,hw:v.harvestWindow,beds:[]}; o.beds.push(c.n); } });
+  const rows=Object.values(by); if(!rows.length) return `<div class="rl-note">No cohort is placed on a bed in this block for ${ui.year}${state.board.loaded?'':' (cohort board still loading)'}.</div>`;
+  return `<table class="rl-tbl"><tr><th>Cohort</th><th>Crop</th><th>Stage</th><th>Beds</th><th>Harvest window</th></tr>${rows.map(o=>`<tr><td><b>${esc(o.id)}</b></td><td>${esc(o.crop||'')}</td><td>${esc(String(o.stage||'').replace(/_/g,' '))}</td><td>${o.beds.length} (${o.beds.length>3?String(o.beds[0]).padStart(2,'0')+'\u2013'+String(o.beds[o.beds.length-1]).padStart(2,'0'):o.beds.map(n=>String(n).padStart(2,'0')).join(', ')})</td><td>${esc(o.hw||'\u2014')}</td></tr>`).join('')}</table>`;
+}
+function rlSelCard(cells){
+  const R=rlS(), c=cells.find(x=>x.real&&x.real===R.sel); if(!c) return '';
+  const v=c.v||{}, st=bedState(v).replace(/_/g,' ').toLowerCase(), kv=(a,b)=>`<tr><td style="color:var(--ink-soft)">${a}</td><td>${esc(b||'\u2014')}</td></tr>`;
+  return `<div class="rl-card"><h3>Bed ${esc(c.id)}</h3><table class="rl-tbl">${kv('Status',st)}${kv('Cohort',v.cohortId)}${kv('Crop',v.cropName)}${kv('Stage',String(v.currentStage||v.cohortStatus||'').replace(/_/g,' '))}${kv('Planted',v.plantingDate)}${kv('Harvest window',v.harvestWindow)}</table><div style="margin-top:8px;display:flex;gap:8px;"><button class="btn btn-primary" style="width:auto;margin:0" onclick="rlOpenBed('${esc(c.real)}')">Open in Daily Board</button><button class="btn btn-outline" style="width:auto;margin:0" onclick="rlPick('${esc(c.real)}')">Close</button></div></div>`;
+}
+function rlZ5HTML(){
+  const z=rlZ5(), s=rlStats(z); let svg='';
+  z.forEach((c,i)=>{ const cx=40+i*80, f=rlFill(c.v), tc=f&&DARK_FILLS.includes(f)?'#fff':'#1B1B18';
+    svg+=`<g ${c.real?`style="cursor:pointer" onclick="rlOpenBed('${esc(c.real)}')"`:''}><title>${esc(c.id+(c.v&&c.v.cohortId?' \u00b7 '+c.v.cohortId+' \u00b7 '+(c.v.cropName||''):''))}</title><circle cx="${cx}" cy="30" r="20" ${f?`fill="${f}" stroke="rgba(0,0,0,.2)"`:'style="fill:none;stroke:var(--line);stroke-dasharray:3 2"'}/><text x="${cx}" y="34" text-anchor="middle" font-size="10" font-weight="800" style="fill:${f?tc:'var(--ink-soft)'}">${String(c.n).padStart(2,'0')}</text></g>`; });
+  return `<div class="rl-card"><h3>Zone 5 registry markers \u00b7 11 separate markers</h3><div class="rl-note">A separate physical registry layer. These are not part of B1\u2013B4 and are excluded from the 220 production-bed count.</div><div class="rl-svg"><svg viewBox="0 0 900 60" xmlns="http://www.w3.org/2000/svg">${svg}</svg></div>${s.NONE===11?'<div class="rl-note">No Zone 5 records are loaded yet; markers are shown as empty outlines.</div>':rlChips(s)}</div>`;
+}
+function rlInfraHTML(){
+  if(!rlS().infra) return '';
+  const zones=[1,2,3,4,5,6,7].map(n=>`<span class="rl-chip">Hydraulic zone ${n}</span>`).join('');
+  return `<div class="rl-card"><h3>Separate infrastructure overlays</h3><div class="rl-note">Drawn as a layer apart from the physical plan, so bed identities never change. Items without verified survey data are listed, not placed.</div><div class="rl-chips">${zones}</div><div class="rl-infra">${RL_INFRA.map(([a,b])=>`<div><b>${a}</b>${b}</div>`).join('')}</div></div>`;
+}
+function ranchScreen(){
+  const R=rlS(), all=R.block==='ALL', g=all?0:+R.block.slice(1), meta=RL_BLOCKS.find(b=>b[0]===R.block);
+  const prod=[].concat(...RL_BLOCKS.map(b=>rlBeds(b[1]))), cells=all?prod:rlBeds(g), s=rlStats(cells);
+  const legend=Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('')+`<span><span class="sw" style="background:${PROPOSED_FILL}"></span>PROPOSED</span><span><span class="sw" style="background:${POST_HARVEST_FILL}"></span>POST-HARVEST</span><span><span class="sw" style="background:${UNVERIFIED_FILL}"></span>NOT VERIFIED</span><span><span class="sw" style="background:#EEE;border:1px solid var(--line)"></span>AVAILABLE</span><span><span class="sw" style="border:1px dashed var(--ink-soft)"></span>NO RECORD LOADED</span>`;
+  const note=state.todayPending||!state.board.loaded?`<div class="demo-strip">${state.fromCache?'Showing saved data, updating\u2026':'Loading live bed and cohort data\u2026'}</div>`:(state.board.error?`<div class="demo-strip">Cohort board: ${esc(state.board.error)}</div>`:'');
+  return `${IS_DEMO?'<div class="demo-strip">Demo mode with generated sample data.</div>':''}
+  <div class="topbar"><div><div class="brand">Ngapori Ranch \u00b7 Production Area Layout</div><div class="sub">${esc(state.name||'')} \u00b7 ${esc(state.role||'')}</div></div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing\u2026':'\u21bb Refresh'}</button><button onclick="goBoard()">Daily Board</button><button onclick="goPlanning()">Season Planning</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div></div>
+  ${note}
+  <div class="rl-wrap">
+    <div class="rl-top"><div class="seg"><button class="${all?'active':''}" onclick="rlBlock('ALL')">Master layout</button>${RL_BLOCKS.map(b=>`<button class="${R.block===b[0]?'active':''}" onclick="rlBlock('${b[0]}')">${b[0]}</button>`).join('')}</div>
+      <select onchange="setYear(this.value)" aria-label="Planning year">${YEAR_OPTIONS.map(y=>`<option value="${y}" ${y===ui.year?'selected':''}>${y}</option>`).join('')}</select>
+      <label><input type="checkbox" ${R.infra?'checked':''} onchange="rlInfra(this.checked)"> Infrastructure layer</label></div>
+    <div class="rl-card"><h3>${all?'Master production-area schematic \u00b7 220-bed baseline':esc(meta[0])+' \u2014 Block '+g+' \u00b7 cohort view'}</h3>
+      <div class="rl-note">${all?'Conceptual north-up arrangement. Not to scale. No surveyed dimensions implied. Select a block to see its cohorts.':esc(meta[2])+' \u00b7 55 bed positions ('+esc(meta[0])+'-01 to '+esc(meta[0])+'-55). Click a bed for details.'}</div>
+      ${rlChips(s)}<div class="legend" style="padding:4px 0;">${legend}</div>
+      ${all?rlMaster():`<div class="rl-svg"><svg viewBox="0 0 880 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(meta[0])} cohort layout">${rlGrid(g,0,6,true)}</svg></div>`}
+      <div class="rl-note" style="margin-top:6px;">Each block is an 11-column \u00d7 5-row indexing grid for illustration only. It is not a claim that the beds occupy five rows of eleven. Actual bed orientation and ordering must follow the locked location register.</div>
+    </div>
+    ${all?'':rlSelCard(cells)+`<div class="rl-card"><h3>Cohorts in ${esc(meta[0])}</h3>${rlCohorts(cells)}</div>`}
+    ${rlZ5HTML()}${rlInfraHTML()}
+  </div>
+  ${ui.toast?`<div class="toast">${esc(ui.toast)}</div>`:''}`;
+}
+
 function goPlanning(){ ui.screen='planning'; render(); }
 function goBoard(){ ui.screen='board'; render(); }
 
@@ -1057,7 +1181,7 @@ function boardScreen(){
   ${IS_DEMO?`<div class="demo-strip">Demo mode with generated sample data. Set WEB_APP_URL to connect to your live backend.</div>`:''}
   <div class="topbar">
     <div><div class="brand">Activity Assignment Board</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()" title="Reload live data">${ui.loading?'Refreshing…':'↻ Refresh'}</button><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
+    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()" title="Reload live data">${ui.loading?'Refreshing…':'↻ Refresh'}</button><button onclick="goRanch()">Ranch Layout</button><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
   </div>
   <div class="wrap">
     <div class="mapcol">
@@ -6541,25 +6665,54 @@ async function mockBackend(action, p){
  * The button state survives render() because it is re-applied after every render until the action finishes. */
 (function vpLiveLayer(){
   'use strict';
-  const POLL_MS=30000;
+  const POLL_MS=10000, MIN_GAP=3000;   /* background refresh every 10 s while visible (was 30 s) */
   const READ_RE=/^(get|list|check|preview|validate)-/;     /* api actions that do not change data */
+  const CACHE_KEY='ranch_aab_cache_v1', CACHE_ACTIONS={'get-manager-today-view':1,'get-cohort-board':1,'get-assignment-queue':1};
+  let cacheMem={}, cacheTimer=null;
+  function cachePut(action,d){
+    if(!d) return; const o=Object.assign({},d); delete o.timings; cacheMem[action]={ t:Date.now(), year:ui.year, d:o };
+    clearTimeout(cacheTimer); cacheTimer=setTimeout(function(){ try{ const j=JSON.stringify({ u:state.managerId, m:cacheMem }); if(j.length<4000000) sessionStorage.setItem(CACHE_KEY,j); }catch(e){} },1500);
+  }
+  window.vpCacheClear=function(){ cacheMem={}; try{ sessionStorage.removeItem(CACHE_KEY); }catch(e){} };
+  /* Paint the last known data at once on a reload; the normal load then replaces it with live data. */
+  window.vpCacheHydrate=function(){
+    try{
+      const c=JSON.parse(sessionStorage.getItem(CACHE_KEY)||'null'); if(!c||c.u!==state.managerId||!c.m) return false;
+      const t=c.m['get-manager-today-view']; if(!t||!t.d) return false;
+      cacheMem=c.m; applyTodayView(t.d);
+      const b=c.m['get-cohort-board']; if(b&&b.d&&b.year===ui.year){ const cohorts=b.d.cohorts||[], byKey={}, unplaced=[];
+        cohorts.forEach(function(x){ const p=parseLocationId(x.locationId); if(!p){ unplaced.push(x); return; } (byKey[locKey(p)]=byKey[locKey(p)]||[]).push(x); });
+        state.board={ error:'', loaded:true, year:b.year, beds:b.d.beds||[], cohorts:cohorts, byKey:byKey, unplaced:unplaced, stats:b.d.stats||{} }; }
+      const q=c.m['get-assignment-queue']; if(q&&q.d&&q.year===ui.year) state.aq=Object.assign({ loaded:true, error:'' }, q.d);
+      state.fromCache=true; return true;
+    }catch(e){ return false; }
+  };
   let epoch=0, active=0, writes=0, writeFails=0, toasts=0, lastPoll=0, lastCtx='';
-  let clickCtx=null, dirty=false, polling=false;
+  let clickCtx=null, dirty=false, polling=false, tick=0, failStreak=0; const lastSig={t:'',b:'',q:''}, lastRef={}, inflightReads=new Map();
   const inflight=new Set(), busyBtns=new Map();
 
   /* ---------- counters: did this action write, did a write fail, did the handler already toast ---------- */
   const _apiCall=window.apiCall;
   window.apiCall=function(action){
-    if(READ_RE.test(String(action))) return _apiCall.apply(this,arguments);
+    if(READ_RE.test(String(action))){
+      /* identical read already on its way: share it instead of sending a second request */
+      let k; try{ k=action+'|'+JSON.stringify(arguments[1]||{}); }catch(e){ k=null; }
+      if(k&&inflightReads.has(k)) return inflightReads.get(k);
+      const p=_apiCall.apply(this,arguments);
+      if(k){ inflightReads.set(k,p); const done=function(){ inflightReads.delete(k); }; p.then(done,done); }
+      if(CACHE_ACTIONS[action]) p.then(function(d){ cachePut(action,d); },function(){});
+      return p;
+    }
     writes++;
-    return _apiCall.apply(this,arguments).catch(function(e){ writeFails++; throw e; });
+    return _apiCall.apply(this,arguments).then(function(r){ wroteAt=Date.now(); return r; },function(e){ writeFails++; throw e; });
   };
+  let wroteAt=0;
   const _toast=window.toast;
   window.toast=function(msg,ms,kind){ toasts++; ui.toastKind=kind||''; return _toast.call(this,msg,ms); };
   const _busyHide=window.busyHide;                          /* a handler's own busyHide() must not hide the bar while we are still working */
   window.busyHide=function(){ if(active>0) return; return _busyHide.apply(this,arguments); };
   const _lto=window.loadTodayOnce;                          /* a manual Refresh invalidates any poll that is in flight */
-  window.loadTodayOnce=function(){ epoch++; return Promise.resolve(_lto.apply(this,arguments)).finally(function(){ epoch++; }); };
+  window.loadTodayOnce=function(){ epoch++; lastSig.t=lastSig.b=lastSig.q=''; return Promise.resolve(_lto.apply(this,arguments)).finally(function(){ epoch++; }); };
 
   /* ---------- keep <details> drawers open/closed across a repaint ---------- */
   function detKey(d,counts){ const s=d.querySelector(':scope > summary'); const t=(s?s.textContent:'').replace(/[\d\s]+/g,'').slice(0,60)||'(none)'; counts[t]=(counts[t]||0)+1; return t+'#'+counts[t]; }
@@ -6704,6 +6857,7 @@ async function mockBackend(action, p){
         inflight.delete(key); active--; epoch++;
         if(sig) releaseBtn(sig);
         if(active===0) _busyHide.call(window);
+        if(!threw&&writes>w0&&writeFails===f0) setTimeout(function(){ if(!_loadRun&&active===0){ lastSig.t=lastSig.b=lastSig.q=''; pollTick(); refreshVisible(true); } },700);
         if(threw){ if(toasts===t0) window.toast((v&&v.message)||('Could not complete: '+busyMsg.replace(/…$/,''))); return; }
         /* success = the server accepted at least one change, none failed, and the handler did not already say something */
         if(v!==false&&doneMsg&&writes>w0&&writeFails===f0&&toasts===t0) window.toast(doneMsg,3200,'ok');
@@ -6743,41 +6897,73 @@ async function mockBackend(action, p){
     if(search&&typeof keepFocus==='function') keepFocus('bed-search');
   }
   function paint(){
-    if(ui.screen!=='board'&&ui.screen!=='planning') return;   /* other screens do not show this data */
+    if(ui.screen!=='board'&&ui.screen!=='planning'&&ui.screen!=='ranch') return;   /* other screens do not show this data */
     if(repaintBlocked()){ dirty=true; return; }               /* data is already in state; paint when the manager is done */
     repaint();
   }
   function flushIfIdle(){ if(dirty&&state.token) paint(); }
+  /* A response that is identical to the last one is not applied or repainted (no flicker, no wasted work). */
+  function sigOf(d){ try{ const o=Object.assign({},d); ['timings','serverTime','generatedAt','asOf','now','ts'].forEach(function(k){ delete o[k]; }); return JSON.stringify(o); }catch(e){ return String(Math.random()); } }
   /* Same transform as loadCohortBoard(), but returned instead of applied so a stale result can be dropped. */
   async function fetchBoard(year){
     const d=await apiCall('get-cohort-board',{ year:year });
     const cohorts=(d&&d.cohorts)||[], byKey={}, unplaced=[];
     cohorts.forEach(function(c){ const p=parseLocationId(c.locationId); if(!p){ unplaced.push(c); return; } (byKey[locKey(p)]=byKey[locKey(p)]||[]).push(c); });
-    return { error:'', loaded:true, year:year, beds:(d&&d.beds)||[], cohorts:cohorts, byKey:byKey, unplaced:unplaced, stats:(d&&d.stats)||{} };
+    return { error:'', loaded:true, year:year, beds:(d&&d.beds)||[], cohorts:cohorts, byKey:byKey, unplaced:unplaced, stats:(d&&d.stats)||{}, _sig:sigOf(d) };
   }
   async function pollTick(){
     flushIfIdle();
     if(polling||!state.token||document.hidden||navigator.onLine===false) return;
     if(ui.screen==='login'||_loadRun||active>0||ui.loading||(ui.dp&&ui.dp.busy)) return;
-    polling=true; lastPoll=Date.now();
-    const e0=epoch, year0=ui.year;
+    polling=true; lastPoll=Date.now(); tick++;
+    const e0=epoch, year0=ui.year, wantQ=(ui.screen!=='labor')&&(tick%2===0||state.aq.loaded===false);
     try{
-      const res=await Promise.allSettled([ fetchTodayView(), fetchBoard(year0) ]);
+      const res=await Promise.allSettled([ fetchTodayView(), fetchBoard(year0), wantQ?apiCall('get-assignment-queue',{year:year0}):Promise.resolve(null) ]);
       if(!state.token||epoch!==e0||_loadRun||active>0||ui.loading) return;   /* the user acted meanwhile: this result may be older than theirs */
       let changed=false;
       if(res[0].status==='fulfilled'){
-        const d=res[0].value||{}; d.workers=d.workers||state.workers; d.activityCatalog=d.activityCatalog||state.activityCatalog;
-        applyTodayView(d); changed=true;
+        const d=res[0].value||{}, sg=sigOf(d);
+        if(sg!==lastSig.t){ d.workers=d.workers||state.workers; d.activityCatalog=d.activityCatalog||state.activityCatalog; applyTodayView(d); lastSig.t=sg; changed=true; }
+        else state.lastSync=new Date();
       }
-      if(res[1].status==='fulfilled'&&ui.year===year0){ state.board=res[1].value; changed=true; }
+      if(res[1].status==='fulfilled'&&ui.year===year0){ const bd=res[1].value; if(bd._sig!==lastSig.b){ state.board=bd; lastSig.b=bd._sig; changed=true; } }
+      if(res[2].status==='fulfilled'&&res[2].value&&ui.year===year0){ const sg=sigOf(res[2].value); if(sg!==lastSig.q){ state.aq=Object.assign({ loaded:true, error:'' }, res[2].value, { recon:state.aq&&state.aq.recon }); lastSig.q=sg; changed=true; } }
+      failStreak=(res[0].status==='rejected'&&res[1].status==='rejected')?failStreak+1:0;
+      state.fromCache=false;
       if(changed) paint();
-    }catch(e){ /* background refresh is silent; apiCall already updates the connection indicator */ }
+      refreshVisible(false);
+    }catch(e){ failStreak++; /* background refresh is silent; apiCall already updates the connection indicator */ }
     finally{ polling=false; }
   }
-  document.addEventListener('visibilitychange',function(){ if(!document.hidden&&Date.now()-lastPoll>POLL_MS/2) pollTick(); });
+  /* ---------- the page being looked at refreshes its own data (planning pages cache theirs for the whole session) ---------- */
+  function editing(){ try{ return !!(ui.modal||ui.pModifying||ui.ppBedModify||ui.pEditingRotation||ui.ppBusy||(ui.ppSel&&ui.ppSel.length)||(ui.pSelBeds&&ui.pSelBeds.length)||repaintBlocked()); }catch(e){ return true; } }
+  function quiet(key,minMs,fn,force){
+    const now=Date.now(); if(!force&&now-(lastRef[key]||0)<minMs) return; lastRef[key]=now;
+    const snap=snapScroll();
+    try{ const p=Promise.resolve(fn()); restoreScroll(snap); p.then(function(){ restoreScroll(snap); },function(){}); }catch(e){}
+  }
+  function refreshVisible(force){
+    if(!state.token||ui.screen!=='planning'||editing()) return;
+    const m=ui.pMode, Y=ui.pYear, B=ui.pBlock;
+    if(m==='calendar') quiet('cal',20000,function(){ return loadCalendar(true); },force);
+    else if(m==='irrigation') quiet('irr',15000,function(){ return irrLoad(true); },force);
+    else if(m==='infra') quiet('inf'+Y,45000,function(){ return infraLoad(true); },force);
+    else if(m==='rotation') quiet('rot',30000,function(){ return loadRotationPlan(); },force);
+    else if(m==='smart'||m==='plan') quiet('pp'+Y+B,20000,function(){ return loadPlanningContext(true); },force);
+    else if(m==='exec') quiet('exec'+Y,15000,function(){ return execEnsureBoard(true); },force);
+    else if(m==='cohorts') quiet('cps'+Y,20000,function(){ return loadCohortStatus(true); },force);
+    else if(m==='assigncohort') quiet('aq',15000,function(){ return ensureAcLoaded(true); },force);
+    else if(m==='bedboard') quiet('bb',30000,function(){ return bbLoad(true); },force);
+  }
+  window.vpPaint=paint; window.vpRefreshVisible=refreshVisible;
+  /* switching page or mode: show what is cached at once, then bring the page up to date in the background */
+  ['setPMode','goPlanning'].forEach(function(n){ const f=window[n]; if(typeof f!=='function') return; window[n]=function(){ const r=f.apply(this,arguments); setTimeout(function(){ refreshVisible(true); },60); return r; }; });
+  /* after the server accepted a change, re-read right away instead of waiting for the next tick */
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden&&Date.now()-lastPoll>MIN_GAP){ pollTick(); setTimeout(function(){ refreshVisible(true); },200); } });
+  window.addEventListener('focus',function(){ if(Date.now()-lastPoll>MIN_GAP) pollTick(); });
   window.addEventListener('online',function(){ pollTick(); });
   document.addEventListener('focusout',function(){ if(dirty) setTimeout(flushIfIdle,300); },true);
-  setInterval(pollTick,POLL_MS);
+  (function loop(){ setTimeout(function(){ Promise.resolve(pollTick()).catch(function(){}).then(loop); }, Math.min(60000, POLL_MS*(1+Math.min(failStreak,4)))); })();   /* backs off while the server is unreachable */
   window.refreshLive=pollTick;
 })();
 
@@ -6792,9 +6978,13 @@ document.addEventListener('keydown',e=>{
   doLogin();
 });
 if(restoreSession()){
-  /* A saved sign-in: go straight to the board. If the server no longer accepts the token, apiCall's forceLogout returns to the login screen. */
-  ui.screen='board'; render(); loadToday().catch(()=>{});
-} else render();
+  /* A saved sign-in: go straight to the Ranch Layout landing page. If the server no longer accepts the token, apiCall's forceLogout returns to the login screen. */
+  if(window.vpCacheHydrate) window.vpCacheHydrate();   /* instant paint from the last session data */
+  ui.screen='ranch'; render(); loadToday().catch(()=>{});
+} else { render();
+  /* wake the Apps Script container while the person types the PIN, so sign-in does not pay the cold start */
+  if(!IS_DEMO) try{ fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'ping'}),redirect:'follow'}).catch(()=>{}); }catch(e){}
+}
 </script>
 </body>
 </html>
