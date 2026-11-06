@@ -1057,8 +1057,8 @@ const RL_BLOCKS=[['B1',1,'Succession / high-frequency crops'],['B2',2,'African /
 const RL_INFRA=[['Seven irrigation zones','Independent hydraulic overlay. Bed membership is not drawn here.'],['11 Zone 5 markers','Separate physical registry layer (shown above, outside the 220 count).'],['Farm access roads','Surveyed road alignment. Not drawn.'],['Main water supply','Verified pipe routing. Not drawn.'],['Pump and reservoir','Actual surveyed position. Not drawn.'],['Packhouse','50\u2032 \u00d7 80\u2032 footprint; site position to be confirmed.'],['Drainage and wastewater','Independent engineering / environmental layer. Not drawn.']];
 function rlS(){ return ui.rl||(ui.rl={block:'ALL',sel:null,infra:true}); }
 function goRanch(){ ui.screen='ranch'; render(); }
-function rlBlock(k){ const R=rlS(); R.block=k; R.sel=null; render(); }
-function rlPick(id){ const R=rlS(); R.sel=(R.sel===id?null:id); render(); }
+function rlBlock(k){ const R=rlS(); R.block=k; R.sel=null; ui.selectedBed=null; render(); }
+function rlPick(id){ selectBed(id); }   /* same full bed panel (Overview, Required, Verify, Activities, History) as the Daily Board */
 function rlOpenBed(id){ ui.screen='board'; selectBed(id); }
 function rlInfra(on){ rlS().infra=!!on; render(); }
 function rlBeds(g){
@@ -1087,7 +1087,7 @@ function rlCell(c,x,y,w,h,full,onclick){
   let t=`<text x="${x+4}" y="${y+10}" font-size="${full?8:6.5}" font-weight="700" style="fill:${tc}" opacity=".7">${String(c.n).padStart(2,'0')}</text>`;
   if(full&&occ) t+=`<text x="${x+w/2}" y="${y+27}" text-anchor="middle" font-size="10" font-weight="800" style="fill:${tc}">${esc(v.cohortId)}</text><text x="${x+w/2}" y="${y+38}" text-anchor="middle" font-size="8.5" font-weight="600" style="fill:${tc}">${esc(String(v.cropName||'').slice(0,12))}</text><text x="${x+w/2}" y="${y+48}" text-anchor="middle" font-size="6.5" font-weight="700" style="fill:${tc}" opacity=".85">${esc(String(v.currentStage||v.cohortStatus||'').replace(/_/g,' '))}</text>`;
   else if(full&&v) t+=`<text x="${x+w/2}" y="${y+33}" text-anchor="middle" font-size="7.5" font-weight="700" style="fill:${tc}" opacity=".8">${esc(bedState(v).replace(/_/g,' '))}</text>`;
-  const sel=rlS().sel&&rlS().sel===c.real;
+  const sel=ui.selectedBed&&ui.selectedBed===c.real;
   return `<g ${onclick?`style="cursor:pointer" onclick="${onclick}"`:''}><title>${esc(tip)}</title><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${full?6:3}" ${f?`fill="${f}"`:'style="fill:none;stroke:var(--line);stroke-dasharray:3 2"'} ${sel?'stroke="#1F3A2E" stroke-width="2.5"':(f?'stroke="rgba(0,0,0,.12)"':'')}></rect>${t}</g>`;
 }
 /* One block as an 11-column x 5-row indexing grid (positions 01-55, left to right, top to bottom). */
@@ -1123,7 +1123,7 @@ function rlSelCard(cells){
 function rlZ5HTML(){
   const z=rlZ5(), s=rlStats(z); let svg='';
   z.forEach((c,i)=>{ const cx=40+i*80, f=rlFill(c.v), tc=f&&DARK_FILLS.includes(f)?'#fff':'#1B1B18';
-    svg+=`<g ${c.real?`style="cursor:pointer" onclick="rlOpenBed('${esc(c.real)}')"`:''}><title>${esc(c.id+(c.v&&c.v.cohortId?' \u00b7 '+c.v.cohortId+' \u00b7 '+(c.v.cropName||''):''))}</title><circle cx="${cx}" cy="30" r="20" ${f?`fill="${f}" stroke="rgba(0,0,0,.2)"`:'style="fill:none;stroke:var(--line);stroke-dasharray:3 2"'}/><text x="${cx}" y="34" text-anchor="middle" font-size="10" font-weight="800" style="fill:${f?tc:'var(--ink-soft)'}">${String(c.n).padStart(2,'0')}</text></g>`; });
+    svg+=`<g ${c.real?`style="cursor:pointer" onclick="selectBed('${esc(c.real)}')"`:''}><title>${esc(c.id+(c.v&&c.v.cohortId?' \u00b7 '+c.v.cohortId+' \u00b7 '+(c.v.cropName||''):''))}</title><circle cx="${cx}" cy="30" r="20" ${f?`fill="${f}" stroke="rgba(0,0,0,.2)"`:'style="fill:none;stroke:var(--line);stroke-dasharray:3 2"'}/><text x="${cx}" y="34" text-anchor="middle" font-size="10" font-weight="800" style="fill:${f?tc:'var(--ink-soft)'}">${String(c.n).padStart(2,'0')}</text></g>`; });
   return `<div class="rl-card"><h3>Zone 5 registry markers \u00b7 11 separate markers</h3><div class="rl-note">A separate physical registry layer. These are not part of B1\u2013B4 and are excluded from the 220 production-bed count.</div><div class="rl-svg"><svg viewBox="0 0 900 60" xmlns="http://www.w3.org/2000/svg">${svg}</svg></div>${s.NONE===11?'<div class="rl-note">No Zone 5 records are loaded yet; markers are shown as empty outlines.</div>':rlChips(s)}</div>`;
 }
 function rlInfraHTML(){
@@ -1138,10 +1138,10 @@ function ranchScreen(){
   const note=state.todayPending||!state.board.loaded?`<div class="demo-strip">${state.fromCache?'Showing saved data, updating\u2026':'Loading live bed and cohort data\u2026'}</div>`:(state.board.error?`<div class="demo-strip">Cohort board: ${esc(state.board.error)}</div>`:'');
   return `${IS_DEMO?'<div class="demo-strip">Demo mode with generated sample data.</div>':''}
   <div class="topbar"><div><div class="brand">Ngapori Ranch \u00b7 Production Area Layout</div><div class="sub">${esc(state.name||'')} \u00b7 ${esc(state.role||'')}</div></div>
-  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing\u2026':'\u21bb Refresh'}</button><button onclick="goBoard()">Daily Board</button><button onclick="goPlanning()">Season Planning</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div></div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing\u2026':'\u21bb Refresh'}</button><button onclick="goBoard()">Daily Board</button><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div></div>
   ${note}
-  <div class="rl-wrap">
-    <div class="rl-top"><div class="seg"><button class="${all?'active':''}" onclick="rlBlock('ALL')">Master layout</button>${RL_BLOCKS.map(b=>`<button class="${R.block===b[0]?'active':''}" onclick="rlBlock('${b[0]}')">${b[0]}</button>`).join('')}</div>
+  <div class="wrap"><div class="mapcol"><div class="mapscroll"><div class="rl-wrap">
+    <div class="rl-top">${assignmentsButton()}<div class="seg"><button class="${all?'active':''}" onclick="rlBlock('ALL')">Master layout</button>${RL_BLOCKS.map(b=>`<button class="${R.block===b[0]?'active':''}" onclick="rlBlock('${b[0]}')">${b[0]}</button>`).join('')}</div>
       <select onchange="setYear(this.value)" aria-label="Planning year">${YEAR_OPTIONS.map(y=>`<option value="${y}" ${y===ui.year?'selected':''}>${y}</option>`).join('')}</select>
       <label><input type="checkbox" ${R.infra?'checked':''} onchange="rlInfra(this.checked)"> Infrastructure layer</label></div>
     <div class="rl-card"><h3>${all?'Master production-area schematic \u00b7 220-bed baseline':esc(meta[0])+' \u2014 Block '+g+' \u00b7 cohort view'}</h3>
@@ -1150,10 +1150,12 @@ function ranchScreen(){
       ${all?rlMaster():`<div class="rl-svg"><svg viewBox="0 0 880 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(meta[0])} cohort layout">${rlGrid(g,0,6,true)}</svg></div>`}
       <div class="rl-note" style="margin-top:6px;">Each block is an 11-column \u00d7 5-row indexing grid for illustration only. It is not a claim that the beds occupy five rows of eleven. Actual bed orientation and ordering must follow the locked location register.</div>
     </div>
-    ${all?'':rlSelCard(cells)+`<div class="rl-card"><h3>Cohorts in ${esc(meta[0])}</h3>${rlCohorts(cells)}</div>`}
+    ${all?'':`<div class="rl-card"><h3>Cohorts in ${esc(meta[0])}</h3>${rlCohorts(cells)}</div>`}
     ${rlZ5HTML()}${rlInfraHTML()}
-  </div>
-  ${ui.toast?`<div class="toast">${esc(ui.toast)}</div>`:''}`;
+  </div></div></div>
+  <div class="panel ${ui.selectedBed?'':'closed'}">${ui.selectedBed?panelHTML():''}</div></div>
+  ${ui.toast?`<div class="toast">${esc(ui.toast)}</div>`:''}
+  ${modalHTML()}`;
 }
 
 function goPlanning(){ ui.screen='planning'; render(); }
