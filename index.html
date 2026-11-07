@@ -854,6 +854,12 @@ async function reassignSession(sessionId, toWorkerId, note){
   try{ await apiCall('reassign-session', { sessionId, toWorkerId, note }); toast('Session reassigned.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
+/* A dispatch the worker has not started cannot be "closed and restarted": the manager clears it (unassign-sessions). Started sessions keep Close & new. */
+async function clearAssigned(id){
+  if(!confirm('Clear this assignment? The worker has not started it, so nothing is lost.')) return;
+  try{ const r=await apiCall('unassign-sessions',{ sessionIds:[id] }); toast(r&&r.removed&&r.removed.length?'Assignment cleared.':'Nothing was cleared. The worker may have started it: use Close & new.'); await loadToday(); }
+  catch(e){ toast(e.message); }
+}
 async function closeAndNew(sessionId, toWorkerId, note){
   try{ await apiCall('close-and-new-session', { sessionId, toWorkerId, note }); toast('Closed and started new.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
@@ -1935,7 +1941,7 @@ function activeWorkSection(b,sess){
     body=Object.keys(g).map(a=>{ const l=g[a], live=l.some(q=>['ACTIVE','PAUSED','EXCEPTION'].includes(String(q.status||'').toUpperCase()));
       return `<div class="dc-act"><div class="h"><span>${esc(actLabel(a,l[0]))}</span><span class="chip ${live?'chip-ok':'chip-warn'}">${live?'In progress':'Assigned'}</span></div>
         ${l.map(q=>`<div class="dc-w"><span>✓ ${esc(q.workerName||q.workerId)}${schedLabel(q)||q.assignedTime?` <span class="qsub">· ${esc(schedLabel(q)||'')}${q.assignedTime?' dispatched '+esc(fmtTs(q.assignedTime)):''}</span>`:''}</span><span>${sessStatusChip(q)}
-          <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'reassign'})">Reassign</button><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'close'})">Close</button></span></div>${fertDetailHTML(q.fertilizer,true)}`).join('')}</div>`; }).join('');
+          <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'reassign'})">Reassign</button>${String(q.status||'').toUpperCase()==='ASSIGNED'?`<button class="dc-mini" onclick="clearAssigned('${esc(q.id)}')">Clear</button>`:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'close'})">Close &amp; new</button>`}</span></div>${fertDetailHTML(q.fertilizer,true)}`).join('')}</div>`; }).join('');
   } else {
     const ids=[...new Set(sess.map(q=>q.workerId))];
     body=ids.map(id=>{ const all=(state.sessions||[]).filter(q=>q.workerId===id&&String(q.status||'').toUpperCase()!=='COMPLETED');
@@ -4611,7 +4617,7 @@ function bedTasksBlock(bedId,opts){
       ${fertDetailHTML(s.fertilizer)}
       <div class="row"><span>${pending?'Dispatched':'Started'}</span><span>${pending?esc(fmtTs(t.dispatched)||'\u2014')+' \u00b7 waiting for worker to start':esc(fmtTs(t.started)||'\u2014')}</span></div>
       ${re}
-      ${opts.buttons?`<div style="margin-top:6px;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button> <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`:''}</div>`; }).join('');
+      ${opts.buttons?`<div style="margin-top:6px;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button> ${String(s.status||'').toUpperCase()==='ASSIGNED'?`<button class="dc-mini" onclick="clearAssigned('${esc(s.id)}')">Clear</button>`:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button>`}</div>`:''}</div>`; }).join('');
   const recent=(((state.todayById||{})[bedId]||{}).activityLog||[]).slice(0,3).map(r=>`<div class="row"><span>${esc(actLabel(r.taskType||r.activityName||''))} \u00b7 ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
   const body=`${sum?`<div class="qsub" style="margin:0 0 6px;">${esc(sum)}</div>`:''}${cards||`<div class="empty" style="padding:8px 0;">No task is assigned or running on this bed.</div>`}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}`;
   return `<div id="bed-tasks"><h2 style="font-size:13px;margin:12px 0 6px;">Assigned &amp; active tasks${list.length?' ('+list.length+')':''}</h2>${body}</div>`;
@@ -4682,7 +4688,7 @@ function bhLiveRows(bedId,req){
     return { id:s.activityId||c.id||'', name:s.activity, desc:sessDesc(s), worker:who, done:'', req:!!req[s.activity],
       chips:bhChips(bhScope(s.activity),c.domain||'',req[s.activity],`<span class="chip ${st[1]}">${esc(st[0])}</span>`),
       note:re+when+fertDetailHTML(s.fertilizer,true),
-      btns:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button>` };
+      btns:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>${String(s.status||'').toUpperCase()==='ASSIGNED'?`<button class="dc-mini" onclick="clearAssigned('${esc(s.id)}')">Clear</button>`:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button>`}` };
   };
   const live=list.filter(s=>String(s.status||'').toUpperCase()!=='ASSIGNED'), asg=list.filter(s=>String(s.status||'').toUpperCase()==='ASSIGNED');
   return { live:live.map(row), assigned:asg.map(row), n:{live:live.length,assigned:asg.length} };
