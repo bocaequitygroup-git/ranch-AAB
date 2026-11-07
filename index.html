@@ -2521,8 +2521,27 @@ function pdPlannedLine(d){
   const v=pdDays(planned,d.dob||todayISO()), n=Math.abs(v);
   return `<div class="note" style="margin:6px 0;">Planned DOB ${esc(planned)}${!v?' \u00b7 on plan':' \u00b7 '+n+' day'+(n===1?'':'s')+(v>0?' late':' early')+' if planted '+esc(d.dob||todayISO())}.</div>`;
 }
+/* Actual planting date = what the planting activity recorded (Verify planting used to default to today whatever the activity said).
+ * Preference: the activity's scheduled date if it is not in the future, else the day the activity was completed. */
+function vpIsoDay(v){
+  if(!v) return ''; const t=String(v);
+  const m=/^(\d{4}-\d{2}-\d{2})(?:$|[T ]00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?$)/.exec(t); if(m) return m[1];
+  const d=new Date(t); return isNaN(d)?'':d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function vpActivityDate(bedId,cohortId){
+  const today=todayISO(), own=['directseeding','transplanting','replanting'];
+  const rows=(((state.todayById||{})[bedId]||{}).activityLog||[]).filter(r=>own.includes(String(r.taskType||r.activityName||'').trim().toLowerCase())&&(!r.cohortId||!cohortId||r.cohortId===cohortId))
+    .sort((a,b)=>(new Date(b.endTime)||0)-(new Date(a.endTime)||0));
+  for(const r of rows){
+    const name=r.taskType||r.activityName||'planting', sd=vpIsoDay(r.scheduledDate), dd=vpIsoDay(r.endTime);
+    if(sd&&sd<=today) return { date:sd, from:'scheduled for the '+name+' activity' };
+    if(dd&&dd<=today) return { date:dd, from:'the day the '+name+' activity was completed'+(sd?' (it was scheduled for '+sd+')':'') };
+  }
+  return null;
+}
 function verifyPlantingModal(){
   const d=ui.modalDraft;
+  if(!d.dob && !d.vpAutoDone){ d.vpAutoDone=true; const a=vpActivityDate(d.bedId,d.cohortId); if(a){ d.dob=a.date; d.vpAuto=a; } }
   const today=todayISO();   /* local date: toISOString() is UTC and offered tomorrow's date in the evening */
   const pw=d.pw, outside=!!pw&&pw.state==='OUTSIDE_AUTH_REQUIRED';
   return `<h2 style="font-size:15px;">Verify planting</h2>
@@ -2531,7 +2550,7 @@ function verifyPlantingModal(){
   ${pdPlannedLine(d)}
   ${ppAskBox(d.pp,d.cohortId)}
   ${pdAskBox(d.pd,d.cohortId)}
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||today)}" max="${esc(today)}"></div>
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||today)}" max="${esc(today)}">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
   <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':((d.pd||d.pp)?'Record explanation and verify planting':'Verify planting')}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
