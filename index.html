@@ -1396,7 +1396,7 @@ function cohortActionButtons(b){
 }
 function activityTab(b){
   const rows=(b.activityLog||[]);
-  return rows.length? `<div class="card">${rows.map(r=>`<div class="row"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span>${esc(r.endTime||'')}</span></div>`).join('')}</div>` : `<div class="empty">No completed activity logged for this bed yet.</div>`;
+  return rows.length? `<div class="card">${rows.map(r=>`<div class="row" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span>${esc(r.endTime||'')}</span></div>`).join('')}</div>` : `<div class="empty">No completed activity logged for this bed yet.</div>`;
 }
 function exceptionsTab(b,exc){
   return exc.length? exc.map(x=>`<div class="card">
@@ -1968,7 +1968,7 @@ function activeWorkSection(b,sess){
       return `<div class="dc-act"><div class="h"><span>${esc(maWName(id))}</span><span class="qsub">${all.length} open task${all.length===1?'':'s'}</span></div>
         ${all.map(q=>`<div class="dc-w"><span>${q.bedId===b.id?'<b>':''}${esc(q.bedId)} ${esc(q.activity)}${q.bedId===b.id?'</b>':''}</span>${sessStatusChip(q)}</div>`).join('')}</div>`; }).join('');
   }
-  const recent=((b&&b.activityLog)||[]).slice(0,3).map(r=>`<div class="row"><span>${esc(actLabel(r.taskType||r.activityName||''))} · ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
+  const recent=((b&&b.activityLog)||[]).slice(0,3).map(r=>`<div class="row" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')"><span>${esc(actLabel(r.taskType||r.activityName||''))} · ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
   return `<div class="dp-box"><div class="t"><span>Active dispatches on ${esc(b.id)}</span></div>${sess.length?seg:''}${body}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}</div>`;
 }
 function actionsPanel(b,sess){
@@ -1983,6 +1983,97 @@ function actionsPanel(b,sess){
 }
 /* Background refresh (every 30 s) now lives in the "LIVE SYNC + ACTION FEEDBACK" block just before START. */
 
+/* ============ COMPLETED ACTIVITY PROFILE (manager) ============
+ * Tap a completed activity (bed Activity tab or Recently completed) to see what was done: who, scheduled vs actual, reassignments,
+ * breaks, time, output, notes and review. The summary comes from the bed data already on screen. The full record (notes, quantity,
+ * breaks, reassignments, manager, exceptions) comes from get-activity-profile; if that is not available, the summary is still shown. */
+function openActivityProfile(logId,bedId){
+  openModal('activity-profile',{logId,bedId,full:null,loadErr:'',loading:true});
+  loadActivityProfile(logId);
+}
+async function loadActivityProfile(logId){
+  const current=()=>ui.modal==='activity-profile'&&ui.modalDraft.logId===logId;
+  try{
+    const full=await apiCall('get-activity-profile',{logId});
+    if(current()){ ui.modalDraft.full=full||{}; ui.modalDraft.loading=false; render(); }
+  }catch(e){
+    if(current()){ ui.modalDraft.loading=false; ui.modalDraft.loadErr=String((e&&e.message)||'not available'); render(); }
+  }
+}
+function activityProfileLocal(logId,bedId){
+  const bed=(state.beds||[]).find(x=>x.id===bedId)||{};
+  const log=(bed.activityLog||[]).find(x=>x.logId===logId);
+  if(!log) return null;
+  const sess=(state.sessions||[]).find(x=>x.id===log.sessionId)||{};
+  return {bed,log,sess};
+}
+function activityProfileModal(){
+  const d=ui.modalDraft, L=activityProfileLocal(d.logId,d.bedId);
+  const close=`<div style="margin-top:12px;"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>`;
+  if(!L) return `<div class="empty">This activity is no longer in the bed's log.</div>${close}`;
+  const {bed,log,sess}=L, f=d.full||{}, loaded=!!d.full;
+  const pick=(...xs)=>{ for(const x of xs){ if(x!==undefined&&x!==null&&x!=='') return x; } return ''; };
+  const row=(label,val,raw)=>{ const txt=(val===''||val==null)?'\u2014':(raw?val:esc(val)); return `<div class="row" style="gap:12px;"><span style="color:var(--ink-soft);">${esc(label)}</span><span style="text-align:right;">${txt}</span></div>`; };
+  const box=(title,body)=>`<div class="dp-box"><div class="t"><span>${esc(title)}</span></div>${body}</div>`;
+  const when=x=>x?avWhen(x):'';
+  const activity=pick(f.activity,log.taskType,log.activityName);
+  const mins=Number(pick(f.elapsedMinutes,log.minutes))||0;
+  const vd=Number(pick(f.varianceDays,log.varianceDays))||0;
+  const timing=String(pick(f.timing,log.timing)||'').toLowerCase();
+  const isPlanting=/^(DirectSeeding|Transplanting)$/.test(String(log.taskType||''));
+  const worker=pick(f.workerName,log.workerName,log.workerId);
+  const reassigns=(f.reassignments||[]).map(r=>`<div>${esc(when(r.at))} \u00b7 ${esc(r.fromName||r.fromWorkerId||'')} \u2192 ${esc(r.toName||r.toWorkerId||'')}${r.managerName?' by '+esc(r.managerName):''}${r.note?'<div class="qsub">'+esc(r.note)+'</div>':''}</div>`).join('');
+  const pauses=(f.pauses||[]).map(p=>`<div>${esc(when(p.pausedAt))} \u2192 ${esc(p.resumedAt?when(p.resumedAt):'still paused')}${p.reason?' \u00b7 '+esc(p.reason):''}</div>`).join('');
+  const fert=pick(f.fertilizer,sess.fertilizer);
+  const fertTxt=fert?`${esc(fert.type||'')} \u00b7 ${esc(fert.brand||'')} \u00b7 ${esc(fert.quantity||'')} ${esc(fert.unit||'')}${fert.method?' \u00b7 '+esc(fert.method):''}`:'';
+  const excs=(f.exceptions||[]).map(x=>`<div>${esc(x.type||'Exception')} \u00b7 ${esc(x.severity||'')}${x.notes?' \u2014 '+esc(x.notes):''}</div>`).join('');
+  const qty=pick(f.quantity,log.quantity), unit=pick(f.unit,log.unit);
+  const cropName=pick(f.cropName,bed.cropName), cohortId=pick(f.cohortId,bed.cohortId);
+
+  const header=`<div style="font-weight:700;font-size:17px;">${esc(activity)}</div><div class="qsub" style="margin-bottom:10px;">${esc(pick(bed.id,log.bedId))}${cropName?' \u00b7 '+esc(cropName):''}${cohortId?' \u00b7 '+esc(cohortId):''}</div>`;
+  const status=d.loading?`<div class="note">Loading the full record\u2026</div>`
+    :d.loadErr?`<div class="note">Showing the summary from the bed. The full record is not available yet (${esc(d.loadErr)}).</div>`:'';
+
+  const planting=isPlanting?box('Planting',
+      row('Scheduled date', pick(f.scheduledDate,sess.scheduledDate)) +
+      row('Planned DOB', pick(f.plannedDob,bed.plannedDob)) +
+      row('Actual planting date', pick(f.actualDob,bed.plantingDate)) +
+      row('Timing vs plan', timing?timing+(vd?' ('+(vd>0?'+':'')+vd+' d)':''):'')):'';
+
+  const assign=box('Assignment',
+      row('Assigned to', worker) +
+      row('Assigned by', pick(f.managerName,log.managerName)) +
+      row('Dispatched', when(pick(f.assignedAt,sess.assignedTime))) +
+      row('Scheduled for', pick(f.scheduledDate,sess.scheduledDate)) +
+      (reassigns ? row('Reassigned', reassigns, true) : row('Reassigned', loaded?'No':'\u2014')));
+
+  const time=box('Work time',
+      row('Started', when(pick(f.startedAt,log.startTime,sess.startTime))) +
+      row('Completed', when(pick(f.endedAt,log.endTime))) +
+      row('Working time', mins?avHM(mins/60)+' ('+mins+' min)':'') +
+      (pauses ? row('Breaks', pauses, true) : row('Breaks', loaded?'None':'\u2014')) +
+      (f.breakMinutes ? row('Total break', f.breakMinutes+' min') : ''));
+
+  const output=box('Output & notes',
+      row('Quantity', qty!==''?qty+(unit?' '+unit:''):'') +
+      (fertTxt ? row('Fertilizer', fertTxt, true) : '') +
+      row('Notes', pick(f.notes,log.notes)) +
+      (excs ? row('Exceptions', excs, true) : ''));
+
+  const review=box('Review',
+      row('Status', String(log.reviewStatus||'COMPLETED').toLowerCase()) +
+      row('Verified by', pick(f.verifiedBy,log.verifiedBy)) +
+      row('Verified on', when(pick(f.verifiedAt,log.verifiedDate))) +
+      row('Checked by', pick(f.checkedBy,log.checkedBy)) +
+      row('Checked on', when(pick(f.checkedAt,log.checkedDate))));
+
+  const record=box('Record',
+      row('Activity ID', pick(f.activityId,log.activityId)) +
+      row('Log ID', log.logId) +
+      row('Session ID', pick(f.sessionId,log.sessionId)));
+
+  return `${header}${status}${planting}${assign}${time}${output}${review}${record}${close}`;
+}
 function modalHTML(){
   if(!ui.modal) return '';
   let inner='';
@@ -2004,7 +2095,8 @@ function modalHTML(){
   else if(ui.modal==='urgent') inner=urgentModal();
   else if(ui.modal==='phassign') inner=phaModal();
   else if(ui.modal==='new-activity') inner=newActivityModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  else if(ui.modal==='activity-profile') inner=activityProfileModal();
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -4658,7 +4750,7 @@ function bedTasksBlock(bedId,opts){
       <div class="row"><span>${pending?'Dispatched':'Started'}</span><span>${pending?esc(fmtTs(t.dispatched)||'\u2014')+' \u00b7 waiting for worker to start':esc(fmtTs(t.started)||'\u2014')}</span></div>
       ${re}
       ${opts.buttons?`<div style="margin-top:6px;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button> ${String(s.status||'').toUpperCase()==='ASSIGNED'?`<button class="dc-mini" onclick="clearAssigned('${esc(s.id)}')">Clear</button>`:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button>`}</div>`:''}</div>`; }).join('');
-  const recent=(((state.todayById||{})[bedId]||{}).activityLog||[]).slice(0,3).map(r=>`<div class="row"><span>${esc(actLabel(r.taskType||r.activityName||''))} \u00b7 ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
+  const recent=(((state.todayById||{})[bedId]||{}).activityLog||[]).slice(0,3).map(r=>`<div class="row" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(bedId)}')"><span>${esc(actLabel(r.taskType||r.activityName||''))} \u00b7 ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
   const body=`${sum?`<div class="qsub" style="margin:0 0 6px;">${esc(sum)}</div>`:''}${cards||`<div class="empty" style="padding:8px 0;">No task is assigned or running on this bed.</div>`}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}`;
   return `<div id="bed-tasks"><h2 style="font-size:13px;margin:12px 0 6px;">Assigned &amp; active tasks${list.length?' ('+list.length+')':''}</h2>${body}</div>`;
 }
