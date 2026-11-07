@@ -4273,7 +4273,7 @@ async function loadCalendar(force){
     if(IS_DEMO){ calState.raw=null; calState.hidden=[]; calState.data=CAL_DATA.map(w=>Object.assign({loc:'FIELD'},w)); }
     else{ const r=await apiCall('get-production-calendar'); calState.raw=r.plantings||[]; calState.counts=r.counts||null; calState.source=r.source||null;
       if(calState.source==='Open Field Operation'){   /* the feed itself reads only Open Field Operation: use it as is */
-        calState.ofoSet=new Set(calState.raw.map(w=>w.crop+'|'+w.plant)); calState.missing=[];
+        calState.ofoSet=new Set(calState.raw.map(w=>w.crop+'|'+(w.plannedPlant||w.plant))); calState.missing=[];
         calState.hidden=calState.raw.filter(w=>w.loc!=='FIELD'); calState.data=calState.raw.filter(w=>w.loc==='FIELD');
       }else{ await calVerifyOFO(); calRebuild(); }   /* older backend still sending Master Calendar slots: re-verify against Open Field Operation */
       if(r.unmatched&&r.unmatched.length) toast('Calendar: no CROP_REFERENCE match for '+r.unmatched.join(', '));
@@ -4324,12 +4324,13 @@ function calEvents(tab){
   (calState.data||[]).forEach(w=>{ if(f!=='ALL'&&w.loc!==f) return;
     const cover=calIsCover(w);
     if(cover!==(tab==='cover')) return;     /* cover crops appear ONLY on the Cover crops tab; cash crops never appear there */
-    const c=calWave(w), who=`${w.crop||w.id}`, base={loc:w.loc,crop:w.name,cid:w.crop,pd:w.plant};
+    const c=calWave(w), who=`${w.crop||w.id}${w.cohortId?' · '+w.cohortId:''}`, base={loc:w.loc,crop:w.name,cid:w.crop,pd:w.plannedPlant||w.plant},
+      tag=w.basis?` · ${w.basis==='VERIFIED'?'actual planting':'scheduled planting'} (planned ${calFull(w.plannedPlant)})`:'';
     if(tab==='cover'){ out.push({...base,d:w.plant,k:'cover',t:'Cover crop sowing (turnover step)',sub:`${who} · Plant Cover Crop (ACT_043) on a bed in post-harvest turnover${w.window?' · allowed '+w.window:''} · no harvest`}); return; }
-    if(tab==='prop'&&c.tot>0) out.push({...base,d:c.sow,k:'prop',t:'Start propagation',sub:`${who} · ${c.phases.map(p=>p.name+' '+p.days+'d').join(' + ')} · transplant ${calFull(w.plant)}`});
-    if(tab==='plant') out.push({...base,d:w.plant,k:'plant',t:c.dobLabel,sub:`${who} · first harvest ${calFull(c.h1)} (${w.hmin} days)`});
-    if(tab==='harv'){ out.push({...base,d:c.h1,k:'open',t:'Harvest window opens',sub:`${who} · planting ${calFull(w.plant)} (${w.hmin} days to first harvest)`});
-      out.push({...base,d:c.h2,k:'close',t:'Harvest window closes',sub:`${who} · planting ${calFull(w.plant)} (${w.hmax} days max to first harvest)`}); } });
+    if(tab==='prop'&&c.tot>0) out.push({...base,d:c.sow,k:'prop',t:'Start propagation',sub:`${who} · ${c.phases.map(p=>p.name+' '+p.days+'d').join(' + ')} · transplant ${calFull(w.plant)}${tag}`});
+    if(tab==='plant') out.push({...base,d:w.plant,k:'plant',t:c.dobLabel,sub:`${who} · first harvest ${calFull(c.h1)} (${w.hmin} days)${tag}`});
+    if(tab==='harv'){ out.push({...base,d:c.h1,k:'open',t:'Harvest window opens',sub:`${who} · planting ${calFull(w.plant)} (${w.hmin} days to first harvest)${tag}`});
+      out.push({...base,d:c.h2,k:'close',t:'Harvest window closes',sub:`${who} · planting ${calFull(w.plant)} (${w.hmax} days max to first harvest)${tag}`}); } });
   return out.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.crop.localeCompare(b.crop));
 }
 function calSetTab(t){ ui.calTab=t; ui.calMonth=null; ui.calDay=null; render(); }
@@ -4383,7 +4384,7 @@ function calScreen(){
   ${insight?`<div class="cal-insight">${insight}</div>`:''}
   <div class="cal-nav"><button class="cal-noprint" onclick="calNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b>${mname}</b><span>${nOpen} ${lead}</span></div><button class="cal-noprint" onclick="calNav(1)" aria-label="Next month">›</button><button class="cal-noprint" onclick="calGoToday()">Today</button></div>
   ${view==='agenda'?agendaBody:monthBody}
-  <div class="cal-note">${tab==='cover'?'These are bed-turnover windows from the Cover Crop SOP, keyed to the date the cohort is terminated. They are not plantings and are not read from Open Field Operation.':'Read live from the workbook. Every entry comes from Open Field Operation, the source of truth for planting dates. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).'}${tab!=='cover'&&calState.missing&&calState.missing.length?` <b style="color:var(--danger)">${calState.missing.length} Open Field Operation planting(s) are missing from the calendar feed: ${esc(calState.missing.slice(0,6).join(', '))}${calState.missing.length>6?'…':''}.</b>`:''}${tab!=='cover'&&!IS_DEMO&&!calState.ofoSet?' <b style="color:var(--warn)">Could not re-read Open Field Operation to verify; showing the feed\'s open-field plantings.</b>':''}${tab!=='cover'&&calState.hidden&&calState.hidden.length?` ${calState.hidden.length} Master Calendar slot(s) not in Open Field Operation are not shown.`:''} ${tab!=='cover'&&IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
+  <div class="cal-note">${tab==='cover'?'These are bed-turnover windows from the Cover Crop SOP, keyed to the date the cohort is terminated. They are not plantings and are not read from Open Field Operation.':'Read live from the workbook. Every entry comes from Open Field Operation, the plan for planting dates; where a cohort has been planted (or its planting is scheduled on another day) the actual date is shown instead and the plan date is noted. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).'}${tab!=='cover'&&calState.missing&&calState.missing.length?` <b style="color:var(--danger)">${calState.missing.length} Open Field Operation planting(s) are missing from the calendar feed: ${esc(calState.missing.slice(0,6).join(', '))}${calState.missing.length>6?'…':''}.</b>`:''}${tab!=='cover'&&!IS_DEMO&&!calState.ofoSet?' <b style="color:var(--warn)">Could not re-read Open Field Operation to verify; showing the feed\'s open-field plantings.</b>':''}${tab!=='cover'&&calState.hidden&&calState.hidden.length?` ${calState.hidden.length} Master Calendar slot(s) not in Open Field Operation are not shown.`:''} ${tab!=='cover'&&IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
 }
 
 /* ============================== IRRIGATION CALENDAR ==============================
