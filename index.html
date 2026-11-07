@@ -2034,10 +2034,11 @@ function activityProfileModal(){
   const status=d.loading?`<div class="note">Loading the full record\u2026</div>`
     :d.loadErr?`<div class="note">Showing the summary from the bed. The full record is not available yet (${esc(d.loadErr)}).</div>`:'';
 
+  const actualDob=pick(f.actualDob,bed.plantingDate);
   const planting=isPlanting?box('Planting',
-      row('Scheduled date', pick(f.scheduledDate,sess.scheduledDate)) +
       row('Planned DOB', pick(f.plannedDob,bed.plannedDob)) +
-      (pick(f.actualDob,bed.plantingDate) ? row('Actual planting date', pick(f.actualDob,bed.plantingDate)) : row('Actual planting date (scheduled, not yet verified)', pick(f.scheduledDate,sess.scheduledDate))) +
+      row(actualDob?'Actual DOB':'Actual DOB (not verified yet)', actualDob) +
+      row('Verified stamp', when(pick(f.verifiedAt,log.verifiedDate))) +
       row('Timing vs plan', timing?timing+(vd?' ('+(vd>0?'+':'')+vd+' d)':''):'')):'';
 
   const assign=box('Assignment',
@@ -2643,7 +2644,7 @@ function verifyPlantingModal(){
   ${pdPlannedLine(d)}
   ${ppAskBox(d.pp,d.cohortId)}
   ${pdAskBox(d.pd,d.cohortId)}
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||today)}" max="${esc(today)}">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.${d.dob>today?' This date is after today, so the server must allow a completed planting activity scheduled for it.':''}</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" max="${esc(today)}">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.${d.dob>today?' This date is after today, so the server must allow a completed planting activity scheduled for it.':''}</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
   <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':((d.pd||d.pp)?'Record explanation and verify planting':'Verify planting')}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
