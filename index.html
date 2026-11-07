@@ -2037,7 +2037,7 @@ function activityProfileModal(){
   const planting=isPlanting?box('Planting',
       row('Scheduled date', pick(f.scheduledDate,sess.scheduledDate)) +
       row('Planned DOB', pick(f.plannedDob,bed.plannedDob)) +
-      row('Actual planting date', pick(f.actualDob,bed.plantingDate)) +
+      (pick(f.actualDob,bed.plantingDate) ? row('Actual planting date', pick(f.actualDob,bed.plantingDate)) : row('Actual planting date (scheduled, not yet verified)', pick(f.scheduledDate,sess.scheduledDate))) +
       row('Timing vs plan', timing?timing+(vd?' ('+(vd>0?'+':'')+vd+' d)':''):'')):'';
 
   const assign=box('Assignment',
