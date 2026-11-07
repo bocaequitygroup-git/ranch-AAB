@@ -2529,13 +2529,14 @@ function vpIsoDay(v){
   const d=new Date(t); return isNaN(d)?'':d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 function vpActivityDate(bedId,cohortId){
-  const today=todayISO(), own=['directseeding','transplanting','replanting'];
-  const rows=(((state.todayById||{})[bedId]||{}).activityLog||[]).filter(r=>own.includes(String(r.taskType||r.activityName||'').trim().toLowerCase())&&(!r.cohortId||!cohortId||r.cohortId===cohortId))
-    .sort((a,b)=>(new Date(b.endTime)||0)-(new Date(a.endTime)||0));
-  for(const r of rows){
-    const name=r.taskType||r.activityName||'planting', sd=vpIsoDay(r.scheduledDate), dd=vpIsoDay(r.endTime);
-    if(sd&&sd<=today) return { date:sd, from:'scheduled for the '+name+' activity' };
-    if(dd&&dd<=today) return { date:dd, from:'the day the '+name+' activity was completed'+(sd?' (it was scheduled for '+sd+')':'') };
+  const own=['directseeding','transplanting','replanting'], isP=r=>own.includes(String(r.taskType||r.activityName||r.activity||'').trim().toLowerCase());
+  const sess=(state.sessions||[]).filter(r=>r.bedId===bedId&&String(r.status||'').toUpperCase()==='COMPLETED'&&isP(r)&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
+  const logs=(((state.todayById||{})[bedId]||{}).activityLog||[]).filter(r=>isP(r)&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
+  const rows=sess.concat(logs).sort((a,b)=>(new Date(b.endTime||b.assignedTime)||0)-(new Date(a.endTime||a.assignedTime)||0));
+  for(const r of rows){   /* only a COMPLETED planting activity says when the crop went in */
+    const name=r.taskType||r.activityName||r.activity||'planting', sd=vpIsoDay(r.scheduledDate), dd=vpIsoDay(r.endTime);
+    if(sd) return { date:sd, from:'scheduled for the completed '+name+' activity'+(dd&&dd!==sd?' (the work itself was logged on '+dd+')':'') };
+    if(dd) return { date:dd, from:'the day the '+name+' activity was completed' };
   }
   return null;
 }
@@ -2550,7 +2551,7 @@ function verifyPlantingModal(){
   ${pdPlannedLine(d)}
   ${ppAskBox(d.pp,d.cohortId)}
   ${pdAskBox(d.pd,d.cohortId)}
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||today)}" max="${esc(today)}">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||today)}" max="${esc(today)}">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.${d.dob>today?' This date is after today, so the server must allow a completed planting activity scheduled for it.':''}</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
   <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':((d.pd||d.pp)?'Record explanation and verify planting':'Verify planting')}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
