@@ -1994,7 +1994,7 @@ function openActivityProfile(logId,bedId){
 async function loadActivityProfile(logId){
   const current=()=>ui.modal==='activity-profile'&&ui.modalDraft.logId===logId;
   try{
-    const full=await apiCall('get-activity-profile',{logId});
+    const full=await apiCall('get-activity-profile',{logId},25000);
     if(current()){ ui.modalDraft.full=full||{}; ui.modalDraft.loading=false; render(); }
   }catch(e){
     if(current()){ ui.modalDraft.loading=false; ui.modalDraft.loadErr=String((e&&e.message)||'not available'); render(); }
@@ -2031,7 +2031,7 @@ function activityProfileModal(){
   const cropName=pick(f.cropName,bed.cropName), cohortId=pick(f.cohortId,bed.cohortId);
 
   const header=`<div style="font-weight:700;font-size:17px;">${esc(activity)}</div><div class="qsub" style="margin-bottom:10px;">${esc(pick(bed.id,log.bedId))}${cropName?' \u00b7 '+esc(cropName):''}${cohortId?' \u00b7 '+esc(cohortId):''}</div>`;
-  const status=d.loading?`<div class="note">Loading the full record\u2026</div>`
+  const status=d.loading?`<div class="note">Loading the full record (this can take up to a minute)\u2026</div>`
     :d.loadErr?`<div class="note">Showing the summary from the bed. The full record is not available yet (${esc(d.loadErr)}).</div>`:'';
 
   const actualDob=pick(f.actualDob,bed.plantingDate);
