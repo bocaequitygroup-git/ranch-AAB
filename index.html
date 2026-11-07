@@ -785,7 +785,27 @@ function pwWarnHTML(failed,kind){
     if(!pw) return; const key=pw.cohortId||pw.message; if(seen[key]) return; seen[key]=1;
     out.push(pwBox(pw,{ retry:kind }));
   });
+  return out.join('')+propVerifyBox(failed,kind);
+}
+/* NURSERY SIGN-OFF (R01) at assignment: Transplanting on a greenhouse-propagated cohort is refused until the manager marks propagation verified.
+ * The server route verify-propagation {cohortId} exists; this gives the manager the button that calls it, then retries the assignment. */
+function propCohortOf(f){ const m=/cohort\s+([A-Za-z0-9-]+)/i.exec(String((f&&f.message)||'')); return (f&&f.cohortId)||(m&&m[1].replace(/[.,;:]+$/,''))||''; }
+function propVerifyBox(failed,kind){
+  const seen={}, out=[];
+  (failed||[]).forEach(f=>{
+    if(!f||f.errorCode!=='PROPAGATION_NOT_VERIFIED') return;
+    const id=propCohortOf(f); if(!id||seen[id]) return; seen[id]=1;
+    out.push(`<div class="pw-box warn"><div class="pw-t">Nursery sign-off missing</div><div>${esc(f.message||'Propagation has not been verified for this cohort.')}</div><div class="pw-why">Check the seedlings are ready, then mark propagation verified. The assignment is retried for you.</div><button class="btn btn-danger" onclick="propVerifyAndRetry('${esc(id)}','${esc(kind||'')}')">Mark propagation verified and retry</button></div>`);
+  });
   return out.join('');
+}
+async function propVerifyAndRetry(cohortId,kind){
+  if(!confirm('Mark propagation verified for '+cohortId+'? This is the nursery sign-off and is recorded under your name.')) return;
+  try{ await apiCall('verify-propagation',{ cohortId },60000); toast('Propagation verified for '+cohortId+'.'); }
+  catch(e){ toast(e.message); return; }
+  if(kind==='dp') return dpSubmit();
+  if(kind==='ma') return submitMultiAssign();
+  await loadToday();
 }
 async function pwAuthorizeAndRetry(cohortId,kind,date){
   const reason=String((ui.pwReasons||{})[cohortId]||'').trim();
@@ -6591,6 +6611,7 @@ async function mockBackend(action, p){
       if(!hit) return bad('No open recommendation for that cohort.','QUEUE_ROW_NOT_FOUND');
       demoRejected++; return ok({ cohortId:p.cohortId, status:'REJECTED' });
     }
+    case 'verify-propagation': return ok({ ok:true, cohortId:p.cohortId });
     case 'verify-planting': {
       const bed=demoBeds.find(b=>b.cohortId===p.cohortId); if(!bed) return bad('Cohort not found.','COHORT_NOT_FOUND');
       if(bed.cohortStatus!=='PRE_PLANTING') return bad('This cohort is not awaiting planting verification.','WRONG_STATUS');
