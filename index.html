@@ -2038,7 +2038,7 @@ function activityProfileModal(){
   const planting=isPlanting?box('Planting',
       row('Planned DOB', pick(f.plannedDob,bed.plannedDob)) +
       row(actualDob?'Actual DOB':'Actual DOB (not verified yet)', actualDob) +
-      row('Verified stamp', when(pick(f.verifiedAt,log.verifiedDate))) +
+      row('Verified stamp', pick(f.verifiedAt,log.verifiedDate)?when(pick(f.verifiedAt,log.verifiedDate)):'Awaiting Verify planting') +
       row('Timing vs plan', timing?timing+(vd?' ('+(vd>0?'+':'')+vd+' d)':''):'')):'';
 
   const assign=box('Assignment',
@@ -2627,8 +2627,7 @@ function vpActivityDate(bedId,cohortId){
   const logs=(((state.todayById||{})[bedId]||{}).activityLog||[]).filter(r=>isP(r)&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
   const rows=sess.concat(logs).sort((a,b)=>(new Date(b.endTime||b.assignedTime)||0)-(new Date(a.endTime||a.assignedTime)||0));
   for(const r of rows){   /* only a COMPLETED planting activity says when the crop went in */
-    const name=r.taskType||r.activityName||r.activity||'planting', sd=vpIsoDay(r.scheduledDate), dd=vpIsoDay(r.endTime);
-    if(sd) return { date:sd, from:'scheduled for the completed '+name+' activity'+(dd&&dd!==sd?' (the work itself was logged on '+dd+')':'') };
+    const name=r.taskType||r.activityName||r.activity||'planting', dd=vpIsoDay(r.endTime);
     if(dd) return { date:dd, from:'the day the '+name+' activity was completed' };
   }
   return null;
