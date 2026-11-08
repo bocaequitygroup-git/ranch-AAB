@@ -213,6 +213,8 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .cal-align .h{font-weight:700;margin-bottom:3px;} .cal-align .r{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--ink-soft);} .cal-align em{color:var(--danger);font-style:normal;font-weight:700;}
 .cal-align details{margin-top:6px;} .cal-align summary{cursor:pointer;font-weight:600;} .cal-align .i{margin-top:4px;font-size:12px;color:var(--ink-soft);}
 .na-col{font-weight:600;font-size:10.5px;color:var(--ink-soft);opacity:.8;margin-left:4px;font-family:ui-monospace,Menlo,Consolas,monospace;}
+.cal-flag{margin-top:6px;font-size:12px;line-height:1.35;padding:5px 8px;border-radius:7px;color:var(--ink);background:color-mix(in srgb,var(--f) 14%,transparent);border-left:3px solid var(--f);}
+.cal-flag b{color:var(--f);text-transform:uppercase;font-size:10.5px;letter-spacing:.04em;margin-right:4px;}
 .cal-tag-cover{color:#5B5D14 !important;background:#ECEBC4 !important;}
 .cal-tag{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;margin-right:6px;color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);}
 @media (max-width:640px){ .cal{padding:10px;} .cal-cell{min-height:64px;padding:3px;} .cal-chip{font-size:9px;padding:1px 3px;} .cal-top h2{font-size:17px;} }
@@ -4261,6 +4263,7 @@ function calIsCover(w){
 const CAL_LOC={FIELD:['#E4F1E5','#2E7D32','Open field'],GREENHOUSE:['#E3EEF9','#1565C0','Greenhouse']};
 const CAL_KIND={prop:'Sow',plant:'Plant',open:'Harvest',close:'Close',cover:'Opens',coverEnd:'Closes'};
 const CAL_KCOL={prop:'#3A78C9',plant:'#2E7D32',open:'#2E7D32',close:'#C77700',cover:'#7D7F2A',coverEnd:'#A9AB55'};
+const CAL_FLAG={shift:'#8E44AD',outside:'#C62828'}, CAL_FLAG_LBL={shift:'Not the planned date',outside:'Outside allowable window'};
 const CAL_TABCOL={prop:'#3A78C9',plant:'#7A5C2E',harv:'#2E7D32',cover:'#7D7F2A'};
 const calFull=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const calLong=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
@@ -4325,7 +4328,11 @@ function calEvents(tab){
     const cover=calIsCover(w);
     if(cover!==(tab==='cover')) return;     /* cover crops appear ONLY on the Cover crops tab; cash crops never appear there */
     const c=calWave(w), who=`${w.crop||w.id}${w.cohortId?' · '+w.cohortId:''}`, base={loc:w.loc,crop:w.name,cid:w.crop,pd:w.plannedPlant||w.plant},
-      tag=w.basis?` · ${w.basis==='VERIFIED'?'actual planting':'scheduled planting'} (planned ${calFull(w.plannedPlant)})`:'';
+      tag=w.basis?` · ${w.basis==='VERIFIED'?'actual planting':'scheduled planting'} (planned ${calFull(w.plannedPlant)})`:'',
+      flag=w.windowState==='OUTSIDE'?'outside':(w.basis?'shift':''), nd=Math.abs(w.varianceDays||0),
+      when=w.basis==='VERIFIED'?'Planted':'Scheduled to plant', off=nd?`${nd} day${nd===1?'':'s'} ${w.varianceDays>0?'late':'early'}`:'on a different date',
+      why=!flag?'':flag==='outside'?`${when} ${off} vs plan (${calFull(w.plannedPlant)}), outside the allowable window${w.windowRange?' ('+w.windowRange+')':''}. ${w.accepted?'Accepted by '+(w.acceptedBy||'a manager')+'.':'Not yet accepted by a manager.'}`:`${when} ${off} vs plan (${calFull(w.plannedPlant)})${w.windowState==='IN'?', inside the allowable window':''}. Dates below follow the ${w.basis==='VERIFIED'?'actual':'scheduled'} date.`;
+    Object.assign(base,{flag,why});
     if(tab==='cover'){ out.push({...base,d:w.plant,k:'cover',t:'Cover crop sowing (turnover step)',sub:`${who} · Plant Cover Crop (ACT_043) on a bed in post-harvest turnover${w.window?' · allowed '+w.window:''} · no harvest`}); return; }
     if(tab==='prop'&&c.tot>0) out.push({...base,d:c.sow,k:'prop',t:'Start propagation',sub:`${who} · ${c.phases.map(p=>p.name+' '+p.days+'d').join(' + ')} · transplant ${calFull(w.plant)}${tag}`});
     if(tab==='plant') out.push({...base,d:w.plant,k:'plant',t:c.dobLabel,sub:`${who} · first harvest ${calFull(c.h1)} (${w.hmin} days)${tag}`});
@@ -4338,11 +4345,11 @@ function calSetLoc(l){ ui.calLoc=l; ui.calDay=null; render(); }
 function calNav(n){ const [y,m]=ui.calMonth.split('-').map(Number), d=new Date(Date.UTC(y,m-1+n,1)); ui.calMonth=d.toISOString().slice(0,7); ui.calDay=null; render(); }
 function calGoToday(){ ui.calMonth=calToday().slice(0,7); ui.calDay=calToday(); render(); }
 function calPick(d){ ui.calDay=d; render(); }
-function calCSV(){ const rows=[['Date','Event','Crop','Location','Details']].concat(calEvents(ui.calTab||'prop').map(e=>[e.d,e.t,e.crop,CAL_LOC[e.loc][2],e.sub]));
+function calCSV(){ const rows=[['Date','Event','Crop','Location','Details','Flag']].concat(calEvents(ui.calTab||'prop').map(e=>[e.d,e.t,e.crop,CAL_LOC[e.loc][2],e.sub,e.flag?CAL_FLAG_LBL[e.flag]+': '+e.why:'']));
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n')],{type:'text/csv'})); a.download='production-calendar-'+(ui.calTab||'prop')+'.csv'; a.click(); }
 function calSetView(v){ ui.calView=v; render(); }
-function calItem(e){ const c=CAL_LOC[e.loc], kc=CAL_KCOL[e.k];
-  return `<div class="cal-item" style="--c:${kc};--lc:${c[1]}"><div class="kind">${esc(e.t)}</div><div class="nm">${esc(e.crop)}</div><div class="sb">${e.k==='cover'||e.k==='coverEnd'?'':`<span class="loc">${c[2]}</span>`}${e.k==='cover'||e.k==='coverEnd'?'<span class="cal-tag cal-tag-cover">Post-harvest step · not a cash crop</span>':''}${calState.missSet&&calState.missSet.has(e.cid+'|'+e.pd)?'<span class="cal-tag">No bed plan yet</span>':''}${esc(e.sub)}</div></div>`; }
+function calItem(e){ const c=CAL_LOC[e.loc], kc=e.flag?CAL_FLAG[e.flag]:CAL_KCOL[e.k];
+  return `<div class="cal-item" style="--c:${kc};--lc:${c[1]}"><div class="kind">${esc(e.t)}</div><div class="nm">${esc(e.crop)}</div><div class="sb">${e.k==='cover'||e.k==='coverEnd'?'':`<span class="loc">${c[2]}</span>`}${e.k==='cover'||e.k==='coverEnd'?'<span class="cal-tag cal-tag-cover">Post-harvest step · not a cash crop</span>':''}${calState.missSet&&calState.missSet.has(e.cid+'|'+e.pd)?'<span class="cal-tag">No bed plan yet</span>':''}${esc(e.sub)}</div>${e.flag?`<div class="cal-flag" style="--f:${CAL_FLAG[e.flag]}"><b>${CAL_FLAG_LBL[e.flag]}</b>${esc(e.why)}</div>`:''}</div>`; }
 function calScreen(){
   if(!calState.data&&!calState.busy&&!calState.error) loadCalendar();
   const shell=inner=>`<div class="cal"><div class="cal-top"><h2>Production calendars</h2><button class="btn btn-outline cal-noprint" style="width:auto;margin:0" onclick="goBoard()">Close</button></div>${inner}</div>`;
@@ -4367,14 +4374,15 @@ function calScreen(){
   ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>cells+=`<div class="cal-dow">${d}</div>`);
   for(let i=0;i<first;i++) cells+='<div class="cal-cell empty"></div>';
   for(let d=1;d<=dim;d++){ const iso=`${ui.calMonth}-${String(d).padStart(2,'0')}`, ev=by[iso]||[];
-    cells+=`<button class="cal-cell ${ev.length?'has':''} ${iso===t?'today':''} ${iso===selDay?'sel':''}" onclick="calPick('${iso}')"><span class="d">${d}</span>${ev.slice(0,2).map(e=>`<div class="cal-chip" style="--c:${CAL_KCOL[e.k]}" title="${esc(e.t+' · '+e.crop)}">${CAL_KIND[e.k]} ${esc(e.crop)}</div>`).join('')}${ev.length>2?`<div class="cal-more">+${ev.length-2} more</div>`:''}</button>`; }
+    cells+=`<button class="cal-cell ${ev.length?'has':''} ${iso===t?'today':''} ${iso===selDay?'sel':''}" onclick="calPick('${iso}')"><span class="d">${d}</span>${ev.slice(0,2).map(e=>`<div class="cal-chip" style="--c:${e.flag?CAL_FLAG[e.flag]:CAL_KCOL[e.k]}" title="${esc(e.t+' · '+e.crop+(e.why?' · '+e.why:''))}">${e.flag==='outside'?'⚠ ':e.flag==='shift'?'↔ ':''}${CAL_KIND[e.k]} ${esc(e.crop)}</div>`).join('')}${ev.length>2?`<div class="cal-more">+${ev.length-2} more</div>`:''}</button>`; }
   const monthBody=`<div class="cal-grid">${cells}</div>`+(selDay&&selDay.slice(0,7)===ui.calMonth?`<div class="cal-day-h">${calLong(selDay)}</div>${by[selDay]?by[selDay].map(calItem).join(''):'<div class="card">Nothing scheduled.</div>'}`:'');
   const agendaBody=days.length?days.map(d=>`<div class="cal-agenda-d">${calLong(d)}</div>${by[d].map(calItem).join('')}`).join(''):'<div class="card">Nothing scheduled this month.</div>';
   const seg=(items,cur,fn)=>`<div class="seg">${items.map(([k,l])=>`<button class="${cur===k?'active':''}" onclick="${fn}('${k}')">${l}</button>`).join('')}</div>`;
   const locSeg='';
   const viewSeg=seg([['month','Month'],['agenda','Agenda']],view,'calSetView');
   const dot=(c,l)=>`<span><i style="background:${c}"></i>${l}</span>`;
-  const leg=tab==='harv'?dot(CAL_KCOL.open,'Harvest window opens')+dot(CAL_KCOL.close,'Harvest window closes'):tab==='prop'?dot(CAL_KCOL.prop,'Start propagation'):tab==='cover'?dot(CAL_KCOL.cover,'SOP window opens (mix set by harvest termination date)')+dot(CAL_KCOL.coverEnd,'SOP window closes'):dot(CAL_KCOL.plant,'Planting (DOB)');
+  const flagLeg=tab==='cover'?'':dot(CAL_FLAG.shift,'↔ Planted / scheduled on a different date than planned')+dot(CAL_FLAG.outside,'⚠ Outside the allowable planting window');
+  const leg=(tab==='harv'?dot(CAL_KCOL.open,'Harvest window opens')+dot(CAL_KCOL.close,'Harvest window closes'):tab==='prop'?dot(CAL_KCOL.prop,'Start propagation'):tab==='cover'?dot(CAL_KCOL.cover,'SOP window opens (mix set by harvest termination date)')+dot(CAL_KCOL.coverEnd,'SOP window closes'):dot(CAL_KCOL.plant,'Planting (DOB)'))+flagLeg;
   const coverSop=tab==='cover'?`<div class="cal-align ok" style="margin-bottom:10px"><div class="h">Ngapori Ranch Cover Crop SOP</div><div class="r" style="display:block;line-height:1.5">Cover cropping is a mandatory post-harvest sequence, not a planting. After the final harvest the manager terminates the cohort (<b>ACT_053</b>), then: <b>Field cleanup</b> ACT_037 Pull plastic &amp; drip tape, ACT_038 Mow residue, ACT_039 Till &amp; incorporate; <b>Cover establishment</b> ACT_041 Prep cover beds, ACT_042 Pack seedbed, ACT_043 Plant cover crop, ACT_044 Water cover crop; then the <b>Manager verification gate</b> (Rule R11) releases the bed to AVAILABLE.<br>${COVER_SOP.map(w=>`<b>${w.name} (${coverSopLbl(w.from)} \u2013 ${coverSopLbl(w.to)}):</b> ${esc(w.label)}. ${esc(w.purpose)}`).join('<br>')}<br><b>Rule R16 Override:</b> a late-fall bed going straight to bare-soil prep or a secondary cash crop can skip ACT_041\u2013044 with a written log entry. Cover crops have no propagation, planting wave or harvest, so they never appear on the other calendars.</div></div>`:'';
   return shell(`<div class="cal-cards">${cards}</div>
   <div class="cal-bar"><h3>${CAL_TABS.find(x=>x[0]===tab)[1]}</h3>${viewSeg}<span class="cal-noprint">${locSeg}</span><span class="grow"></span>
