@@ -92,6 +92,13 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .bh-sec{margin:14px 0 6px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
 .bh-sec h2{font-size:13px;margin:0;}
 .bh-dom{font-size:11px;font-weight:700;color:var(--ink-soft);margin:10px 0 4px;}
+.act-hint{font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;}
+.act-log .act-row{cursor:pointer;justify-content:space-between;gap:10px;transition:background .12s;}
+.act-log .act-row:hover,.act-log .act-row:focus-visible{background:color-mix(in srgb,var(--forest) 8%,var(--paper));outline:none;}
+.act-time{white-space:nowrap;color:var(--ink-soft);font-size:12px;}
+.act-go{margin-left:8px;color:var(--irrigation);font-weight:800;font-size:15px;}
+.act-log .act-row > span:first-child{color:var(--irrigation);font-weight:600;text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--irrigation) 35%,transparent);text-underline-offset:3px;}
+.act-log .act-row:hover > span:first-child,.act-log .act-row:focus-visible > span:first-child{text-decoration-color:currentColor;}
 .bh-row{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:9px 10px;margin:0 0 6px;}
 .bh-row.req{border-left:4px solid var(--warn);}
 .bh-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
@@ -1399,7 +1406,13 @@ function cohortActionButtons(b){
 }
 function activityTab(b){
   const rows=(b.activityLog||[]);
-  return rows.length? `<div class="card">${rows.map(r=>`<div class="row" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span>${esc(r.endTime||'')}</span></div>`).join('')}</div>` : `<div class="empty">No completed activity logged for this bed yet.</div>`;
+  if(!rows.length) return `<div class="empty">No completed activity logged for this bed yet.</div>`;
+  const dt=r=>{ const d=new Date(r.endTime); return isNaN(d)?null:d; };
+  const dayOf=r=>{ const d=dt(r); return d?d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'}):'Earlier'; };
+  const timeOf=r=>{ const d=dt(r); return d?d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}):(r.endTime||''); };
+  const groups={}, order=[];
+  rows.forEach(r=>{ const k=dayOf(r); if(!groups[k]){ groups[k]=[]; order.push(k); } groups[k].push(r); });
+  return `<div class="act-hint">Tap an activity to open its full profile.</div>`+order.map(k=>`<div class="bh-dom">${esc(k)}</div><div class="card act-log">${groups[k].map(r=>`<div class="row act-row" role="button" tabindex="0" title="Open activity profile" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')" onkeydown="if(event.key==='Enter')this.click()"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span class="act-time">${esc(timeOf(r))}<span class="act-go" aria-hidden="true">›</span></span></div>`).join('')}</div>`).join('');
 }
 function exceptionsTab(b,exc){
   return exc.length? exc.map(x=>`<div class="card">
