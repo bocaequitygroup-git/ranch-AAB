@@ -1217,6 +1217,7 @@ function boardScreen(){
     <div class="mapcol">
       <div class="toolbar">
         ${assignmentsButton()}
+        <button class="btn btn-outline" style="width:auto;margin:0;" onclick="openOneWorker()" title="Give one worker one activity on several beds">One worker → many beds</button>
         <input id="bed-search" placeholder="Search beds (ID, block, crop, cohort…)" value="${esc(ui.bedSearch)}" oninput="setBedSearch(this.value)" style="min-width:220px;" aria-label="Search beds">
         <div class="seg">
           <button class="${ui.overlay==='stage'?'active':''}" onclick="setOverlay('stage')">Current stage</button>
@@ -2099,7 +2100,8 @@ function modalHTML(){
   else if(ui.modal==='phassign') inner=phaModal();
   else if(ui.modal==='new-activity') inner=newActivityModal();
   else if(ui.modal==='activity-profile') inner=activityProfileModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  else if(ui.modal==='one-worker') inner=oneWorkerModal();
+  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -2452,6 +2454,87 @@ function reqStepsHTML(b){
   const locked = verified ? '' : `<div style="padding:3px 0;opacity:.55;font-size:11.5px;">🔒 Irrigation calendar and Crop Care open after planting is verified.</div>`;
   if(!rows && !hasC && String(b.bedStatus||'').toUpperCase()!=='AVAILABLE') return '';
   return `<details open style="margin:0 0 10px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px;"><summary style="cursor:pointer;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.03em;">Required before and at planting${steps.length?` · ${steps.length} reset step${steps.length===1?'':'s'} done`:''}</summary>${rows}${plant}${locked}</details>`;
+}
+/* ==================== ONE WORKER -> MANY BEDS (one activity, one worker, every bed ticked) ====================
+ * Same server path as multi-assign: start-sessions, one call per bed, each validated by the server.
+ * Fertilizer and post-harvest turnover steps keep their own flows. Beds that fail stay ticked so the manager can fix and resend. */
+function owIso(n){ const x=new Date(); x.setDate(x.getDate()+n); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); }
+function owD(){ const d=ui.modalDraft; if(!d.beds) d.beds=[]; if(d.workerId==null) d.workerId=''; if(d.activity==null) d.activity=''; if(!d.date) d.date=todayISO(); if(d.q==null) d.q=''; if(d.result===undefined) d.result=null; if(d.busy==null) d.busy=false; return d; }
+function openOneWorker(){ openModal('one-worker',{ beds:[], workerId:'', activity:'', q:'', date:todayISO(), result:null, busy:false }); }
+function owActivities(){ return (state.activityCatalog||[]).filter(a=>a&&a.name&&!isFertAct(a.name)&&!(Number(a.postHarvestSequence)>0)).sort((x,y)=>String(x.name).localeCompare(String(y.name))); }
+function owBed(id){ return (state.beds||[]).find(b=>b.id===id)||{id:id}; }
+function owEligible(b,act){ try{ return startableActivities(b.id,!!b.cohortId).list.some(a=>a.name===act); }catch(e){ return false; } }
+function owBedsHTML(d){
+  if(!d.activity) return `<div class="empty">Pick an activity first. Only beds that can take it will be listed.</div>`;
+  const q=d.q.trim().toLowerCase();
+  const ok=(state.beds||[]).filter(b=>owEligible(b,d.activity)).filter(b=>!q||(b.id+' '+(b.blockId||'')+' '+(b.cropName||'')).toLowerCase().includes(q));
+  if(!ok.length) return `<div class="empty">${q?'No bed matches this search.':'No bed can take this activity right now.'}</div>`;
+  const groups={}; ok.forEach(b=>{ const k=b.blockId||'No block'; (groups[k]=groups[k]||[]).push(b); });
+  return Object.keys(groups).sort().map(g=>{
+    const ids=groups[g].map(b=>b.id), all=ids.every(i=>d.beds.includes(i));
+    return `<div class="ma-grp" style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><span>${esc(g)} · ${ids.length} bed${ids.length===1?'':'s'}</span><button class="gt-link" data-ids="${esc(ids.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!all})">${all?'Clear block':'Select block'}</button></div>`+
+      groups[g].map(b=>{ const on=d.beds.includes(b.id); return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} data-v="${esc(b.id)}" onchange="owToggleBed(this.dataset.v,this.checked)"><span><b style="font-weight:700;">${esc(b.id)}</b>${b.cropName?` <span class="d">${esc(b.cropName)}</span>`:''}</span></label>`; }).join('');
+  }).join('');
+}
+function owToggleBed(id,on){ const d=owD(), i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); d.result=null; owRefresh(); }
+function owToggleBlock(csv,on){ const d=owD(); csv.split(',').forEach(id=>{ const i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); }); d.result=null; owRefresh(); }
+function owSetWorker(v){ const d=owD(); d.workerId=v||''; d.result=null; owRefresh(); }
+function owSetActivity(v){ const d=owD(); d.activity=v||''; d.beds=d.beds.filter(id=>owEligible(owBed(id),d.activity)); d.result=null; owRefresh(); }
+function owSetDate(n){ const d=owD(); d.date=owIso(n); owRefresh(); }
+function owSearch(v){ owD().q=v; owRefresh(); }
+function owRefresh(){
+  const g=id=>document.getElementById(id);
+  if(!g('ow-beds')) return render();
+  const d=owD(), t=g('ow-beds').scrollTop;
+  g('ow-beds').innerHTML=owBedsHTML(d); g('ow-beds').scrollTop=t;
+  g('ow-foot').innerHTML=owFootHTML();
+  const n=g('ow-n'); if(n) n.textContent=d.beds.length;
+  const di=g('ow-date'); if(di) di.value=d.date;
+}
+function owFootHTML(){
+  const d=owD(), n=d.beds.length, ok=!!d.workerId&&!!d.activity&&n>0&&!d.busy;
+  const sum=!d.workerId||!d.activity?`<span style="color:var(--ink-soft);">Pick a worker and an activity.</span>`
+    : !n?`<span style="color:var(--ink-soft);">Tick the beds this worker should do.</span>`
+    : `<b>${esc(maWName(d.workerId))}</b> → <b>${esc(actLabel(d.activity))}</b> on <b>${n}</b> bed${n===1?'':'s'}.`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} bed${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} already open (skipped).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.bedId)}: ${esc(propErrText(f)||f.errorCode||'not assigned')}</div>`).join('')}</div>`;
+  return `<div class="ma-sum">${sum}</div>${res}
+    <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitOneWorker()">${d.busy?'<span class="vp-spin"></span>Assigning…':(ok?`Assign ${n} bed${n===1?'':'s'}`:'Assign')}</button><button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
+    <div class="note" style="margin:6px 0 0;">Each task shows as Pending until the worker taps Start. Server rules still apply to every bed.</div>`;
+}
+function oneWorkerModal(){
+  const d=owD(), acts=owActivities(), wk=state.workers||[];
+  return `<div class="ma-head"><h2 style="font-size:16px;margin:0;">One worker → many beds</h2><span class="qsub">One activity, one worker, every bed you tick</span></div>
+  <div class="ma-cols">
+    <div class="ma-col"><div class="ma-colhead"><h3>1 · Worker and activity</h3></div>
+      <div class="field"><label>Worker</label><select onchange="owSetWorker(this.value)"><option value="">Select a worker…</option>${wk.map(w=>{ const n=workerLoad(w.workerId); return `<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.name)} (${esc(w.workerId)}) · ${n?n+' open':'free'}</option>`; }).join('')}</select></div>
+      <div class="field"><label>Activity</label><select onchange="owSetActivity(this.value)"><option value="">Select an activity…</option>${acts.map(a=>`<option value="${esc(a.name)}" ${d.activity===a.name?'selected':''}>${esc(actLabel(a.name))}</option>`).join('')}</select></div>
+      <div class="note" style="margin-top:6px;">Fertilizer and post-harvest turnover steps are not listed here. Use multi-assign or the turnover sequence for those.</div></div>
+    <div class="ma-col"><div class="ma-colhead"><h3>2 · Pick beds (<span id="ow-n">${d.beds.length}</span>)</h3>
+      <input class="ma-search" id="ow-search" type="search" placeholder="Search beds (ID, block, crop)…" value="${esc(d.q)}" oninput="owSearch(this.value)"></div>
+      <div id="ow-beds" style="overflow-y:auto;max-height:48vh;">${owBedsHTML(d)}</div></div>
+  </div>
+  <div class="ma-date"><b>Schedule</b><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(1)">Tomorrow</button><input type="date" id="ow-date" value="${esc(d.date)}" min="${todayISO()}" onchange="owD().date=this.value||todayISO()"></div>
+  <div class="ma-foot" id="ow-foot">${owFootHTML()}</div>`;
+}
+async function submitOneWorker(){
+  const d=owD(); if(d.busy||!d.workerId||!d.activity||!d.beds.length) return;
+  const ids=d.beds.slice(), out={created:[],skipped:[],failed:[]};
+  d.busy=true; d.result=null; busyShow('Assigning '+ids.length+' bed'+(ids.length===1?'':'s')+'… please wait'); owRefresh();
+  for(const bedId of ids){
+    try{
+      const r=await apiCall('start-sessions',{ bedId:bedId, assignments:[{ activity:d.activity, workerIds:[d.workerId] }], scheduledDate:d.date }, 60000);
+      if((r.created||[]).length) out.created.push(bedId);
+      if((r.skipped||[]).length) out.skipped.push(bedId);
+      (r.failed||[]).forEach(f=>out.failed.push(Object.assign({bedId:bedId},f)));
+    }catch(e){ out.failed.push({ bedId:bedId, errorCode:(e&&e.message)||'NOT_ASSIGNED' }); }
+  }
+  const stuck=out.failed.map(f=>f.bedId);
+  d.beds=ids.filter(id=>stuck.includes(id));   /* beds that did not go through stay ticked for a retry */
+  d.result=out; d.busy=false;
+  busyShow('Assigned – refreshing…');
+  try{ await loadToday(); } finally{ busyHide(); }
+  if(out.created.length) toast(out.created.length+' bed'+(out.created.length===1?'':'s')+' assigned.');
+  owRefresh();
 }
 function multiAssignModal(){
   const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId)||{};
