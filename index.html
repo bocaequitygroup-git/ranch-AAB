@@ -92,6 +92,10 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .bh-sec{margin:14px 0 6px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
 .bh-sec h2{font-size:13px;margin:0;}
 .bh-dom{font-size:11px;font-weight:700;color:var(--ink-soft);margin:10px 0 4px;}
+.ow-cta{display:inline-flex;align-items:center;gap:7px;width:auto;margin:0;padding:10px 16px;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13.5px;font-weight:800;letter-spacing:.01em;color:#fff;background:linear-gradient(135deg,#E8731C 0%,#F4A93A 100%);box-shadow:0 2px 6px rgba(232,115,28,.35);white-space:nowrap;}
+.ow-cta:hover{filter:brightness(1.05);box-shadow:0 3px 10px rgba(232,115,28,.45);}
+.ow-cta:focus-visible{outline:3px solid #1F3A2E;outline-offset:2px;}
+.ow-cta .ow-ico{font-size:15px;line-height:1;}
 .act-hint{font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;}
 .act-log .act-row{cursor:pointer;justify-content:space-between;gap:10px;transition:background .12s;}
 .act-log .act-row:hover,.act-log .act-row:focus-visible{background:color-mix(in srgb,var(--forest) 8%,var(--paper));outline:none;}
@@ -1224,7 +1228,7 @@ function boardScreen(){
     <div class="mapcol">
       <div class="toolbar">
         ${assignmentsButton()}
-        <button class="btn btn-outline" style="width:auto;margin:0;" onclick="openOneWorker()" title="Give one worker one activity on several beds">One worker → many beds</button>
+        <button class="ow-cta" onclick="openOneWorker()" title="Give one worker the same activity on several beds"><span class="ow-ico" aria-hidden="true">👤</span><b>One worker to many beds</b></button>
         <input id="bed-search" placeholder="Search beds (ID, block, crop, cohort…)" value="${esc(ui.bedSearch)}" oninput="setBedSearch(this.value)" style="min-width:220px;" aria-label="Search beds">
         <div class="seg">
           <button class="${ui.overlay==='stage'?'active':''}" onclick="setOverlay('stage')">Current stage</button>
@@ -2516,7 +2520,7 @@ function owFootHTML(){
 }
 function oneWorkerModal(){
   const d=owD(), acts=owActivities(), wk=state.workers||[];
-  return `<div class="ma-head"><h2 style="font-size:16px;margin:0;">One worker → many beds</h2><span class="qsub">One activity, one worker, every bed you tick</span></div>
+  return `<div class="ma-head"><h2 style="font-size:16px;margin:0;"><b>One worker to many beds</b></h2><span class="qsub">Pick one activity and one worker, then tick every bed they should do.</span></div>
   <div class="ma-cols">
     <div class="ma-col"><div class="ma-colhead"><h3>1 · Worker and activity</h3></div>
       <div class="field"><label>Worker</label><select onchange="owSetWorker(this.value)"><option value="">Select a worker…</option>${wk.map(w=>{ const n=workerLoad(w.workerId); return `<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.name)} (${esc(w.workerId)}) · ${n?n+' open':'free'}</option>`; }).join('')}</select></div>
@@ -5485,6 +5489,9 @@ function bbScreen(){
   const secHtml=(SECS.find(x=>x[0]===bb.sec)||SECS[0])[3];
   return `<div class="leftpanel"><nav class="bb-nav" aria-label="Bed status board sections" style="position:static;margin-bottom:12px;">${navBtns}</nav>${blockCards}</div>
     <div class="mapcol">
+    <div class="toolbar" style="justify-content:flex-end;">
+      <button class="ow-cta" onclick="openOneWorker()" title="Give one worker the same activity on several beds"><span class="ow-ico" aria-hidden="true">👤</span><b>One worker to many beds</b></button>
+    </div>
     ${bb.sec==='overview'?bbFilterBar()+`<div class="legend">${legend}</div>`:''}
     <div class="mapscroll"><div class="bb-main">
     ${bb.err?`<div class="error">${esc(bb.err)}</div>`:''}
