@@ -990,7 +990,7 @@ async function rejectAssignment(cohortId){
 async function doVerifyPlanting(cohortId, actualDob){
   if(!actualDob){ toast('Enter the actual planting date.'); return; }
   if(!/^\d{4}-\d{2}-\d{2}$/.test(actualDob)){ toast('That is not a valid planting date.'); return; }
-  if(actualDob>todayISO()){ toast('The planting date cannot be in the future.'); return; }   // server enforces this too (verifyPlanting_hardened.gs)
+  /* A date after today is legitimate when it is the scheduled date of the completed planting activity; the server (verifyPlanting_hardened.gs) decides. */
   /* Warn first: is the date the manager entered inside the crop's allowable planting window? */
   let reason='';
   try{
@@ -1002,7 +1002,11 @@ async function doVerifyPlanting(cohortId, actualDob){
         ui.modalDraft.pw=pw; ui.modalDraft.pwDate=actualDob; ui.modalDraft.dob=actualDob; render();
         toast('Outside the allowable planting window. Review the dates, enter an explanation, then accept.'); return;
       }
-    } else { ui.modalDraft.pw=null; ui.modalDraft.pwDate=''; }
+    } else if(pw&&pw.state==='OUTSIDE_AUTHORIZED'&&ui.modalDraft.pwAckDate!==actualDob){
+      /* Accepted when the task was assigned, but verification must still remind the manager that this date is outside the window. */
+      ui.modalDraft.pw=pw; ui.modalDraft.pwDate=actualDob; ui.modalDraft.pwAckDate=actualDob; ui.modalDraft.dob=actualDob; render();
+      toast('This planting date is outside the allowable window (accepted earlier). Review it, then press Verify planting again.'); return;
+    } else { if(!(pw&&pw.state==='OUTSIDE_AUTHORIZED')){ ui.modalDraft.pw=null; ui.modalDraft.pwDate=''; } }
   }catch(e){ toast(e.message); return; }
   /* Missed / early planting date: the explanation is sent only for the date it was written for. */
   const dvReason=(ui.modalDraft.pdDate===actualDob)?String((ui.pdReasons||{})[cohortId]||'').trim():'';
@@ -2628,8 +2632,13 @@ function vpActivityDate(bedId,cohortId){
   const sess=(state.sessions||[]).filter(r=>r.bedId===bedId&&String(r.status||'').toUpperCase()==='COMPLETED'&&isP(r)&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
   const logs=(((state.todayById||{})[bedId]||{}).activityLog||[]).filter(r=>isP(r)&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
   const rows=sess.concat(logs).sort((a,b)=>(new Date(b.endTime||b.assignedTime)||0)-(new Date(a.endTime||a.assignedTime)||0));
+  const sched=id=>{ const x=(state.sessions||[]).find(q=>q.id===id||q.sessionId===id); return x?vpIsoDay(x.scheduledDate):''; };
   for(const r of rows){   /* only a COMPLETED planting activity says when the crop went in */
-    const name=r.taskType||r.activityName||r.activity||'planting', dd=vpIsoDay(r.endTime);
+    const name=r.taskType||r.activityName||r.activity||'planting';
+    /* The planting date is the day the manager scheduled the activity for. The completion day is only the fallback: a worker may tap Finish on another day. */
+    const sd=vpIsoDay(r.scheduledDate)||sched(r.sessionId||r.id);
+    if(sd) return { date:sd, from:'the date the '+name+' activity was scheduled for' };
+    const dd=vpIsoDay(r.endTime);
     if(dd) return { date:dd, from:'the day the '+name+' activity was completed' };
   }
   return null;
@@ -2645,7 +2654,7 @@ function verifyPlantingModal(){
   ${pdPlannedLine(d)}
   ${ppAskBox(d.pp,d.cohortId)}
   ${pdAskBox(d.pd,d.cohortId)}
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" max="${esc(today)}">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.${d.dob>today?' This date is after today, so the server must allow a completed planting activity scheduled for it.':''}</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.${d.dob>today?' This date is after today, so the server must allow a completed planting activity scheduled for it.':''}</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
   <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':((d.pd||d.pp)?'Record explanation and verify planting':'Verify planting')}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
