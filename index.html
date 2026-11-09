@@ -113,7 +113,10 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .bh-note{font-size:11.5px;color:var(--ink-soft);margin:5px 0 0;}
 .bh-row.hl{outline:2px solid var(--forest);background:#F1F8F1;}
 .bh-wnote{margin:6px 0 0;padding:6px 8px;border-left:3px solid var(--forest);background:var(--sand);border-radius:0 8px 8px 0;font-size:12.5px;color:var(--ink);white-space:pre-wrap;} .bh-wnote b{display:block;font-size:10px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:2px;}
-.rb-link{cursor:pointer;text-decoration:underline dotted;} .rb-link:hover{color:var(--forest);}
+.rb-link{cursor:pointer;color:#1d5fd0;text-decoration:underline;} .rb-link.seen{color:#7a4aa6;} .rb-link:hover{filter:brightness(.8);}
+.rb-lnk{display:block;cursor:pointer;color:#1d5fd0;font-size:12px;font-weight:700;padding:6px 8px;margin-top:3px;border:1px solid var(--line);border-left:4px solid #1d5fd0;border-radius:8px;background:var(--paper);}
+.rb-lnk:hover{background:var(--sand);} .rb-lnk .rb-n{color:var(--ink);font-weight:400;margin-top:2px;}
+.rb-lnk.seen{color:#7a4aa6;font-weight:500;border-left-color:#7a4aa6;} .rb-lnk.cur{outline:2px solid var(--forest);background:#F1F8F1;}
 .bh-btns{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;}
 .bh-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 8px;}
 .bh-tools select{padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--paper);}
@@ -4886,8 +4889,9 @@ async function bbLoadInfo(bedId){
     if(bb.info&&bb.info.bedId===bedId) Object.assign(bb.info,{loading:false,prof,err:''});
   }catch(e){ if(bb.info&&bb.info.bedId===bedId) Object.assign(bb.info,{loading:false,err:errMsg(e)}); }
   render();
+  if(bb.info&&bb.info.bedId===bedId&&!bb.info.err) bhLoadDetails(bedId);
 }
-function bbClosePanel(){ bb.bedSel=null; bb.info=null; render(); }
+function bbClosePanel(){ bb.bedSel=null; bb.info=null; rb.cur=''; render(); }
 function bbSetTab(t){ bb.tab=t; render(); }
 async function bbRefreshAll(){ bbForget(); await Promise.all([bbLoad(true),loadToday()]); if(bb.bedSel) bbLoadInfo(bb.bedSel); }
 async function bbVerifyTurnover(scope,bedId){ const ok=await doVerifyTurnover(scope,bedId); if(!ok) return; bbForget(); await bbLoad(true); if(bb.bedSel===bedId) bbLoadInfo(bedId); }
@@ -5030,8 +5034,16 @@ async function bhCheck(logId){
   catch(e){ toast(e.message); return; }
   await loadToday(); rb.last=0; rbLoad(true); render();
 }
+async function bhLoadDetails(bedId){
+  try{ const r=await apiCall('get-bed-activity-details',{bedId});
+    if(bb.info&&bb.info.bedId===bedId){ bb.info.det=(r&&r.details)||{}; render(); } }
+  catch(e){ /* the history still shows without the extra content */ }
+}
 /* Open the bed's activity profile (History tab) on one activity, from the Manager review board. */
 async function rbOpen(bedId,logId){
+  rb.visited[logId]=1; rbSaveVisited(); rb.cur=logId;
+  const blk=pvBlockOf(bedId);   /* the left-hand block marker and the map follow the bed's own block */
+  if(PLAN_BLOCKS.includes(blk)&&bb.sel!==blk){ bb.sel=blk; bb.dry=null; bb.res=null; bb.confirm=false; }
   await bbBedClick(bedId);
   if(bb.info&&bb.info.bedId===bedId){ bb.tab='history'; Object.assign(bb.info,{hf:'ALL',hd:'ALL',hl:300,hlLog:logId}); render();
     setTimeout(()=>{ const el=document.getElementById('bh-'+logId); if(el) el.scrollIntoView({block:'center'}); },60); }
@@ -5045,7 +5057,8 @@ function bhHistory(b,d){
   const tools=`<div class="bh-tools"><div class="seg">${seg.map(([k,l])=>`<button class="${fS===k?'active':''}" onclick="bhSet('hf','${k}')">${l} (${cnt[k]||0})</button>`).join('')}</div>
     <select aria-label="Filter history by domain" onchange="bhSet('hd',this.value)"><option value="ALL">Both domains</option><option value="BED" ${fD==='BED'?'selected':''}>Bed domain</option><option value="CROP" ${fD==='CROP'?'selected':''}>Crop domain</option></select></div>
     <div class="qsub" style="margin:0 0 8px;text-transform:none;letter-spacing:0;">Completed = finished, not yet checked or verified. Checked = a manager reviewed it. Verified = a manager signed it off.</div>`;
-  const row=r=>{
+  const row=r0=>{
+    const r=Object.assign({},r0,(d.det&&d.det[r0.logId])||{});
     const k=stOf(r), c=bhCat(r.taskType);
     const chip=k==='VERIFIED'?'<span class="chip chip-ok">Verified</span>':k==='CHECKED'?'<span class="chip chip-neutral">Checked</span>'
       :`<span class="chip chip-warn">Completed \u00b7 ${String(r.governance||'').toUpperCase()==='VERIFIED'?'awaiting verification':'awaiting check'}</span>`;
@@ -5251,6 +5264,10 @@ function bbTasksPanel(){
  * VERIFIED custom activities get a Verify stamp here. Planting, post-harvest and bed-release verification keep their own panel above. */
 const rb={ data:null, busy:false, err:'', hide:false, sel:{}, selV:{}, last:0, anchor:null, vis:[], gmap:[],
   f:{ q:'', blk:'ALL', act:'ALL', wk:'ALL', flag:false, notes:false, grp:'none' } };
+rb.visited={}; rb.cur=''; rb.fold=false; rb.recOpen=true;
+try{ rb.visited=JSON.parse(sessionStorage.getItem('rb_visited')||'{}')||{}; }catch(e){ rb.visited={}; }
+function rbSaveVisited(){ try{ sessionStorage.setItem('rb_visited',JSON.stringify(rb.visited)); }catch(e){} }
+function rbFold(){ rb.fold=!rb.fold; render(); }
 async function rbLoad(force){
   if(IS_DEMO||rb.busy||rb.hide) return;
   if(!force&&rb.data&&Date.now()-rb.last<20000) return;
@@ -5315,7 +5332,7 @@ function rbTr(it,i){
   return `<tr class="${rb.sel[it.logId]?'sel':''}${fl.length?' fl':''}" onclick="rbRowClick(event,${i})">
     <td class="chk"><input type="checkbox" aria-label="Select" ${rb.sel[it.logId]?'checked':''} onclick="rbRowClick(event,${i})"></td>
     <td>${esc(rbWhen(it.endTime))}</td>
-    <td><b class="rb-link" title="Open this activity's profile" onclick="event.stopPropagation();rbOpen('${esc(it.bedId)}','${esc(it.logId)}')">${esc(it.bedId)}</b><div class="id">${esc(it.cohortId||'')}</div></td>
+    <td><b class="rb-link${rb.visited[it.logId]?' seen':''}" title="Open this activity's profile" onclick="event.stopPropagation();rbOpen('${esc(it.bedId)}','${esc(it.logId)}')">${esc(it.bedId)}</b><div class="id">${esc(it.cohortId||'')}</div></td>
     <td>${esc(actLabel(it.activity))}</td>
     <td>${esc(it.workerName)}</td>
     <td>${esc(rbDur(it.minutes))}</td>
@@ -5379,11 +5396,11 @@ function rbPanel(){
     <div class="dp-tools"><button onclick="rbAll('verify',true)">Select all</button><button onclick="rbAll('verify',false)">Clear</button></div>
     <div class="ma-list" style="max-height:300px;">${d.toVerify.map(x=>rbRow(x,'verify')).join('')}</div>
     <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="verify" ${nV?'':'disabled'} onclick="rbReview('verify')">Verify selected${nV?' ('+nV+')':''}</button>`:'';
-  const recent=(d.recentlyChecked&&d.recentlyChecked.length)?`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;">Recently checked (${d.recentlyChecked.length})</summary>${d.recentlyChecked.map(x=>`<div class="qsub rb-link" role="button" tabindex="0" onclick="rbOpen('${esc(x.bedId)}','${esc(x.logId)}')" style="text-transform:none;letter-spacing:0;padding:5px 0;border-bottom:1px solid var(--line);">${esc(actLabel(x.activity))} · Bed ${esc(x.bedId)} · ${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}${x.notes?`<div style="color:var(--ink);">\u201c${esc(x.notes)}\u201d</div>`:''}</div>`).join('')}</details>`:'';
+  const recent=(d.recentlyChecked&&d.recentlyChecked.length)?`<details style="margin-top:10px;" ${rb.recOpen?'open':''} ontoggle="rb.recOpen=this.open"><summary style="cursor:pointer;font-size:12px;">Recently checked (${d.recentlyChecked.length}) <span class="id">· <span style="color:#1d5fd0;">blue = not opened yet</span> · <span style="color:#7a4aa6;">purple = opened</span></span></summary>${d.recentlyChecked.map(x=>`<div class="rb-lnk${rb.visited[x.logId]?' seen':''}${rb.cur===x.logId?' cur':''}" role="button" tabindex="0" onclick="rbOpen('${esc(x.bedId)}','${esc(x.logId)}')" onkeydown="if(event.key==='Enter')rbOpen('${esc(x.bedId)}','${esc(x.logId)}')">${esc(actLabel(x.activity))} · Bed ${esc(x.bedId)} · ${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}${x.notes?`<div class="rb-n">\u201c${esc(x.notes)}\u201d</div>`:''}</div>`).join('')}</details>`:'';
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
-      <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></span></div>
-    ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
-    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${chk}${ver}${recent}</div>`;
+      <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span> <button class="rb-one" onclick="rbFold()" aria-expanded="${!rb.fold}">${rb.fold?'Unfold \u25be':'Fold \u25b4'}</button></span></div>
+    ${rb.fold?'':`${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
+    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${chk}${ver}${recent}`}</div>`;
 }
 /* ADD NEW ACTIVITY. The form follows the ACTIVITY_REFERENCE tab column by column (Activity_ID ... Is_Fertilizer) and the
  * "Row preview" at the bottom shows the row exactly as it will be appended. Saved through 'create-activity' {full:true}
@@ -5637,8 +5654,8 @@ function bbScreen(){
   /* left list = one card per block (like the crop cards on Bed layout); the map in the middle shows ONE block at a time */
   const blockCards=PLAN_BLOCKS.map(b=>{
     const d=bb.data[b];
-    if(!d) return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span class="chip chip-neutral">${bb.busy?'Loading\u2026':'Not loaded'}</span></div></div>`;
-    if(d.error) return `<div class="card qwarn" onclick="bbSelect('${b}')" style="cursor:pointer;"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span></div><div class="note" style="color:var(--danger);">${esc(d.error)}</div></div>`;
+    if(!d) return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;${b===bb.sel?'outline:2px solid var(--forest);':''}"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span class="chip chip-neutral">${bb.busy?'Loading\u2026':'Not loaded'}</span></div></div>`;
+    if(d.error) return `<div class="card qwarn" onclick="bbSelect('${b}')" style="cursor:pointer;${b===bb.sel?'outline:2px solid var(--forest);':''}"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span></div><div class="note" style="color:var(--danger);">${esc(d.error)}</div></div>`;
     const cnt={}; d.beds.forEach(x=>{ const k=bbStatusOf(x); cnt[k]=(cnt[k]||0)+1; });
     const lines=BB_STATUS.filter(st=>cnt[st[0]]).map(st=>`<div class="row"><span><i class="sw" style="display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;background:${st[2]};border:1px solid var(--line);"></i>${esc(BB_SHORT[st[0]]||st[1])}</span><span>${cnt[st[0]]}</span></div>`).join('');
     return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;${b===bb.sel?'outline:2px solid var(--forest);':''}"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span>${d.beds.length} beds${pvc[b]?` <span class="chip chip-warn" title="Waiting for your verification">${pvc[b]}</span>`:''}</span></div>${lines}</div>`;
