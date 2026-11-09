@@ -2492,8 +2492,11 @@ function reqStepsHTML(b){
  * Same server path as multi-assign: start-sessions, one call per bed, each validated by the server.
  * Fertilizer and post-harvest turnover steps keep their own flows. Beds that fail stay ticked so the manager can fix and resend. */
 function owIso(n){ const x=new Date(); x.setDate(x.getDate()+n); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); }
-function owD(){ const d=ui.modalDraft; if(!d.beds) d.beds=[]; if(d.workerId==null) d.workerId=''; if(d.activity==null) d.activity=''; if(!d.date) d.date=todayISO(); if(d.q==null) d.q=''; if(d.result===undefined) d.result=null; if(d.busy==null) d.busy=false; return d; }
-function openOneWorker(){ openModal('one-worker',{ beds:[], workerId:'', activity:'', q:'', date:todayISO(), result:null, busy:false }); }
+/* Default schedule date for the assign dialogs: the crop's DOB (Actual planting once planted, else Planned DOB) of the first selected bed
+ * that has a cohort; today only when no selected bed has one. The manager can still change it. */
+function owDobDate(d){ for(const id of (d.beds||[])){ let v=null; try{ v=bedViewById(id); }catch(e){} const dob=(v&&v.cohortId)?String(v.plantingDate||v.plannedDob||'').slice(0,10):''; if(/^\d{4}-\d{2}-\d{2}$/.test(dob)) return dob; } return todayISO(); }
+function owD(){ const d=ui.modalDraft; if(!d.beds) d.beds=[]; if(d.workerId==null) d.workerId=''; if(d.activity==null) d.activity=''; if(!d.date) d.date=owDobDate(d); if(d.q==null) d.q=''; if(d.result===undefined) d.result=null; if(d.busy==null) d.busy=false; return d; }
+function openOneWorker(){ openModal('one-worker',{ beds:[], workerId:'', activity:'', q:'', date:'', dateTouched:false, result:null, busy:false }); }
 function owActivities(){ return (state.activityCatalog||[]).filter(a=>a&&a.name&&!isFertAct(a.name)&&!(Number(a.postHarvestSequence)>0)).sort((x,y)=>String(x.name).localeCompare(String(y.name))); }
 function owBed(id){ return (state.beds||[]).find(b=>b.id===id)||{id:id}; }
 function owEligible(b,act){ try{ return startableActivities(b.id,!!b.cohortId).list.some(a=>a.name===act); }catch(e){ return false; } }
@@ -2509,11 +2512,11 @@ function owBedsHTML(d){
       groups[g].map(b=>{ const on=d.beds.includes(b.id); return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} data-v="${esc(b.id)}" onchange="owToggleBed(this.dataset.v,this.checked)"><span><b style="font-weight:700;">${esc(b.id)}</b>${b.cropName?` <span class="d">${esc(b.cropName)}</span>`:''}</span></label>`; }).join('');
   }).join('');
 }
-function owToggleBed(id,on){ const d=owD(), i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); d.result=null; owRefresh(); }
+function owToggleBed(id,on){ const d=owD(), i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); d.result=null; if(!d.dateTouched) d.date=owDobDate(d); owRefresh(); }
 function owToggleBlock(csv,on){ const d=owD(); csv.split(',').forEach(id=>{ const i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); }); d.result=null; owRefresh(); }
 function owSetWorker(v){ const d=owD(); d.workerId=v||''; d.result=null; owRefresh(); }
 function owSetActivity(v){ const d=owD(); d.activity=v||''; d.beds=d.beds.filter(id=>owEligible(owBed(id),d.activity)); d.result=null; owRefresh(); }
-function owSetDate(n){ const d=owD(); d.date=owIso(n); owRefresh(); }
+function owSetDate(n){ const d=owD(); d.date=owIso(n); d.dateTouched=true; owRefresh(); }
 function owSearch(v){ owD().q=v; owRefresh(); }
 function owRefresh(){
   const g=id=>document.getElementById(id);
@@ -2546,7 +2549,7 @@ function oneWorkerModal(){
       <input class="ma-search" id="ow-search" type="search" placeholder="Search beds (ID, block, crop)…" value="${esc(d.q)}" oninput="owSearch(this.value)"></div>
       <div id="ow-beds" style="overflow-y:auto;max-height:48vh;">${owBedsHTML(d)}</div></div>
   </div>
-  <div class="ma-date"><b>Schedule</b><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(1)">Tomorrow</button><input type="date" id="ow-date" value="${esc(d.date)}" min="${todayISO()}" onchange="owD().date=this.value||todayISO()"></div>
+  <div class="ma-date"><b>Schedule</b><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(1)">Tomorrow</button><input type="date" id="ow-date" value="${esc(d.date)}" onchange="owD().date=this.value||todayISO();owD().dateTouched=true"></div>
   <div class="ma-foot" id="ow-foot">${owFootHTML()}</div>`;
 }
 async function submitOneWorker(){
@@ -5813,7 +5816,7 @@ function phaOpenAssign(ids){
   if(!ok.length){ toast('None of the selected beds has a step that can be assigned right now.'); return; }
   const m={__NEXT__:[]}, ex=[], one=ok.length===1?ok[0]:null;
   if(one) phaAssigned(one.id).forEach(s=>{ const k=s.activity===one.postHarvest.nextStep?'__NEXT__':s.activity; if(k!=='__NEXT__'&&!ex.includes(k)) ex.push(k); const l=m[k]=m[k]||[]; if(!l.includes(s.workerId)) l.push(s.workerId); });
-  openModal('phassign',{ bedIds:ok.map(b=>b.id), skipped:beds.length-ok.length, mode:(one&&phaAssigned(one.id).length)?'replace':'add', date:todayISO(), matrix:m, extras:ex, result:null, busy:false, progress:'' });
+  openModal('phassign',{ bedIds:ok.map(b=>b.id), skipped:beds.length-ok.length, mode:(one&&phaAssigned(one.id).length)?'replace':'add', date:owDobDate({beds:ok.map(b=>b.id)}), matrix:m, extras:ex, result:null, busy:false, progress:'' });
 }
 function phaD(){ return ui.modalDraft; }
 function phaBedsOf(d){ return d.bedIds.map(id=>(state.beds||[]).find(b=>b.id===id)).filter(b=>b&&b.postHarvest); }
@@ -5848,7 +5851,7 @@ function phaModal(){
     <label style="display:block;"><input type="radio" name="pha-mode" ${d.mode==='replace'?'checked':''} onchange="phaMode('replace')"> Replace the crew (override): remove other workers who have not started${d.mode==='replace'?'. A row with nobody ticked clears that activity.':''}</label></div>
   <div style="overflow-x:auto;"><table class="bb-t"><thead><tr><th style="text-align:left;">Activity</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
   <div class="field" style="margin-top:8px;"><label>Add another activity to these beds</label><select onchange="phaAddExtra(this.value)" style="width:100%;padding:8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;"><option value="">+ Choose an activity…</option>${optHTML(optS,'Remaining turnover steps')}${optHTML(optO,'Other activities')}</select></div>
-  <div class="ma-date" style="margin:6px 0;"><b>Date</b><input type="date" value="${esc(d.date)}" min="${todayISO()}" onchange="phaDate(this.value)"></div>
+  <div class="ma-date" style="margin:6px 0;"><b>Date</b><input type="date" value="${esc(d.date)}" onchange="phaDate(this.value)"></div>
   ${resHTML}${d.busy&&d.progress?`<div class="note">${esc(d.progress)}</div>`:''}
   <button class="btn btn-primary" ${canGo?'':'disabled'} onclick="phaSubmit()">${d.busy?'Working…':(d.mode==='replace'?'Replace crew':'Assign')+(total?' ('+total+' worker-activity pair'+(total===1?'':'s')+' per bed)':'')}</button>
   <button class="btn btn-ghost" onclick="closeModal()">${res?'Close':'Cancel'}</button>`;
