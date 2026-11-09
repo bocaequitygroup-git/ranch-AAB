@@ -1860,7 +1860,7 @@ function gateRequiredTab(b,m){
     ${b.cohortId?'':'<div class="note" style="margin:8px 0 0;">Preview: these steps become the gate once a cohort is approved for this bed.</div>'}</div>`;
   const label=r=>`<b>${esc(gateRowLabel(r))}</b> ${gateChipTag(GATE_GROUPS[r.group==='infra'?1:0])}`;
   const openRows=m.rows.filter(r=>!r.done&&!r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
-      ${r.waiting?`<div class="gt-sub">${esc(r.waitText)}</div>`:r.worker?'':`<div class="gt-sub">${esc(r.note)}. Closed by the manager’s Terminate cohort action${gateOverrideBtn(r,m)?', or ':''}${gateOverrideBtn(r,m)}</div>`}</div>
+      ${r.waiting?`<div class="gt-sub">${esc(r.waitText)}${gateOverrideLink(r,m)}</div>`:r.worker?'':`<div class="gt-sub">${esc(r.note)}. Closed by the manager’s Terminate cohort action${gateOverrideBtn(r,m)?', or ':''}${gateOverrideBtn(r,m)}</div>`}</div>
       ${r.worker&&!r.waiting?`<button class="btn btn-outline gt-btn" data-a="${esc(r.name)}" onclick="gateAssignOne(this)">Assign to Worker(s)</button>`:''}</div>`).join('');
   const prog=m.rows.filter(r=>!r.done&&r.sessions.length).map(r=>`<div class="gt-row"><div class="gt-main"><div>${label(r)}</div>
       ${r.sessions.map(q=>{ const t=taskTimes(q), live=gateLive(q);
