@@ -2492,9 +2492,9 @@ function reqStepsHTML(b){
  * Same server path as multi-assign: start-sessions, one call per bed, each validated by the server.
  * Fertilizer and post-harvest turnover steps keep their own flows. Beds that fail stay ticked so the manager can fix and resend. */
 function owIso(n){ const x=new Date(); x.setDate(x.getDate()+n); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); }
-/* Default schedule date for the assign dialogs: the crop's DOB (Actual planting once planted, else Planned DOB) of the first selected bed
+/* Default schedule date for the assign dialogs: the crop's DOB (Planned DOB, the control date) of the first selected bed
  * that has a cohort; today only when no selected bed has one. The manager can still change it. */
-function owDobDate(d){ for(const id of (d.beds||[])){ let v=null; try{ v=bedViewById(id); }catch(e){} const dob=(v&&v.cohortId)?String(v.plantingDate||v.plannedDob||'').slice(0,10):''; if(/^\d{4}-\d{2}-\d{2}$/.test(dob)) return dob; } return todayISO(); }
+function owDobDate(d){ for(const id of (d.beds||[])){ let v=null; try{ v=bedViewById(id); }catch(e){} const dob=(v&&v.cohortId)?String(v.plannedDob||'').slice(0,10):''; if(/^\d{4}-\d{2}-\d{2}$/.test(dob)) return dob; } return todayISO(); }
 function owD(){ const d=ui.modalDraft; if(!d.beds) d.beds=[]; if(d.workerId==null) d.workerId=''; if(d.activity==null) d.activity=''; if(!d.date) d.date=owDobDate(d); if(d.q==null) d.q=''; if(d.result===undefined) d.result=null; if(d.busy==null) d.busy=false; return d; }
 function openOneWorker(){ openModal('one-worker',{ beds:[], workerId:'', activity:'', q:'', date:'', dateTouched:false, result:null, busy:false }); }
 function owActivities(){ return (state.activityCatalog||[]).filter(a=>a&&a.name&&!isFertAct(a.name)&&!(Number(a.postHarvestSequence)>0)).sort((x,y)=>String(x.name).localeCompare(String(y.name))); }
@@ -2593,7 +2593,7 @@ function multiAssignModal(){
     ${(()=>{ const pl=maPlan(d); return pl.dob?`<span class="qsub" style="text-transform:none;letter-spacing:0;">Planned planting date for ${esc(pl.cohortId)}: <b>${esc(pl.dob)}</b></span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maUsePlanned()">Use planned date</button>`:''; })()}</div>
   <div class="ma-foot" id="ma-foot">${maFootHTML()}</div>`;
 }
-/* The Schedule box opens on the bed's cohort's DOB - Actual_DOB once planted, else Planned_DOB - and the manager can change it from there
+/* The Schedule box opens on the bed's cohort's DOB - Planned_DOB (the control date; Actual_DOB is never used here) - and the manager can change it from there
  * (Today / Tomorrow / the calendar / Use planned date). It used to open on today regardless, which for a planting activity showed today's date on
  * a cohort planned months ahead, and for every other activity on an already-planted cohort never reflected the crop's own DOB at all. */
 const MA_PLANTING=['DirectSeeding','Transplanting','Replanting'];
@@ -2606,7 +2606,7 @@ const MA_PLANTING=['DirectSeeding','Transplanting','Replanting'];
 // directly, so the date field opens on the crop's DOB either way; the manager can still change it.
 function defaultSchedDate(bedId){
   let v=null; try{ v=bedViewById(bedId); }catch(e){}
-  const dob=(v&&v.cohortId)?String(v.plantingDate||v.plannedDob||'').slice(0,10):'';
+  const dob=(v&&v.cohortId)?String(v.plannedDob||'').slice(0,10):'';
   return /^\d{4}-\d{2}-\d{2}$/.test(dob)?dob:todayISO();
 }
 function maPlan(d){ let v=null; try{ v=bedViewById(d.bedId); }catch(e){} const dob=(v&&v.cohortId&&!v.plantingDate&&v.plannedDob)?String(v.plannedDob).slice(0,10):''; return {dob:/^\d{4}-\d{2}-\d{2}$/.test(dob)?dob:'',cohortId:(v&&v.cohortId)||'',crop:(v&&v.cropName)||''}; }
