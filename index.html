@@ -111,6 +111,9 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .bh-meta{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;margin:6px 0 0;}
 .bh-meta i{font-style:normal;color:var(--ink-soft);margin-right:4px;}
 .bh-note{font-size:11.5px;color:var(--ink-soft);margin:5px 0 0;}
+.bh-row.hl{outline:2px solid var(--forest);background:#F1F8F1;}
+.bh-wnote{margin:6px 0 0;padding:6px 8px;border-left:3px solid var(--forest);background:var(--sand);border-radius:0 8px 8px 0;font-size:12.5px;color:var(--ink);white-space:pre-wrap;} .bh-wnote b{display:block;font-size:10px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:2px;}
+.rb-link{cursor:pointer;text-decoration:underline dotted;} .rb-link:hover{color:var(--forest);}
 .bh-btns{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;}
 .bh-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 8px;}
 .bh-tools select{padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--paper);}
@@ -4951,7 +4954,7 @@ function bhChips(scope,group,req,extra){
     +(req?`<span class="chip chip-warn" title="${esc(req)}">Required</span>`:`<span class="chip chip-neutral" title="Not required for this bed">Optional</span>`)+(extra||'');
 }
 function bhRow(o){
-  return `<div class="bh-row ${o.req?'req':''}"><div class="bh-top"><span class="bh-id">${esc(o.id||'No ID')}</span><b>${esc(o.name)}</b>${o.chips||''}</div>
+  return `<div class="bh-row ${o.req?'req':''}${o.hl?' hl':''}" ${o.rid?`id="${esc(o.rid)}"`:''}><div class="bh-top"><span class="bh-id">${esc(o.id||'No ID')}</span><b>${esc(o.name)}</b>${o.chips||''}</div>
     ${o.desc?`<div class="bh-desc">${esc(o.desc)}</div>`:''}
     <div class="bh-meta"><span><i>Worker</i>${esc(o.worker||'Not assigned')}</span><span><i>Date complete</i>${o.done?esc(o.done):'Not complete'}</span></div>
     ${o.note?`<div class="bh-note">${o.note}</div>`:''}${o.btns?`<div class="bh-btns">${o.btns}</div>`:''}</div>`;
@@ -5013,6 +5016,26 @@ function bhAssignRows(bedId,hasCohort,st,req,b){
   });
   return {can,wait};
 }
+/* The activity profile content of a finished activity: time, quantity, fertilizer record and the worker's own notes (same data as the Manager review board). */
+function bhDur(m){ m=Number(m)||0; return m<60?m+' min':Math.floor(m/60)+' h'+(m%60?' '+(m%60)+' m':''); }
+function bhContent(r){
+  const bits=[]; if(r.minutes||r.minutes===0) bits.push('<span><i>Time</i>'+esc(bhDur(r.minutes))+'</span>');
+  if(r.quantity!==''&&r.quantity!=null&&!r.fertilizer) bits.push('<span><i>Quantity</i>'+esc(r.quantity)+' '+esc(r.unit||'')+'</span>');
+  if(r.startTime) bits.push('<span><i>Started</i>'+esc(bhDate(r.startTime))+'</span>');
+  return (bits.length?'<div class="bh-meta">'+bits.join('')+'</div>':'')+(r.fertilizer?fertDetailHTML(r.fertilizer,false):'')
+    +(r.notes?'<div class="bh-wnote"><b>Worker notes</b>'+esc(r.notes)+'</div>':'');
+}
+async function bhCheck(logId){
+  try{ const r=await apiCall('review-activity',{logIds:[logId],decision:'CHECK'}); toast(r.done?'Checked.':'Could not record that review.'); }
+  catch(e){ toast(e.message); return; }
+  await loadToday(); rb.last=0; rbLoad(true); render();
+}
+/* Open the bed's activity profile (History tab) on one activity, from the Manager review board. */
+async function rbOpen(bedId,logId){
+  await bbBedClick(bedId);
+  if(bb.info&&bb.info.bedId===bedId){ bb.tab='history'; Object.assign(bb.info,{hf:'ALL',hd:'ALL',hl:300,hlLog:logId}); render();
+    setTimeout(()=>{ const el=document.getElementById('bh-'+logId); if(el) el.scrollIntoView({block:'center'}); },60); }
+}
 function bhHistory(b,d){
   const log=(b&&b.activityLog)||[], fS=d.hf||'ALL', fD=d.hd||'ALL', lim=d.hl||25;
   const stOf=r=>String(r.reviewStatus||'COMPLETED').toUpperCase(), scOf=r=>bhScope(r.taskType,{scope:r.scope,group:r.domain});
@@ -5030,7 +5053,8 @@ function bhHistory(b,d){
       :k==='CHECKED'?`Checked${r.checkedBy?' by '+esc(r.checkedBy):''}${r.checkedDate?' \u00b7 '+esc(bhDate(r.checkedDate)):''}`:'';
     const grp=r.domain||c.domain||'', sc=scOf(r);
     return bhRow({ id:r.activityId||c.id||'', name:r.taskType||'', desc:shortDesc(r.description||c.description||'',110), worker:r.workerName||r.workerId||'', done:bhDate(r.endTime),
-      chips:(sc?`<span class="chip chip-neutral" title="Activity domain">${esc(bhScopeLabel(sc))}</span>`:'')+(grp?`<span class="chip chip-neutral" title="Activity group">${esc(grp)}</span>`:'')+(r.timing?`<span class="chip chip-warn" title="Planted off the planned date">Completed \u00b7 ${esc(String(r.timing).charAt(0)+String(r.timing).slice(1).toLowerCase())} ${(r.varianceDays>0?'+':'')+esc(r.varianceDays)}d</span>`:'')+chip, note:by });
+      chips:(sc?`<span class="chip chip-neutral" title="Activity domain">${esc(bhScopeLabel(sc))}</span>`:'')+(grp?`<span class="chip chip-neutral" title="Activity group">${esc(grp)}</span>`:'')+(r.timing?`<span class="chip chip-warn" title="Planted off the planned date">Completed \u00b7 ${esc(String(r.timing).charAt(0)+String(r.timing).slice(1).toLowerCase())} ${(r.varianceDays>0?'+':'')+esc(r.varianceDays)}d</span>`:'')+chip, note:by+bhContent(r), rid:r.logId?'bh-'+r.logId:'', hl:!!(r.logId&&d.hlLog===r.logId),
+      btns:(k==='COMPLETED'&&String(r.governance||'').toUpperCase()!=='VERIFIED'&&r.logId)?`<button class=\"dc-mini\" onclick=\"bhCheck('${esc(r.logId)}')\">Mark checked</button>`:'' });
   };
   const more=rows.length>lim?`<button class="btn btn-outline" onclick="bhSet('hl',${lim+25})">Show more (${rows.length-lim} left)</button>`:'';
   return bhSec('History',log.length?rows.length+(rows.length===log.length?'':' of '+log.length):0,
@@ -5291,7 +5315,7 @@ function rbTr(it,i){
   return `<tr class="${rb.sel[it.logId]?'sel':''}${fl.length?' fl':''}" onclick="rbRowClick(event,${i})">
     <td class="chk"><input type="checkbox" aria-label="Select" ${rb.sel[it.logId]?'checked':''} onclick="rbRowClick(event,${i})"></td>
     <td>${esc(rbWhen(it.endTime))}</td>
-    <td><b>${esc(it.bedId)}</b><div class="id">${esc(it.cohortId||'')}</div></td>
+    <td><b class="rb-link" title="Open this activity's profile" onclick="event.stopPropagation();rbOpen('${esc(it.bedId)}','${esc(it.logId)}')">${esc(it.bedId)}</b><div class="id">${esc(it.cohortId||'')}</div></td>
     <td>${esc(actLabel(it.activity))}</td>
     <td>${esc(it.workerName)}</td>
     <td>${esc(rbDur(it.minutes))}</td>
@@ -5355,7 +5379,7 @@ function rbPanel(){
     <div class="dp-tools"><button onclick="rbAll('verify',true)">Select all</button><button onclick="rbAll('verify',false)">Clear</button></div>
     <div class="ma-list" style="max-height:300px;">${d.toVerify.map(x=>rbRow(x,'verify')).join('')}</div>
     <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="verify" ${nV?'':'disabled'} onclick="rbReview('verify')">Verify selected${nV?' ('+nV+')':''}</button>`:'';
-  const recent=(d.recentlyChecked&&d.recentlyChecked.length)?`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;">Recently checked (${d.recentlyChecked.length})</summary>${d.recentlyChecked.map(x=>`<div class="qsub" style="text-transform:none;letter-spacing:0;padding:3px 0;">${esc(actLabel(x.activity))} · Bed ${esc(x.bedId)} · ${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</div>`).join('')}</details>`:'';
+  const recent=(d.recentlyChecked&&d.recentlyChecked.length)?`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;">Recently checked (${d.recentlyChecked.length})</summary>${d.recentlyChecked.map(x=>`<div class="qsub rb-link" role="button" tabindex="0" onclick="rbOpen('${esc(x.bedId)}','${esc(x.logId)}')" style="text-transform:none;letter-spacing:0;padding:5px 0;border-bottom:1px solid var(--line);">${esc(actLabel(x.activity))} · Bed ${esc(x.bedId)} · ${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}${x.notes?`<div style="color:var(--ink);">\u201c${esc(x.notes)}\u201d</div>`:''}</div>`).join('')}</details>`:'';
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
       <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></span></div>
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
