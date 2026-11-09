@@ -318,6 +318,16 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .dp-row{display:flex;gap:8px;align-items:flex-start;padding:7px 4px;border-bottom:1px solid var(--line);font-size:12.5px;line-height:1.35;} .dp-row:last-child{border-bottom:none;}
 .dp-row input{margin-top:2px;width:16px;height:16px;accent-color:var(--forest);flex:none;} .dp-row.off{opacity:.55;} .dp-row.on{background:#E4F1E5;border-radius:6px;}
 .dp-row .d{display:block;font-size:11px;color:var(--ink-soft);} .dp-row .st{margin-left:auto;flex:none;}
+.rb-tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0;}
+.rb-tools input,.rb-tools select{font-family:inherit;font-size:12px;border:1.5px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--paper);color:var(--ink);}
+.rb-tools input[type=search]{min-width:200px;}
+.rb-one,.rb-tg{border:1.5px solid var(--line);background:var(--paper);color:var(--forest);font-family:inherit;font-size:11.5px;font-weight:700;border-radius:8px;padding:4px 9px;cursor:pointer;}
+.rb-tg.on{background:var(--forest);color:#fff;border-color:var(--forest);} .rb-one:disabled{opacity:.5;cursor:default;}
+.bb-t.rb-t td{white-space:normal;vertical-align:top;padding:5px 8px;line-height:1.3;}
+.bb-t.rb-t td.n{min-width:220px;max-width:380px;} .rb-t .chk{width:26px;} .rb-t input[type=checkbox]{width:16px;height:16px;accent-color:var(--forest);}
+.rb-t tbody tr{cursor:pointer;} .rb-t tr.fl td:first-child{box-shadow:inset 3px 0 0 var(--warn);}
+.bb-t.rb-t tr.rb-g td{background:var(--sand);font-weight:800;font-size:11.5px;cursor:default;}
+.rb-bar{position:sticky;bottom:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;margin-top:6px;background:var(--paper);border-top:1px solid var(--line);}
 .dp-crewline{font-size:11px;margin:3px 0 0;color:var(--ink-soft);} .dp-crewline button{border:none;background:none;color:var(--forest);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;padding:0 3px;}
 .dp-foot{position:sticky;bottom:-14px;background:var(--paper);padding:10px 0 4px;border-top:1px solid var(--line);margin-top:6px;z-index:2;}
 .btn-ok{background:var(--ok);color:#fff;} .dc-sec{margin:0 0 16px;} .dc-sec>h2{font-size:12px;margin:14px 0 8px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--forest);}
@@ -5215,7 +5225,8 @@ function bbTasksPanel(){
 /* ---- Manager Review Board (GovernanceEngine.gs) ----
  * CHECKED = routine work. Tapping Check records your oversight (Checked_By / Checked_Date) and does nothing else: no bed, cohort, calendar or dispatch change.
  * VERIFIED custom activities get a Verify stamp here. Planting, post-harvest and bed-release verification keep their own panel above. */
-const rb={ data:null, busy:false, err:'', hide:false, sel:{}, selV:{}, last:0 };
+const rb={ data:null, busy:false, err:'', hide:false, sel:{}, selV:{}, last:0, anchor:null, vis:[], gmap:[],
+  f:{ q:'', blk:'ALL', act:'ALL', wk:'ALL', flag:false, notes:false, grp:'none' } };
 async function rbLoad(force){
   if(IS_DEMO||rb.busy||rb.hide) return;
   if(!force&&rb.data&&Date.now()-rb.last<20000) return;
@@ -5228,18 +5239,25 @@ function rbWhen(iso){ const d=new Date(iso); return isNaN(d)?'':d.toLocaleString
 function rbTog(k,m,on){ const s=m==='check'?rb.sel:rb.selV; if(on) s[k]=true; else delete s[k]; rbSync(); }
 function rbAll(m,on){ const list=(m==='check'?rb.data.toCheck:rb.data.toVerify)||[], s=m==='check'?rb.sel:rb.selV;
   Object.keys(s).forEach(k=>delete s[k]); if(on) list.forEach(x=>{ s[x.logId]=true; }); render(); }
-function rbSync(){ document.querySelectorAll('[data-rbgo]').forEach(b=>{ const m=b.dataset.rbgo, n=Object.keys(m==='check'?rb.sel:rb.selV).length;
-  b.disabled=!n||rb.busy; b.textContent=(m==='check'?'Mark checked':'Verify selected')+(n?' ('+n+')':''); }); }
-async function rbReview(m){
-  const sel=m==='check'?rb.sel:rb.selV, ids=Object.keys(sel); if(!ids.length||rb.busy) return;
+function rbSelVis(){ return (rb.vis||[]).filter(x=>rb.sel[x.logId]).map(x=>x.logId); }   // only rows currently on screen are ever acted on
+function rbSync(){
+  const nC=rb.data?rbSelVis().length:0, nV=Object.keys(rb.selV).length;
+  document.querySelectorAll('[data-rbgo]').forEach(b=>{ const m=b.dataset.rbgo, n=m==='check'?nC:nV;
+    b.disabled=!n||rb.busy; b.textContent=(m==='check'?'Mark checked':'Verify selected')+(n?' ('+n+')':''); });
+  const c=document.getElementById('rb-count');
+  if(c&&rb.data) c.textContent='Showing '+rb.vis.length+' of '+(rb.data.toCheck||[]).length+' · '+nC+' selected';
+}
+async function rbDo(ids,m){
+  if(!ids.length||rb.busy) return;
   if(m==='verify'&&!confirm('Verify '+ids.length+' completed '+(ids.length===1?'activity':'activities')+'? This is logged with your name and the time.')) return;
   rb.busy=true; rbSync();
   try{ const r=await apiCall('review-activity',{logIds:ids,decision:m==='check'?'CHECK':'VERIFY'});
     const bad=(r.results||[]).filter(x=>!x.ok).length;
     toast((m==='check'?'Checked ':'Verified ')+r.done+(bad?' ('+bad+' could not be recorded)':'')+'.'); }
   catch(e){ toast(e.message); }
-  rb.busy=false; if(m==='check') rb.sel={}; else rb.selV={}; await rbLoad(true);
+  rb.busy=false; ids.forEach(k=>{ delete rb.sel[k]; delete rb.selV[k]; }); rb.anchor=null; await rbLoad(true);
 }
+function rbReview(m){ rbDo(m==='check'?rbSelVis():Object.keys(rb.selV),m); }
 function rbRow(it,m){
   const f=it.fertilizer, sel=m==='check'?rb.sel:rb.selV, qty=(it.quantity!==''&&it.quantity!=null)?' · '+esc(it.quantity)+' '+esc(it.unit||''):'';
   return `<label class="dp-row on" style="align-items:flex-start;"><input type="checkbox" ${sel[it.logId]?'checked':''} data-k="${esc(it.logId)}" data-m="${m}" onchange="rbTog(this.dataset.k,this.dataset.m,this.checked)">
@@ -5248,16 +5266,91 @@ function rbRow(it,m){
     ${f?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(f.type)} · ${esc(f.brand)} · ${esc(f.quantity)} ${esc(f.unit)}</div>`:''}
     ${it.notes?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(it.notes)}</div>`:''}</div></label>`;
 }
+/* ---- Review queue: ONE dense ranch-wide feed of completed CHECKED work (no per-bed digging) ----
+ * Filter (block / activity / worker / search / flagged / has notes), group, shift-click ranges, one-tap row check, and a sticky
+ * "Mark checked" bar that only ever acts on rows you can SEE. Backend is unchanged: review-activity {logIds, decision:'CHECK'}. */
+function rbBlk(it){ return String(it.bedId||'').split('-')[0]||'?'; }
+function rbDur(m){ m=Number(m)||0; return m<60?m+' min':Math.floor(m/60)+' h'+(m%60?' '+(m%60)+' m':''); }
+function rbFlags(it){
+  const o=[], m=Number(it.minutes)||0, f=it.fertilizer, n=String(it.notes||'');
+  if(m>=600) o.push('Long: '+rbDur(m)); else if(m===0) o.push('0 min');
+  if(f&&/NON/i.test(String(f.type||''))) o.push('Non-organic input');
+  if(f&&f.auditId) o.push('Brand audit');
+  if(/^manager override/i.test(n)) o.push('Manager override');
+  return o;
+}
+function rbFiltered(){
+  const f=rb.f, q=f.q.trim().toLowerCase();
+  return (rb.data.toCheck||[]).filter(it=>(f.blk==='ALL'||rbBlk(it)===f.blk)&&(f.act==='ALL'||it.activity===f.act)&&(f.wk==='ALL'||it.workerName===f.wk)
+    &&(!f.flag||rbFlags(it).length)&&(!f.notes||String(it.notes||'').trim())
+    &&(!q||[it.bedId,it.cohortId,it.activity,it.workerName,it.notes].join(' ').toLowerCase().includes(q)));
+}
+function rbTr(it,i){
+  const fl=rbFlags(it), f=it.fertilizer, qty=(it.quantity!==''&&it.quantity!=null)?esc(it.quantity)+' '+esc(it.unit||''):'';
+  const detail=f?esc(f.type)+' · '+esc(f.brand)+' · '+esc(f.quantity)+' '+esc(f.unit):qty;
+  return `<tr class="${rb.sel[it.logId]?'sel':''}${fl.length?' fl':''}" onclick="rbRowClick(event,${i})">
+    <td class="chk"><input type="checkbox" aria-label="Select" ${rb.sel[it.logId]?'checked':''} onclick="rbRowClick(event,${i})"></td>
+    <td>${esc(rbWhen(it.endTime))}</td>
+    <td><b>${esc(it.bedId)}</b><div class="id">${esc(it.cohortId||'')}</div></td>
+    <td>${esc(actLabel(it.activity))}</td>
+    <td>${esc(it.workerName)}</td>
+    <td>${esc(rbDur(it.minutes))}</td>
+    <td>${detail}</td>
+    <td class="n">${it.notes?esc(it.notes):''}${fl.length?`<div>${fl.map(x=>`<span class="chip chip-warn" style="margin:2px 3px 0 0;">${esc(x)}</span>`).join('')}</div>`:''}</td>
+    <td><button class="rb-one" ${rb.busy?'disabled':''} onclick="event.stopPropagation();rbDo(['${esc(it.logId)}'],'check')" title="Mark just this one checked">✓</button></td></tr>`;
+}
+function rbListHtml(){
+  const rows=rbFiltered(); rb.vis=rows; rb.gmap=[];
+  if(!rows.length) return `<div class="empty" style="padding:12px 0;">No completed activity matches these filters.</div>`;
+  const g=rb.f.grp, head='<thead><tr><th class="chk"></th><th>Completed</th><th>Bed</th><th>Activity</th><th>Worker</th><th>Time</th><th>Applied / qty</th><th>Worker notes · flags</th><th></th></tr></thead>';
+  let body='';
+  if(g==='none') body=rows.map((it,i)=>rbTr(it,i)).join('');
+  else{
+    const key=it=>g==='activity'?actLabel(it.activity):g==='worker'?it.workerName:it.bedId, order=[], by={};
+    rows.forEach((it,i)=>{ const k=String(key(it)); if(!by[k]){ by[k]=[]; order.push(k); } by[k].push(i); });
+    if(g!=='bed') order.sort((a,b)=>by[b].length-by[a].length);
+    order.forEach(k=>{ const gi=rb.gmap.push(by[k].map(i=>rows[i].logId))-1;
+      body+=`<tr class="rb-g"><td colspan="9">${esc(k)} <span class="id">(${by[k].length})</span> <button class="rb-one" onclick="rbSelGroup(${gi})">Select group</button></td></tr>`+by[k].map(i=>rbTr(rows[i],i)).join(''); });
+  }
+  return `<div class="bb-wrap" style="max-height:62vh;"><table class="bb-t rb-t">${head}<tbody>${body}</tbody></table></div>`;
+}
+function rbRefresh(){ const el=document.getElementById('rb-list'); if(el) el.innerHTML=rbListHtml(); rbSync(); }
+function rbRowClick(e,i){
+  e.stopPropagation(); const it=rb.vis[i]; if(!it) return;
+  const on=!rb.sel[it.logId];
+  if(e.shiftKey&&rb.anchor!=null){ const lo=Math.min(rb.anchor,i), hi=Math.max(rb.anchor,i);
+    for(let k=lo;k<=hi;k++){ if(on) rb.sel[rb.vis[k].logId]=true; else delete rb.sel[rb.vis[k].logId]; } }
+  else{ if(on) rb.sel[it.logId]=true; else delete rb.sel[it.logId]; }
+  rb.anchor=i; rbRefresh();
+}
+function rbSelGroup(gi){ (rb.gmap[gi]||[]).forEach(k=>{ rb.sel[k]=true; }); rbRefresh(); }
+function rbPick(m){   // quick selection of what is on screen
+  if(m==='clear') rb.sel={};
+  else rb.vis.forEach(it=>{ if(m==='all'||!rbFlags(it).length) rb.sel[it.logId]=true; });
+  rbRefresh();
+}
+function rbSet(k,v){ rb.f[k]=v; rb.anchor=null; if(k==='q') rbRefresh(); else render(); }
+function rbToolbar(d){
+  const all=d.toCheck||[], uniq=fn=>[...new Set(all.map(fn))].filter(Boolean).sort();
+  const sel=(k,label,vals,fmt)=>`<select aria-label="${label}" onchange="rbSet('${k}',this.value)"><option value="ALL">${label}: all</option>${vals.map(v=>`<option value="${esc(v)}" ${rb.f[k]===v?'selected':''}>${esc(fmt?fmt(v):v)}</option>`).join('')}</select>`;
+  const nFl=all.filter(x=>rbFlags(x).length).length, nNt=all.filter(x=>String(x.notes||'').trim()).length;
+  const tg=(k,label,n)=>`<button class="rb-tg ${rb.f[k]?'on':''}" onclick="rbSet('${k}',${!rb.f[k]})">${label} (${n})</button>`;
+  return `<div class="rb-tools"><input type="search" placeholder="Search bed, cohort, worker, note…" value="${esc(rb.f.q)}" oninput="rbSet('q',this.value)">
+      ${sel('blk','Block',uniq(rbBlk))}${sel('act','Activity',uniq(x=>x.activity),actLabel)}${sel('wk','Worker',uniq(x=>x.workerName))}
+      <select aria-label="Group by" onchange="rbSet('grp',this.value)">${[['none','No grouping'],['activity','Group by activity'],['worker','Group by worker'],['bed','Group by bed']].map(o=>`<option value="${o[0]}" ${rb.f.grp===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select>
+      ${tg('flag','Needs a look',nFl)}${tg('notes','Has notes',nNt)}</div>
+    <div class="rb-tools"><button class="rb-one" onclick="rbPick('all')">Select all shown</button><button class="rb-one" onclick="rbPick('routine')" title="Selects shown rows with no flag (normal time, no non-organic input, not an override)">Select routine only</button><button class="rb-one" onclick="rbPick('clear')">Clear</button>
+      <span class="id" style="margin-left:6px;">Tip: shift-click to select a range · ✓ checks one row immediately</span></div>`;
+}
 function rbPanel(){
   if(IS_DEMO||rb.hide) return '';
   const d=rb.data;
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
-  const nC=Object.keys(rb.sel).length, nV=Object.keys(rb.selV).length, total=d.toCheck.length+d.toVerify.length;
-  const chk=d.toCheck.length?`<h2 style="font-size:13px;margin:10px 0 6px;">Checked activities to review (${d.toCheck.length}) <span class="chip chip-ok">non-blocking</span></h2>
-    <div class="dp-tools"><button onclick="rbAll('check',true)">Select all</button><button onclick="rbAll('check',false)">Clear</button></div>
-    <div class="ma-list" style="max-height:340px;">${d.toCheck.map(x=>rbRow(x,'check')).join('')}</div>
-    <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="check" ${nC?'':'disabled'} onclick="rbReview('check')">Mark checked${nC?' ('+nC+')':''}</button>
-    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:4px;">Checking only logs your review. It does not change any bed, cohort, schedule or assignment.</div>`:'';
+  const nV=Object.keys(rb.selV).length, total=d.toCheck.length+d.toVerify.length;
+  const chk=d.toCheck.length?`<h2 style="font-size:13px;margin:10px 0 0;">Review queue · all blocks (${d.toCheck.length}) <span class="chip chip-ok">non-blocking</span></h2>
+    ${rbToolbar(d)}<div id="rb-list">${rbListHtml()}</div>
+    <div class="rb-bar"><button class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" data-rbgo="check" ${rb.vis.some(x=>rb.sel[x.logId])&&!rb.busy?'':'disabled'} onclick="rbReview('check')">Mark checked${rbSelVis().length?' ('+rbSelVis().length+')':''}</button>
+      <span class="id" id="rb-count">Showing ${rb.vis.length} of ${d.toCheck.length} · ${rbSelVis().length} selected</span><span class="qsub" style="text-transform:none;letter-spacing:0;margin:0;">Acts only on rows shown. Logs your review; changes no bed, cohort, schedule or assignment.</span></div>`:'';
   const ver=d.toVerify.length?`<h2 style="font-size:13px;margin:14px 0 6px;">Verified-class activities waiting for your verification (${d.toVerify.length})</h2>
     <div class="dp-tools"><button onclick="rbAll('verify',true)">Select all</button><button onclick="rbAll('verify',false)">Clear</button></div>
     <div class="ma-list" style="max-height:300px;">${d.toVerify.map(x=>rbRow(x,'verify')).join('')}</div>
