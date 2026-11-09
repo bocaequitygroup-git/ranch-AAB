@@ -1657,7 +1657,7 @@ function dpInnerLegacy(b,sess){
   <div class="dp-box"><div class="t"><span>Assign worker(s)</span><span class="qsub" style="text-transform:none;letter-spacing:0;">${d.workers.length} selected</span></div>
     <div class="dp-crew">${crewBox}</div>
     <div class="dp-tools"><button onclick="dpAllW(true)">Select all workers</button><button onclick="dpClearW()">Clear workers</button></div>
-    <div class="ma-date" style="margin-top:8px;"><b>Date</b><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(1)">Tomorrow</button><input type="date" id="dp-date" value="${esc(d.date)}" min="${todayISO()}" onchange="ui.dp.date=this.value||todayISO()"></div></div>
+    <div class="ma-date" style="margin-top:8px;"><b>Date</b><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(1)">Tomorrow</button><input type="date" id="dp-date" value="${esc(d.date)}" onchange="ui.dp.date=this.value||todayISO()"></div></div>
   <div class="dp-box"><div class="t"><span>Select activities to dispatch (${d.acts.length} selected${d.cat!=='ALL'?' · showing '+esc((ACTION_CATS.find(c=>c[0]===d.cat)||[0,''])[1]):''})</span></div>
     ${dpCatTabs(d,rows)}
     ${ph&&(d.cat==='ALL'||d.cat==='POST')?`<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px;">Required workflow · ${done} / ${tot} complete</div><div class="dc-bar"><i style="width:${tot?Math.round(done/tot*100):0}%"></i></div>`:''}
@@ -2586,17 +2586,26 @@ function multiAssignModal(){
   <div class="ma-date"><b>Schedule</b>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(0)">Today</button>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(1)">Tomorrow</button>
-    <input type="date" id="ma-date" value="${esc(d.date)}" min="${todayISO()}" onchange="maD().date=this.value||todayISO();maD().dateTouched=true">
+    <input type="date" id="ma-date" value="${esc(d.date)}" onchange="maD().date=this.value||todayISO();maD().dateTouched=true">
     ${(()=>{ const pl=maPlan(d); return pl.dob?`<span class="qsub" style="text-transform:none;letter-spacing:0;">Planned planting date for ${esc(pl.cohortId)}: <b>${esc(pl.dob)}</b></span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maUsePlanned()">Use planned date</button>`:''; })()}</div>
   <div class="ma-foot" id="ma-foot">${maFootHTML()}</div>`;
 }
-/* The Schedule box opens on the cohort's Planned_DOB (the server checks that date against the crop's allowable window) and the manager can change it.
- * It used to open on today, which showed today's date on a cohort planned months ahead. Once the manager picks a date (Today / Tomorrow / the calendar /
- * Use planned date) it is left alone. */
+/* The Schedule box opens on the bed's cohort's DOB - Actual_DOB once planted, else Planned_DOB - and the manager can change it from there
+ * (Today / Tomorrow / the calendar / Use planned date). It used to open on today regardless, which for a planting activity showed today's date on
+ * a cohort planned months ahead, and for every other activity on an already-planted cohort never reflected the crop's own DOB at all. */
 const MA_PLANTING=['DirectSeeding','Transplanting','Replanting'];
-/* Default schedule date for anything assigned on a bed: the planned planting date of the cohort waiting to be planted there (if still ahead),
- * otherwise today. The manager can always change it. */
-function defaultSchedDate(bedId){ const pl=maPlan({bedId:bedId}); return (pl.dob&&pl.dob>todayISO())?pl.dob:todayISO(); }
+// FIX: this always fell back to today for a bed that already has a planted cohort, because maPlan() only
+// ever returns a dob for a cohort that has NOT been planted yet (v.plantingDate blank) - it exists to drive
+// the separate "Planned planting date / Use planned date" hint below, which is specifically about PLANNED
+// dates for PRE_PLANTING cohorts and should stay that way. Almost every bed a manager assigns a task on
+// already has a planted cohort, so in practice the date field always opened on today instead of the crop's
+// DOB. This now reads the bed's actual planting date (once planted) or its planned DOB (before planting)
+// directly, so the date field opens on the crop's DOB either way; the manager can still change it.
+function defaultSchedDate(bedId){
+  let v=null; try{ v=bedViewById(bedId); }catch(e){}
+  const dob=(v&&v.cohortId)?String(v.plantingDate||v.plannedDob||'').slice(0,10):'';
+  return /^\d{4}-\d{2}-\d{2}$/.test(dob)?dob:todayISO();
+}
 function maPlan(d){ let v=null; try{ v=bedViewById(d.bedId); }catch(e){} const dob=(v&&v.cohortId&&!v.plantingDate&&v.plannedDob)?String(v.plannedDob).slice(0,10):''; return {dob:/^\d{4}-\d{2}-\d{2}$/.test(dob)?dob:'',cohortId:(v&&v.cohortId)||'',crop:(v&&v.cropName)||''}; }
 function maAutoDate(){ const d=maD(); if(d.dateTouched) return;
   d.date=defaultSchedDate(d.bedId); const e=document.getElementById('ma-date'); if(e) e.value=d.date; }
