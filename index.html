@@ -1548,7 +1548,7 @@ function verifyCloseBlock(b){
 function sessStatusChip(s){ const t=taskStatus(s); return `<span class="chip ${t[1]}">${esc(t[0])}</span>`; }
 function schedLabel(s){ const d=s.scheduledDate; if(!d) return ''; return d===todayISO()?'Today':d; }
 /* ---------- inline dispatch sidebar state (per bed) ---------- */
-function dpS(b){ if(!ui.dp||ui.dp.bedId!==b.id) ui.dp={bedId:b.id,acts:[],workers:[],custom:{},fert:{},date:todayISO(),q:'',result:null,busy:false}; return ui.dp; }
+function dpS(b){ if(!ui.dp||ui.dp.bedId!==b.id) ui.dp={bedId:b.id,acts:[],workers:[],custom:{},fert:{},date:defaultSchedDate(b.id),q:'',result:null,busy:false}; return ui.dp; }
 function dpBed(){ return (state.beds||[]).find(x=>x.id===(ui.dp||{}).bedId)||{}; }
 function dpCrew(a){ const d=ui.dp; return d.custom[a]||d.workers; }
 function dpRows(b){   /* every row the manager can see for this bed, grouped by Activity_Domain */
@@ -2382,7 +2382,7 @@ function dispatchModal(){
  * Every (activity, worker) pair is its own ASSIGNED session validated by validateActivity_(). Post-harvest turnover is NOT here:
  * it stays a controlled one-step-at-a-time sequence (turnoverBlock / fixedDispatchModal). */
 function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.fert) d.fert={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=todayISO(); return d; }
+function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.fert) d.fert={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=defaultSchedDate(d.bedId); return d; }
 /* Required-workflow steps this bed can be given right now (any order): not complete, not an automatic buffer, window open. */
 /* Any order: every unfinished step that is not an automatic wait / closed window can be assigned. The bed is released only by the manager's Verify Bed Ready. */
 function phNextStep(p){ return p?(p.steps||[]).find(x=>x.status!=='COMPLETE')||null:null; }
@@ -2404,7 +2404,7 @@ function maVisible(){ const d=maD(), q=d.q.trim().toLowerCase();
 function maOpenSet(){ const o={}; bedSessions(maD().bedId).forEach(s=>{ o[String(s.workerId||'').toUpperCase()+'|'+s.activity]=1; }); return o; }
 function maWName(id){ return ((state.workers||[]).find(w=>w.workerId===id)||{}).name||id; }
 function workerLoad(id){ return (state.sessions||[]).filter(s=>s.workerId===id && String(s.status||'').toUpperCase()!=='COMPLETED').length; }
-function maToggleAct(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } d.result=null; maRefresh(); }
+function maToggleAct(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } d.result=null; maAutoDate(); maRefresh(); }
 function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0){ d.acts.push(a.name); d.map[a.name]=d.map[a.name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[a.name]; } }); d.result=null; maRefresh(); }
 function maAddWorker(act,id){ if(!id) return; const l=maD().map[act]=maD().map[act]||[]; if(!l.includes(id)) l.push(id); maD().result=null; maRefresh(); }
 function maDelWorker(act,id){ const l=maD().map[act]||[], i=l.indexOf(id); if(i>=0) l.splice(i,1); maD().result=null; maRefresh(); }
@@ -2586,10 +2586,22 @@ function multiAssignModal(){
   <div class="ma-date"><b>Schedule</b>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(0)">Today</button>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(1)">Tomorrow</button>
-    <input type="date" id="ma-date" value="${esc(d.date)}" min="${todayISO()}" onchange="maD().date=this.value||todayISO()"></div>
+    <input type="date" id="ma-date" value="${esc(d.date)}" min="${todayISO()}" onchange="maD().date=this.value||todayISO();maD().dateTouched=true">
+    ${(()=>{ const pl=maPlan(d); return pl.dob?`<span class="qsub" style="text-transform:none;letter-spacing:0;">Planned planting date for ${esc(pl.cohortId)}: <b>${esc(pl.dob)}</b></span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maUsePlanned()">Use planned date</button>`:''; })()}</div>
   <div class="ma-foot" id="ma-foot">${maFootHTML()}</div>`;
 }
-function maSetDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; }
+/* The Schedule box opens on the cohort's Planned_DOB (the server checks that date against the crop's allowable window) and the manager can change it.
+ * It used to open on today, which showed today's date on a cohort planned months ahead. Once the manager picks a date (Today / Tomorrow / the calendar /
+ * Use planned date) it is left alone. */
+const MA_PLANTING=['DirectSeeding','Transplanting','Replanting'];
+/* Default schedule date for anything assigned on a bed: the planned planting date of the cohort waiting to be planted there (if still ahead),
+ * otherwise today. The manager can always change it. */
+function defaultSchedDate(bedId){ const pl=maPlan({bedId:bedId}); return (pl.dob&&pl.dob>todayISO())?pl.dob:todayISO(); }
+function maPlan(d){ let v=null; try{ v=bedViewById(d.bedId); }catch(e){} const dob=(v&&v.cohortId&&!v.plantingDate&&v.plannedDob)?String(v.plannedDob).slice(0,10):''; return {dob:/^\d{4}-\d{2}-\d{2}$/.test(dob)?dob:'',cohortId:(v&&v.cohortId)||'',crop:(v&&v.cropName)||''}; }
+function maAutoDate(){ const d=maD(); if(d.dateTouched) return;
+  d.date=defaultSchedDate(d.bedId); const e=document.getElementById('ma-date'); if(e) e.value=d.date; }
+function maUsePlanned(){ const d=maD(), pl=maPlan(d); if(!pl.dob) return; d.date=pl.dob<todayISO()?todayISO():pl.dob; d.dateTouched=true; const e=document.getElementById('ma-date'); if(e) e.value=d.date; }
+function maSetDate(n){ maD().dateTouched=true; const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; }
 async function submitMultiAssign(){
   const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||!c.fresh) return;
   d.busy=true; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
