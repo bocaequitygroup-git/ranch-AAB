@@ -1361,7 +1361,7 @@ function overviewTab(b,sess){
   return `${b.cohortId?`<div class="card">
     <div class="row"><span>Occupancy</span><span><span class="chip chip-ok">Occupied</span></span></div>
     <div class="row"><span>Bed status</span><span><span class="chip chip-neutral">${esc(bedPanelStatus(b))}</span></span></div>
-    <div class="row"><span>Crop</span><span>${esc(b.cropName)}${b.shortfall?' <span class="urg-badge">Shortfall crop year</span>':''}</span></div>
+    <div class="row"><span>Crop</span><span>${esc(b.cropName)}${b.shortfall?' <span class="urg-badge">URGENT PRODUCTION</span>':''}</span></div>
     <div class="row"><span>Cohort</span><span>${esc(b.cohortId)}</span></div>
     <div class="row"><span>Crop stage</span><span><span class="chip chip-neutral">${esc((b.currentStage||'—').replace(/_/g,' '))}</span></span></div>
     <div class="row"><span>Cohort status</span><span><span class="chip chip-neutral">${esc(COHORT_STATUS_LABEL[cs]||cs||'—')}</span></span></div>
@@ -5650,8 +5650,8 @@ function smartScreen(){
 
 /* ================= Urgent production (shortfall crop year) =================
  * Manager picks crop(s), a planting date and waves. The backend (UrgentProduction.gs) checks the Oregon window, works out the block
- * from the block layout / rotation, finds beds that are free AND verified ready, and creates cohorts tagged "Shortfall crop year".
- * Nothing is written until "Create shortfall production". */
+ * from the block layout / rotation, finds beds that are free AND verified ready, and creates cohorts tagged "URGENT PRODUCTION".
+ * Nothing is written until "Create urgent production". */
 const urg={opts:null,optsErr:'',loading:false,rows:[],reason:'',busy:false,res:null,err:'',alarm:null,confirmOut:false,done:false};
 function urgBlankRow(){ return {cropId:'',date:'',waves:1,beds:'',gap:'',block:''}; }
 function urgMsg(e){ return (e&&e.message)?e.message:String(e||'Something went wrong.'); }
@@ -5696,7 +5696,7 @@ async function urgCheck(){
 async function urgCreate(){
   const r=urg.res; if(urg.busy||!r||!r.dryRun) return;
   const n=r.summary.placed;
-  if(!confirm('Create shortfall production?\n\n'+n+' wave(s) will be created and their beds reserved.'+(r.summary.outOfWindow?'\n\n'+r.summary.outOfWindow+' wave(s) are OUTSIDE the Oregon allowable window and will be planted anyway.':'')+'\n\nWaves without enough ready beds are not created.')) return;
+  if(!confirm('Create urgent production?\n\n'+n+' wave(s) will be created and their beds reserved.'+(r.summary.outOfWindow?'\n\n'+r.summary.outOfWindow+' wave(s) are OUTSIDE the Oregon allowable window and will be planted anyway.':'')+'\n\nWaves without enough ready beds are not created.')) return;
   urg.busy=true; urg.err=''; render();
   try{
     const res=await apiCall('urgent-production',urgPayload(false),330000);
@@ -5740,7 +5740,7 @@ function urgRowHTML(r,i){
 function urgResultHTML(){
   const r=urg.res; if(!r||!r.items) return '';
   const body=r.items.filter(it=>!it.errors.length).map(it=>`<div class="card" style="margin-bottom:8px;">
-    <div class="row"><span><b>${esc(it.name)}</b> <span class="urg-badge">Shortfall crop year</span></span><span>${esc(it.block)} · ${it.bedsPerWave} bed${it.bedsPerWave===1?'':'s'}/wave · every ${it.gapDays} d</span></div>
+    <div class="row"><span><b>${esc(it.name)}</b> <span class="urg-badge">URGENT PRODUCTION</span></span><span>${esc(it.block)} · ${it.bedsPerWave} bed${it.bedsPerWave===1?'':'s'}/wave · every ${it.gapDays} d</span></div>
     <div class="note" style="margin:2px 0 6px;">Block chosen from: ${esc(it.blockSource)}</div>
     ${it.waves.map(w=>`<div class="urg-wave">
       <div><b>Wave ${w.wave}</b> · ${esc(w.date)} <span class="urg-badge ${w.window.pass?'urg-pass':'urg-fail'}">Oregon window ${w.window.pass?'PASS':'FAIL'}</span>
@@ -5760,7 +5760,7 @@ function urgentModal(){
   if(urg.loading) return `<h2 style="font-size:15px;">Urgent production</h2><div class="note">Loading crops and Oregon windows…</div>`;
   if(urg.optsErr) return `<h2 style="font-size:15px;">Urgent production</h2><div class="notice">${esc(urg.optsErr)}</div><button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
   return `${urgAlarmHTML()}
-  <h2 style="font-size:15px;">Urgent production <span class="urg-badge">Shortfall crop year</span></h2>
+  <h2 style="font-size:15px;">Urgent production <span class="urg-badge">URGENT PRODUCTION</span></h2>
   <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">For unexpected demand. Choose the crop, planting date and number of waves. The system checks the Oregon window, picks the block from the crop group on the block layout, and reserves beds that are free and verified ready. Nothing is created until you press Create.</p>
   ${urg.rows.map(urgRowHTML).join('')}
   <button class="btn btn-outline" style="width:auto;" onclick="urgAddRow()">+ Add another crop</button>
@@ -5773,7 +5773,7 @@ function urgentModal(){
   <div style="margin-top:10px;">${urgResultHTML()}</div>
   ${r&&r.dryRun&&r.summary&&r.summary.outOfWindow&&r.summary.placed?`<label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:8px 0;color:#9C1C13;"><input type="checkbox" ${urg.confirmOut?'checked':''} onchange="urg.confirmOut=this.checked;render()"> I understand ${r.summary.outOfWindow} wave(s) are outside the Oregon allowable window and I want to plant them anyway.</label>`:''}
   ${urg.done?`<div class="note" style="color:#1E6B2E;">Created. Each bed is reserved. When the crop is in the ground, use Verify planting on that bed.</div>`
-    :(r&&r.dryRun?`<button class="btn btn-primary" ${canCreate&&!urg.busy?'':'disabled'} onclick="urgCreate()">${urg.busy?'Creating…':`Create shortfall production (${r.summary?r.summary.placed:0} wave${r.summary&&r.summary.placed===1?'':'s'})`}</button>`:'')}`;
+    :(r&&r.dryRun?`<button class="btn btn-primary" ${canCreate&&!urg.busy?'':'disabled'} onclick="urgCreate()">${urg.busy?'Creating…':`Create urgent production (${r.summary?r.summary.placed:0} wave${r.summary&&r.summary.placed===1?'':'s'})`}</button>`:'')}`;
 }
 
 /* ---- Tab: Post-Harvest & Cover Crop ----
@@ -7041,7 +7041,7 @@ async function mockBackend(action, p){
       if(p.date) out.mix=coverSopMix(p.date);
       return ok(out);
     }
-    case 'get-urgent-options': return ok({label:'Shortfall crop year',maxWaves:12,maxCrops:10,defaultGapDays:14,crops:[
+    case 'get-urgent-options': return ok({label:'URGENT PRODUCTION',maxWaves:12,maxCrops:10,defaultGapDays:14,crops:[
         {cropId:'KAL',name:'Kale (demo)',category:'Leafy Greens',plantingMethod:'TRANSPLANT',fieldAllowed:true,windows:[{from:'03-20',to:'04-25',label:'Mar 20 - Apr 25'},{from:'08-01',to:'09-10',label:'Aug 1 - Sep 10'}]}]});
     case 'urgent-production': return ok({ok:true,dryRun:p.dryRun!==false,items:[],notes:['Demo mode: nothing is created.'],summary:{waves:0,placed:0,short:0,outOfWindow:0,created:0,assigned:0}});
     case 'get-rotation-plan': return ok({rows:[],statusByYear:{},families:[],editableBlocks:['B1','B2','B3','B4']});
