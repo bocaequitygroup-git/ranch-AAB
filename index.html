@@ -5163,12 +5163,26 @@ async function bbCount(){
   try{ bb.dry=await apiCall('release-block-beds',{block:BLOCK_LABELS[bb.sel],dryRun:true},120000); }catch(e){ bb.dry=null; bb.res={error:errMsg(e)}; }
   bb.relBusy=false; render();
 }
+let _relStop=false;
+function bbRelStop(){ _relStop=true; toast('Stopping after the bed batch that is running now\u2026'); }
 async function bbRelease(){
   const n=bb.dry?bb.dry.eligible:0;
   if(!confirm('Release '+n+' empty bed(s) in '+BLOCK_LABELS[bb.sel]+'?\n\nYou attest they are physically ready (residue cleared, tillage and drip set up). Each bed is logged with your name and this reason.')) return;
+  /* The server works for about 4 minutes per call and then reports partial + remaining. Keep calling until nothing is left (or Stop is pressed). */
+  const T={released:0,skipped:[],rounds:0}; _relStop=false; const blk=bb.sel;
   bb.relBusy=true; bb.res=null; render();
-  try{ bb.res=await apiCall('release-block-beds',{block:BLOCK_LABELS[bb.sel],reason:bb.reason.trim(),dryRun:false},330000); bb.dry=null; bb.confirm=false; bbForget(); toast((bb.res.released||0)+' bed(s) released in '+BLOCK_LABELS[bb.sel]+'.'); await bbLoad(true); }
-  catch(e){ bb.res={error:errMsg(e)}; }
+  try{
+    for(;;){
+      const r=await apiCall('release-block-beds',{block:BLOCK_LABELS[blk],reason:bb.reason.trim(),dryRun:false},330000);
+      T.released+=r.released||0; T.skipped=T.skipped.concat(r.skipped||[]); T.rounds++;
+      bb.res=Object.assign({},r,{released:T.released,skipped:T.skipped,rounds:T.rounds}); bb.dry=null; bbForget();
+      if(!r.partial||!(r.remaining>0)||_relStop||bb.sel!==blk) break;
+      if(!(r.released||0)&&!(r.skipped||[]).length) break;   /* no progress: never loop forever */
+      render();
+    }
+    toast(T.released+' bed(s) released in '+BLOCK_LABELS[blk]+(_relStop?' (stopped).':'.'),6000); await bbLoad(true);
+  }
+  catch(e){ bb.res={error:errMsg(e)+(T.released?' ('+T.released+' released before this error.)':''),released:T.released}; }
   bb.relBusy=false; render();
 }
 /* ---- Bed Status Board: every assigned / active / reassigned activity on every bed, plus manager overrides ---- */
@@ -5549,10 +5563,10 @@ function bbScreen(){
     <label class="note" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" ${bb.confirm?'checked':''} onchange="bb.confirm=this.checked;bbSyncRelease()"> I confirm these beds are physically ready for planting</label>
     ${d?`<div class="row"><span>Would release</span><b>${d.eligible}</b></div><div class="row"><span>Already available</span><span>${d.alreadyReady}</span></div><div class="row"><span>Not eligible (cohort, blocked, in use)</span><span>${d.notEligible}</span></div>`:''}
     ${r&&r.error?`<div class="error">${esc(r.error)}</div>`:''}
-    ${r&&!r.error?`<div class="row"><span>Released</span><b>${r.released}</b></div>${r.partial?`<div class="note" style="color:var(--warn);font-weight:600;">Stopped at the time limit with ${r.remaining} bed(s) left. Run it again to continue.</div>`:''}${(r.skipped||[]).length?`<div class="note" style="color:var(--danger);">${r.skipped.length} skipped: ${esc(r.skipped.slice(0,8).map(x=>x.bedId+' ('+x.reason+')').join(', '))}${r.skipped.length>8?'…':''}</div>`:''}`:''}
+    ${r&&!r.error?`<div class="row"><span>Released</span><b>${r.released}</b></div>${r.partial?(bb.relBusy?`<div class="note" style="color:var(--warn);font-weight:600;">Still working: ${r.remaining} bed(s) left (batch ${r.rounds||1}). Each batch takes about 4 minutes. Keep this page open.</div>`:`<div class="note" style="color:var(--warn);font-weight:600;">Stopped with ${r.remaining} bed(s) left. Press Release again to continue.</div>`):''}${(r.skipped||[]).length?`<div class="note" style="color:var(--danger);">${r.skipped.length} skipped: ${esc(r.skipped.slice(0,8).map(x=>x.bedId+' ('+x.reason+')').join(', '))}${r.skipped.length>8?'…':''}</div>`:''}`:''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
       <button class="btn btn-outline" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy?'disabled':''} onclick="bbCount()">${bb.relBusy?'Working…':'Count beds'}</button>
-      <button id="bb-release" class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy||!d||!d.eligible||bb.reason.trim().length<5||!bb.confirm?'disabled':''} onclick="bbRelease()">Release ${d?d.eligible:''} bed${d&&d.eligible===1?'':'s'}</button></div></div>`;
+      <button id="bb-release" class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy||!d||!d.eligible||bb.reason.trim().length<5||!bb.confirm?'disabled':''} onclick="bbRelease()">Release ${d?d.eligible:''} bed${d&&d.eligible===1?'':'s'}</button>${bb.relBusy&&bb.res&&bb.res.partial?`<button class="btn btn-outline" style="width:auto;margin:0;padding:10px 18px;" onclick="bbRelStop()">Stop after this batch</button>`:''}</div></div>`;
   const overview=`<h2 style="margin:0 0 4px;">Bed status board · ${esc(BLOCK_LABELS[bb.sel])}</h2>
     <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Pick a block on the left, click a bed to open its profile on the right. Not verified and Blocked beds can be verified ready from the bed profile.</div>
     <div style="margin:10px 0 6px;">${grid||`<div class="empty">${bb.busy?'Loading\u2026':'No beds loaded.'}</div>`}</div>
