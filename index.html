@@ -88,6 +88,12 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .bb-t td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;}
 .bb-t tbody tr[onclick]{cursor:pointer;}
 .bb-t tr.sel td{background:color-mix(in srgb,var(--forest) 10%,var(--paper));}
+.rb-recent{display:flex;flex-direction:column;gap:5px;}
+.rb-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;border-left:4px solid var(--rbc);background:color-mix(in srgb,var(--rbc) 11%,var(--paper));border-radius:8px;padding:6px 10px;}
+.rb-act{border:0;border-radius:999px;padding:3px 11px;font:inherit;font-size:12px;font-weight:700;color:#fff;background:var(--rbc);cursor:pointer;}
+.pha-t td{white-space:normal;}
+.pha-t td:nth-child(4){min-width:150px;}
+.pha-t td:nth-child(6){white-space:nowrap;}
 .bb-t .id{font-size:11px;color:var(--ink-soft);}
 .bh-sec{margin:14px 0 6px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
 .bh-sec h2{font-size:13px;margin:0;}
@@ -4766,7 +4772,7 @@ const BB_STATUS=[
   ['HARVESTING','Harvesting','#B07A1B','#fff'],
   ['BLOCKED','Blocked','#B3261E','#fff']
 ];
-const bb={data:{},busy:false,err:'',tried:false,sel:'B1',reason:'',confirm:false,dry:null,res:null,relBusy:false,
+const bb={act:null,data:{},busy:false,err:'',tried:false,sel:'B1',reason:'',confirm:false,dry:null,res:null,relBusy:false,
   bedSel:null,info:null,tab:'overview',filter:'ALL',q:'',sec:'overview'};   /* bedSel/info/tab = the Daily-board style bed panel; filter/q = map filter and search */
 function bbStatusOf(b){ return String(b.bedStatus||'').trim().toUpperCase()||'UNVERIFIED'; }
 function bbStyle(st){ const x=BB_STATUS.find(s=>s[0]===st)||['','','#EEE','#1B1B18']; return {fill:x[2],tc:x[3],label:x[1]||st}; }
@@ -4864,7 +4870,7 @@ function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; rend
 function bbForget(){ Object.keys(state.pp).forEach(k=>delete state.pp[k]); }
 /* Click a bed on the Bed Status Board -> Bed profile side panel (same layout as the Daily board's bed panel). */
 async function bbBedClick(bedId){
-  bb.bedSel=bedId; bb.tab='overview'; bb.info={bedId,loading:true,prof:null,err:'',actErr:'',busy:false};
+  bbSyncBlock(bedId); bb.act=null; bb.bedSel=bedId; bb.tab='overview'; bb.info={bedId,loading:true,prof:null,err:'',actErr:'',busy:false};
   render(); await bbLoadInfo(bedId);
 }
 async function bbLoadInfo(bedId){
@@ -4875,8 +4881,8 @@ async function bbLoadInfo(bedId){
   }catch(e){ if(bb.info&&bb.info.bedId===bedId) Object.assign(bb.info,{loading:false,err:errMsg(e)}); }
   render();
 }
-function bbClosePanel(){ bb.bedSel=null; bb.info=null; render(); }
-function bbSetTab(t){ bb.tab=t; render(); }
+function bbClosePanel(){ bb.bedSel=null; bb.info=null; bb.act=null; render(); }
+function bbSetTab(t){ bb.tab=t; bb.act=null; render(); }
 async function bbRefreshAll(){ bbForget(); await Promise.all([bbLoad(true),loadToday()]); if(bb.bedSel) bbLoadInfo(bb.bedSel); }
 async function bbVerifyTurnover(scope,bedId){ const ok=await doVerifyTurnover(scope,bedId); if(!ok) return; bbForget(); await bbLoad(true); if(bb.bedSel===bedId) bbLoadInfo(bedId); }
 /* ---- Live tasks on a bed: Active / Assigned / Reassigned (with note), each with Activity ID, name and a short description ---- */
@@ -5078,7 +5084,8 @@ function bbPanelHTML(){
   const head=`<div class="panelhead"><div><h2>${esc(id)}</h2><div class="meta">${meta}</div></div><button onclick="bbClosePanel()" aria-label="Close bed panel">\u2715</button></div>
     <div class="tabs">${tabs.map(t=>`<button class="${tab===t[0]?'active':''}" onclick="bbSetTab('${t[0]}')">${esc(t[1])}</button>`).join('')}</div>`;
   let body='';
-  if(tab==='activity') body=bedActivitiesPanel(d,st,cohort,'acts');
+  if(bb.act&&bb.act.bedId===id) body=bbActBody();
+  else if(tab==='activity') body=bedActivitiesPanel(d,st,cohort,'acts');
   else if(tab==='history') body=bedActivitiesPanel(d,st,cohort,'history');
   else if(tab==='exceptions') body=b?exceptionsTab(b,exc):`<div class="empty">No exceptions on this bed.</div>`;
   else if(tab==='harvest') body=b?harvestTab(b,(state.harvestReady||[]).find(h=>h.bedId===id)):`<div class="empty">This bed's cohort is not flagged harvest-ready.</div>`;
@@ -5241,6 +5248,45 @@ async function rbReview(m){
   catch(e){ toast(e.message); }
   rb.busy=false; if(m==='check') rb.sel={}; else rb.selV={}; await rbLoad(true);
 }
+/* ---- Recently checked: always open, coloured by activity group, each part opens in the right-hand bed panel ----
+ * Activity name -> that bed's panel with the full activity profile; Bed -> the bed panel; Cohort -> the bed panel's readiness tab.
+ * The block marker (block tabs + map on the left) moves to the block that holds the bed. */
+const RB_PAL=['#2f7d4f','#2b6cb0','#b7791f','#9b2c8a','#c05621','#0f766e','#a23b3b','#5b4bb7'];
+function rbColor(name){ const c=(state.activityCatalog||[]).find(x=>x.name===name); const key=String((c&&(c.domain||c.group))||name||''); let h=0; for(let i=0;i<key.length;i++) h=(h*31+key.charCodeAt(i))>>>0; return RB_PAL[h%RB_PAL.length]; }
+let _rbItems={};
+function rbRecentHTML(d){
+  const list=(d.recentlyChecked||[]); if(!list.length) return '';
+  _rbItems={}; list.forEach(x=>{ if(x.logId) _rbItems[x.logId]=x; });
+  return `<h2 style="font-size:13px;margin:14px 0 6px;">Recently checked (${list.length})</h2>
+    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:4px;">Tap an activity, bed or cohort to open it in the panel on the right.</div>
+    <div class="rb-recent">${list.map(x=>{ const c=rbColor(x.activity), k=esc(x.logId||'');
+      return `<div class="rb-row" style="--rbc:${c};">
+        <button class="rb-act" onclick="rbOpenActivity('${k}')" title="Open activity profile">${esc(actLabel(x.activity))}</button>
+        <button class="dc-mini" onclick="rbGoBed('${esc(x.bedId)}','history')" title="Open bed">Bed ${esc(x.bedId)}</button>
+        ${x.cohortId?`<button class="dc-mini" onclick="rbGoBed('${esc(x.bedId)}','overview')" title="Open cohort on its bed">${esc(x.cohortId)}</button>`:''}
+        <span class="qsub" style="text-transform:none;letter-spacing:0;">${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</span></div>`; }).join('')}</div>`;
+}
+function bbSyncBlock(bedId){ const blk=pvBlockOf(bedId); if(blk&&PLAN_BLOCKS.includes(blk)&&bb.sel!==blk){ bb.sel=blk; bb.dry=null; bb.res=null; bb.confirm=false; } }
+function rbGoBed(bedId,tab){ bb.act=null; bbBedClick(bedId); if(tab) bb.tab=tab; }
+function rbOpenActivity(logId){
+  const it=_rbItems[logId]; if(!it) return;
+  bbBedClick(it.bedId); bb.tab='history';
+  bb.act={logId:it.logId,bedId:it.bedId,item:it,full:null,loadErr:'',loading:true}; render();
+  apiCall('get-activity-profile',{logId:it.logId},25000)
+    .then(full=>{ if(bb.act&&bb.act.logId===logId){ bb.act.full=full||{}; bb.act.loading=false; render(); } })
+    .catch(e=>{ if(bb.act&&bb.act.logId===logId){ bb.act.loading=false; bb.act.loadErr=String((e&&e.message)||'not available'); render(); } });
+}
+function bbActClose(){ bb.act=null; render(); }
+function bbActBody(){
+  const a=bb.act, saved=ui.modalDraft, it=a.item||{}; let html='';
+  const back=`<div style="margin:6px 0;"><button class="dc-mini" onclick="bbActClose()">‹ Back to bed</button></div>`;
+  if(!activityProfileLocal(a.logId,a.bedId)){
+    const f=a.full||{}, row=(l,v)=>`<div class="row"><span>${esc(l)}</span><span>${(v===''||v==null)?'—':esc(v)}</span></div>`;
+    return back+`<div class="dp-box"><div class="t"><span>${esc(actLabel(it.activity))}</span></div>${row('Bed',it.bedId)}${row('Cohort',it.cohortId)}${row('Worker',it.workerName)}${row('Finished',rbWhen(it.endTime))}${row('Minutes',it.minutes)}${row('Quantity',it.quantity!==''&&it.quantity!=null?it.quantity+' '+(it.unit||''):'')}${row('Notes',it.notes||f.notes)}${row('Checked by',it.checkedBy)}${row('Checked',rbWhen(it.checkedDate))}</div>${a.loading?'<div class="note">Loading the full record…</div>':''}`;
+  }
+  try{ ui.modalDraft=a; html=activityProfileModal(); }catch(e){ html='<div class="empty">Could not show this activity.</div>'; } finally{ ui.modalDraft=saved; }
+  return back+html.replace(/onclick="closeModal\(\)"/g,'onclick="bbActClose()"');
+}
 function rbRow(it,m){
   const f=it.fertilizer, sel=m==='check'?rb.sel:rb.selV, qty=(it.quantity!==''&&it.quantity!=null)?' · '+esc(it.quantity)+' '+esc(it.unit||''):'';
   return `<label class="dp-row on" style="align-items:flex-start;"><input type="checkbox" ${sel[it.logId]?'checked':''} data-k="${esc(it.logId)}" data-m="${m}" onchange="rbTog(this.dataset.k,this.dataset.m,this.checked)">
@@ -5263,7 +5309,7 @@ function rbPanel(){
     <div class="dp-tools"><button onclick="rbAll('verify',true)">Select all</button><button onclick="rbAll('verify',false)">Clear</button></div>
     <div class="ma-list" style="max-height:300px;">${d.toVerify.map(x=>rbRow(x,'verify')).join('')}</div>
     <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="verify" ${nV?'':'disabled'} onclick="rbReview('verify')">Verify selected${nV?' ('+nV+')':''}</button>`:'';
-  const recent=(d.recentlyChecked&&d.recentlyChecked.length)?`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;">Recently checked (${d.recentlyChecked.length})</summary>${d.recentlyChecked.map(x=>`<div class="qsub" style="text-transform:none;letter-spacing:0;padding:3px 0;">${esc(actLabel(x.activity))} · Bed ${esc(x.bedId)} · ${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</div>`).join('')}</details>`:'';
+  const recent=rbRecentHTML(d);
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
       <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></span></div>
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
@@ -5798,7 +5844,9 @@ function postHarvestScreen(){
   const all=phaBeds(), beds=phaVisible();
   Object.keys(pha.sel).forEach(id=>{ if(!all.some(b=>b.id===id)) delete pha.sel[id]; });   /* a bed that left turnover cannot stay selected */
   const rows=beds.map(b=>{ const p=b.postHarvest, m=(p.coverMix&&p.coverMix.exitDate?coverSopMix(String(p.coverMix.exitDate).slice(0,10)):p.coverMix)||{}, steps=p.stepCount||(p.steps||[]).length, nxt=p.readyToVerify?'Ready to verify':(p.nextStep?'Step '+(p.nextStepNumber||'?')+' of '+steps+': '+p.nextStep:'—'), can=phaSelectable(b), why=phaWhy(b);
-    return `<tr><td><input type="checkbox" class="pha-cb" data-id="${esc(b.id)}" ${pha.sel[b.id]?'checked':''} ${can?'':'disabled'} title="${esc(can?'':why)}" onchange="phaTog(this.dataset.id,this.checked)"></td><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button></td><td>${esc(b.cohortId||'bed-level')}</td><td>${esc(m.exitDate||'—')}</td><td style="white-space:normal;min-width:190px;">${esc(m.label||'No standard mix: manager decides')}</td><td style="white-space:normal;min-width:180px;">${esc(nxt)}</td><td style="white-space:normal;min-width:190px;">${phaCrewCell(b)}</td><td style="white-space:nowrap;"><button class="dc-mini" ${phaCanAssign(b)?'':'disabled'} title="${esc(phaCanAssign(b)?'':why)}" onclick="phaOpenAssign(['${esc(b.id)}'])">${phaAssigned(b.id).length?'Edit crew':'Assign'}</button><button class="dc-mini" ${phbRemaining(b).length?'':'disabled'} title="Skip steps on this bed with a written reason" onclick="phBulkOverrideOpen(['${esc(b.id)}'])">Override…</button></td><td><span class="chip ${p.readyToVerify?'chip-ok':'chip-warn'}">${p.readyToVerify?'Verify bed ready':'In turnover'}</span></td></tr>`; }).join('');
+    const mixFull=m.label||'No standard mix: manager decides', mixShort=/no standard mix/i.test(mixFull)?'No standard mix':mixFull;
+    const stat=p.readyToVerify?`<button class="dc-mini" style="background:var(--ok,#1E6B2E);color:#fff;" onclick="doVerifyTurnover('${esc(p.bedLevel?'BED:'+b.id:b.cohortId)}','${esc(b.id)}')">Verify bed ready</button>`:`<span class="chip chip-warn">In turnover</span>`;
+    return `<tr><td><input type="checkbox" class="pha-cb" data-id="${esc(b.id)}" ${pha.sel[b.id]?'checked':''} ${can?'':'disabled'} title="${esc(can?'':why)}" onchange="phaTog(this.dataset.id,this.checked)"></td><td><button class="dc-mini" onclick="goBoard();selectBed('${esc(b.id)}')">${esc(b.id)}</button><div class="qsub">${esc(b.cohortId||'bed-level')}</div></td><td>${stat}</td><td>${esc(nxt)}</td><td>${phaCrewCell(b)}</td><td><button class="dc-mini" ${phaCanAssign(b)?'':'disabled'} title="${esc(phaCanAssign(b)?'':why)}" onclick="phaOpenAssign(['${esc(b.id)}'])">${phaAssigned(b.id).length?'Edit crew':'Assign'}</button> <button class="dc-mini" ${phbRemaining(b).length?'':'disabled'} title="Skip steps on this bed with a written reason" onclick="phBulkOverrideOpen(['${esc(b.id)}'])">Override…</button></td><td>${esc(m.exitDate||'—')}</td><td title="${esc(mixFull)}">${esc(mixShort)}</td></tr>`; }).join('');
   return admWrap(`<h2 style="margin:0 0 4px;">Post-harvest & cover crop sequence</h2>
     <div class="note" style="margin-top:0;">When a cohort is terminated (ACT_053), the bed goes through field cleanup (ACT_037–039) and cover crop establishment (ACT_041–044), in any order. Any step can be skipped by a manager override with a written explanation. Only the manager's Verify Bed Ready returns the bed to Available.</div>
     ${crSectionHead('Cover crop planting windows')}<div class="card">
@@ -5806,7 +5854,7 @@ function postHarvestScreen(){
       ${COVER_WINDOWS.length?COVER_WINDOWS.map(w=>`<div class="row"><span><b>${esc(w.name)} (${esc(w.crop)})</b></span><span style="text-align:right;">${esc(w.startLabel)} – ${esc(w.endLabel)}</span></div>`).join(''):`<div class="note">${coverLoad.busy?'Loading windows…':'No cover crop windows loaded.'}</div>`}
       <div class="note">Set by the Ngapori Ranch Cover Crop SOP: Mid-Summer Exit (Jul 1 – Aug 15) = Buckwheat; Fall Closeout (Aug 15 – Oct 20) = Winter Rye + Crimson Clover + Vetch. The mix follows the date the cohort is terminated (ACT_053). Outside both windows there is no standard mix: the manager decides, or issues a Rule R16 Override.</div>
       <div class="field" style="margin-top:6px;"><label>Check a date</label><input type="date" value="${esc(ph.date)}" oninput="phSetDate(this.value)"></div><div id="ph-out">${phPreviewHTML()}</div></div>
-    ${crSectionHead('Beds in turnover')}${all.length?`<div id="pha-bar">${phaBarHTML()}</div><div class="bb-wrap"><table class="bb-t"><thead><tr><th></th><th>Bed</th><th>Cohort</th><th>Production ended</th><th>Cover crop mix</th><th>Next</th><th>Crew</th><th></th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ${crSectionHead('Beds in turnover')}${all.length?`<div id="pha-bar">${phaBarHTML()}</div><div class="bb-wrap"><table class="bb-t pha-t"><thead><tr><th></th><th>Bed</th><th>Status</th><th>Next</th><th>Crew</th><th>Actions</th><th>Production ended</th><th>Cover crop mix</th></tr></thead><tbody>${rows}</tbody></table></div>`
       :`<div class="card"><div class="empty">No beds are in post-harvest turnover right now.</div><button class="btn btn-ghost" style="width:auto;" onclick="loadToday()">↻ Reload beds</button></div>`}`);
 }
 
