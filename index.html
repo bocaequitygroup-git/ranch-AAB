@@ -2141,7 +2141,7 @@ function modalHTML(){
   else if(ui.modal==='new-activity') inner=newActivityModal();
   else if(ui.modal==='activity-profile') inner=activityProfileModal();
   else if(ui.modal==='one-worker') inner=oneWorkerModal();
-  return `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  return `<div class="overlay" onclick="if(event.target===this&&ui.modal!=='urgent')closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -5675,7 +5675,7 @@ function urgWindowCheck(cropId, iso){
 }
 function urgSet(i,key,val){
   const r=urg.rows[i]; if(!r) return; r[key]=val; urg.res=null; urg.err=''; urg.confirmOut=false;
-  if((key==='cropId'||key==='date') && r.cropId && r.date){
+  if(key==='date' && r.cropId && r.date){
     if(r.date<todayISO()){ toast('The planting date is in the past.'); }
     else{ const c=urgWindowCheck(r.cropId,r.date); if(c) urg.alarm=c; }
   }
@@ -5684,13 +5684,35 @@ function urgSet(i,key,val){
 function urgAddRow(){ if(urg.rows.length<((urg.opts&&urg.opts.maxCrops)||10)){ urg.rows.push(urgBlankRow()); render(); } }
 function urgDelRow(i){ urg.rows.splice(i,1); if(!urg.rows.length) urg.rows.push(urgBlankRow()); urg.res=null; render(); }
 function urgAlarmClose(clearDate){ if(clearDate&&urg.alarm){ const r=urg.rows.find(x=>x.date===urg.alarm.date); if(r) r.date=''; urg.res=null; } urg.alarm=null; render(); }
+function urgNoBedSet(){
+  const r=urg.res; if(!r||r.errorCode!=='NO_AVAILABLE_BED') return;
+  const items=r.items||[], w=items.flatMap(i=>i.waves||[]).find(x=>x.status==='NOT_ENOUGH_BEDS');
+  urg.noBed={block:(items[0]&&items[0].block)||'the chosen block', date:w?w.date:''};
+}
+function urgNoBedClose(){ urg.noBed=null; render(); }
+function urgGoBedBoard(){ urg.noBed=null; ui.modal=null; ui.screen='planning'; ui.pMode='bedboard'; render(); }
+function urgNoBedHTML(){
+  const n=urg.noBed;
+  return `<div class="urg-alarm-wrap" onclick="if(event.target===this)urgNoBedClose()"><div class="urg-alarm bad" role="dialog" aria-modal="true">
+    <h3>No bed is ready in ${esc(n.block)}</h3>
+    <p>Nothing was created${n.date?' for '+esc(n.date):''}. An urgent cohort needs a bed that:</p>
+    <ul style="margin:6px 0 6px 18px;padding:0;font-size:13px;">
+      <li>has status <b>AVAILABLE</b> (set when the manager verifies the bed ready)</li>
+      <li>is in ${esc(n.block)}</li>
+      <li>has no active crop and no overlap with the planting dates</li></ul>
+    <p>To fix: open the Bed Status Board, finish the post-harvest steps on a bed in ${esc(n.block)}, and press <b>Verify Bed Ready</b>. Then check the request again.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px;">
+      <button class="btn btn-outline" style="width:auto;margin:0;" onclick="urgNoBedClose()">Close</button>
+      <button class="btn btn-primary" style="width:auto;margin:0;" onclick="urgGoBedBoard()">Open Bed Status Board</button></div>
+  </div></div>`;
+}
 function urgPayload(dry){
   return { items:urg.rows.filter(r=>r.cropId||r.date).map(r=>({cropId:r.cropId,plantingDate:r.date,waves:r.waves||1,bedsPerWave:r.beds||'',gapDays:r.gap||'',block:r.block||''})),
            reason:urg.reason, dryRun:dry, confirmOutOfWindow:urg.confirmOut };
 }
 async function urgCheck(){
-  if(urg.busy) return; urg.busy=true; urg.err=''; urg.res=null; urg.confirmOut=false; render();
-  try{ urg.res=await apiCall('urgent-production',urgPayload(true),120000); }catch(e){ urg.err=urgMsg(e); }
+  if(urg.busy) return; urg.busy=true; urg.err=''; urg.res=null; urg.noBed=null; urg.confirmOut=false; render();
+  try{ urg.res=await apiCall('urgent-production',urgPayload(true),120000); urgNoBedSet(); }catch(e){ urg.err=urgMsg(e); }
   urg.busy=false; render();
 }
 async function urgCreate(){
@@ -5700,7 +5722,7 @@ async function urgCreate(){
   urg.busy=true; urg.err=''; render();
   try{
     const res=await apiCall('urgent-production',urgPayload(false),330000);
-    urg.res=res;
+    urg.res=res; urgNoBedSet();
     if(res.ok===false){ urg.err=(res.notes&&res.notes[0])||'Not created.'; }
     else{
       urg.done=true; toast('Shortfall production created: '+res.summary.created+' cohort(s), '+res.summary.assigned+' bed(s) reserved.');
@@ -5740,10 +5762,10 @@ function urgRowHTML(r,i){
 function urgResultHTML(){
   const r=urg.res; if(!r||!r.items) return '';
   const body=r.items.filter(it=>!it.errors.length).map(it=>`<div class="card" style="margin-bottom:8px;">
-    <div class="row"><span><b>${esc(it.name)}</b> <span class="urg-badge">URGENT PRODUCTION</span></span><span>${esc(it.block)} · ${it.bedsPerWave} bed${it.bedsPerWave===1?'':'s'}/wave · every ${it.gapDays} d</span></div>
+    <div class="row"><span><b>${esc(it.name)}</b> <span class="urg-badge">SHORTFALL CROP</span></span><span>${esc(it.block)} · ${it.bedsPerWave} bed${it.bedsPerWave===1?'':'s'}/wave · every ${it.gapDays} d</span></div>
     <div class="note" style="margin:2px 0 6px;">Block chosen from: ${esc(it.blockSource)}</div>
     ${it.waves.map(w=>`<div class="urg-wave">
-      <div><b>Wave ${w.wave}</b> · ${esc(w.date)} <span class="urg-badge ${w.window.pass?'urg-pass':'urg-fail'}">Oregon window ${w.window.pass?'PASS':'FAIL'}</span>
+      <div><b>Wave ${w.wave}</b> · ${esc(w.date)} <span class="urg-badge ${w.window.pass?'urg-pass':'urg-fail'}">${w.window.pass?'In Oregon window':'Outside Oregon window'}</span>
         ${w.status==='PLACED'?'<span class="chip chip-ok">Beds ready</span>':(w.status==='NOT_ENOUGH_BEDS'?'<span class="chip chip-danger">Not enough ready beds</span>':(w.status?`<span class="chip chip-neutral">${esc(w.status.replace(/_/g,' '))}</span>`:''))}</div>
       <div class="note" style="margin:2px 0;">${esc(w.window.message)}</div>
       ${w.beds&&w.beds.length?`<div>Beds: <b>${esc(w.beds.join(', '))}</b></div>`:''}
@@ -5751,7 +5773,7 @@ function urgResultHTML(){
     </div>`).join('')}</div>`).join('');
   const s=r.summary||{};
   const bar=`<div class="card"><div class="row"><span>Waves checked</span><b>${s.waves||0}</b></div><div class="row"><span>Beds ready and available</span><b>${s.placed||0} wave(s)</b></div>
-    <div class="row"><span>Short of ready beds</span><b>${s.short||0} wave(s)</b></div><div class="row"><span>Outside Oregon window</span><b style="${s.outOfWindow?'color:#9C1C13;':''}">${s.outOfWindow||0} wave(s)</b></div></div>`;
+    <div class="row"><span>Short of ready beds</span><b>${s.short||0} wave(s)</b></div><div class="row"><span>${r.dryRun?'Shortfall cohorts to create':'Shortfall cohorts created'}</span><b>${r.dryRun?(s.cohortsToCreate||0):(s.created||0)}</b></div></div>`;
   const notes=(r.notes||[]).length?`<div class="note">${r.notes.map(esc).join('<br>')}</div>`:'';
   return bar+body+notes;
 }
@@ -5760,7 +5782,7 @@ function urgentModal(){
   if(urg.loading) return `<h2 style="font-size:15px;">Urgent production</h2><div class="note">Loading crops and Oregon windows…</div>`;
   if(urg.optsErr) return `<h2 style="font-size:15px;">Urgent production</h2><div class="notice">${esc(urg.optsErr)}</div><button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
   return `${urgAlarmHTML()}
-  <h2 style="font-size:15px;">Urgent production <span class="urg-badge">URGENT PRODUCTION</span></h2>
+  <h2 style="font-size:15px;">Urgent production <span class="urg-badge">SHORTFALL CROP</span></h2>
   <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">For unexpected demand. Choose the crop, planting date and number of waves. The system checks the Oregon window, picks the block from the crop group on the block layout, and reserves beds that are free and verified ready. Nothing is created until you press Create.</p>
   ${urg.rows.map(urgRowHTML).join('')}
   <button class="btn btn-outline" style="width:auto;" onclick="urgAddRow()">+ Add another crop</button>
@@ -5769,10 +5791,10 @@ function urgentModal(){
     <button class="btn btn-primary" ${urg.busy?'disabled':''} onclick="urgCheck()">${urg.busy&&!urg.res?'Checking…':'Check window and beds'}</button>
     <button class="btn btn-ghost" onclick="closeModal()">${urg.done?'Close':'Cancel'}</button>
   </div>
-  ${urg.err?`<div class="notice" style="margin-top:8px;">${esc(urg.err)}</div>`:''}
+  ${urg.noBed?urgNoBedHTML():''}${urg.err&&!urg.noBed?`<div class="notice" style="margin-top:8px;">${esc(urg.err)}</div>`:''}
   <div style="margin-top:10px;">${urgResultHTML()}</div>
   ${r&&r.dryRun&&r.summary&&r.summary.outOfWindow&&r.summary.placed?`<label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:8px 0;color:#9C1C13;"><input type="checkbox" ${urg.confirmOut?'checked':''} onchange="urg.confirmOut=this.checked;render()"> I understand ${r.summary.outOfWindow} wave(s) are outside the Oregon allowable window and I want to plant them anyway.</label>`:''}
-  ${urg.done?`<div class="note" style="color:#1E6B2E;">Created. Each bed is reserved. When the crop is in the ground, use Verify planting on that bed.</div>`
+  ${urg.done?`<div class="note" style="color:#1E6B2E;">Created. Each bed is reserved. When the crop is in the ground, use Verify planting on that bed.</div><div style="margin-top:8px;"><button class="btn btn-primary" style="width:auto;" onclick="closeModal()">OK</button></div>`
     :(r&&r.dryRun?`<button class="btn btn-primary" ${canCreate&&!urg.busy?'':'disabled'} onclick="urgCreate()">${urg.busy?'Creating…':`Create urgent production (${r.summary?r.summary.placed:0} wave${r.summary&&r.summary.placed===1?'':'s'})`}</button>`:'')}`;
 }
 
