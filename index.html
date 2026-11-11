@@ -5696,8 +5696,27 @@ function urgNeeded(r){ return Math.max(1,Number(r.waves)||1)*Math.max(1,Number(r
  * whether it is already a shortfall-crop bed - this is the "view the whole block" neighborhood check. */
 function urgBlockBeds(block){
   if(!block) return [];
-  return (state.beds||[]).filter(b=>String(b.blockId||'')===block).slice().sort((a,b)=>bbBedCmp(a.id,b.id));
+  const phys=bb.data[block]&&bb.data[block].beds;
+  let list;
+  if(phys&&phys.length){
+    list=phys.map(x=>{ const t=state.todayById[String(x.bedId)]||{};
+      return { id:String(x.bedId), blockId:block, bedStatus:x.bedStatus||t.bedStatus||'', cohortId:x.currentCohortId||t.cohortId||'',
+               cropName:t.cropName||x.cropName||'', shortfall:!!(t.shortfall||x.shortfall) }; });
+  } else {
+    list=(state.beds||[]).filter(b=>String(b.blockId||'')===block);
+  }
+  return list.slice().sort((a,b)=>bbBedCmp(a.id,b.id));
 }
+/* Loads one block's beds from the server (get-physical-beds, the same list the Bed Status Board uses), so any block can be
+ * browsed even when the Daily Board has not loaded it. Fetched fresh each time a block is chosen, because availability changes. */
+async function urgLoadBlock(block){
+  if(!block) return;
+  urg.blockBusy=block; urg.blockErr=''; render();
+  try{ const r=await apiCall('get-physical-beds',{blockId:block}); bb.data[block]={beds:Array.isArray(r)?r:((r&&r.beds)||[])}; }
+  catch(e){ urg.blockErr=urgMsg(e); }
+  urg.blockBusy=''; render();
+}
+function urgAvailOnly(v){ urg.availOnly=!!v; render(); }
 function urgBedAvailable(b){ return String(b.bedStatus||'').trim().toUpperCase()==='AVAILABLE' && !b.cohortId; }
 function urgToggleBed(i,bedId){
   const r=urg.rows[i]; if(!r) return;
@@ -5709,6 +5728,7 @@ function urgToggleBed(i,bedId){
 function urgSet(i,key,val){
   const r=urg.rows[i]; if(!r) return; r[key]=val; urg.res=null; urg.err=''; urg.confirmOut=false;
   if(key==='block'||key==='waves'||key==='bedsPerWave') r.beds=[];   // bed picks depend on the block and on how many are needed
+  if(key==='block'&&val) urgLoadBlock(val);   // browse the chosen block's beds from the server
   if(key==='date' && r.cropId && r.date){
     if(r.date<todayISO()){ toast('The planting date is in the past.'); }
     else{ const c=urgWindowCheck(r.cropId,r.date); if(c) urg.alarm=c; }
@@ -5783,19 +5803,30 @@ function urgAlarmHTML(){
 /* The neighborhood view: every bed in the chosen block, so the manager sees what is already planted nearby before
  * picking. AVAILABLE beds are selectable (click to add/remove); anything else is shown for context only, greyed out. */
 function urgBedPickerHTML(r,i){
-  if(!r.block) return `<div class="note" style="margin:4px 0 8px;">Choose a block above to see its beds and pick which one(s) to use.</div>`;
-  const beds=urgBlockBeds(r.block), needed=urgNeeded(r), got=r.beds.length;
-  if(!beds.length) return `<div class="note" style="margin:4px 0 8px;">No bed data loaded for ${esc(r.block)} yet. Refresh the Daily Board and reopen this form.</div>`;
-  const tiles=beds.map(b=>{
-    const avail=urgBedAvailable(b), picked=r.beds.indexOf(b.id)>=0, disabled=!avail&&!picked;
-    const sub=b.cohortId?(esc(b.cropName||'')+(b.shortfall?' · SHORTFALL':'')):(avail?'Available':esc(bedPanelStatus(b)));
+  if(!r.block) return `<div class="note" style="margin:4px 0 8px;">Choose a block above to browse its beds and pick one for each wave.</div>`;
+  const needed=urgNeeded(r), got=r.beds.length;
+  const loaded=!!(bb.data[r.block]&&bb.data[r.block].beds);
+  if(urg.blockBusy===r.block && !loaded) return `<div class="note" style="margin:4px 0 8px;">Loading beds in ${esc(r.block)}…</div>`;
+  const all=urgBlockBeds(r.block);
+  if(!all.length) return `<div class="notice" style="margin:4px 0 8px;">${esc(urg.blockErr||('No beds found for '+r.block+'.'))} <button class="btn btn-ghost" style="width:auto;margin:0;" onclick="urgLoadBlock('${esc(r.block)}')">Retry</button></div>`;
+  const avail=all.filter(urgBedAvailable);
+  const onlyAvail=urg.availOnly!==false;
+  const shown=onlyAvail?avail:all;
+  const tiles=shown.map(b=>{
+    const isAvail=urgBedAvailable(b), picked=r.beds.indexOf(b.id)>=0, disabled=!isAvail&&!picked;
+    const sub=b.cohortId?(esc(b.cropName||'')+(b.shortfall?' · SHORTFALL':'')):(isAvail?'Available':esc(bedPanelStatus(b)));
     return `<button type="button" class="urg-bed ${picked?'picked':''} ${disabled?'off':''} ${b.shortfall?'urg-bed-sf':''}" ${disabled?'disabled':''}
       title="${esc(b.id)} · ${esc(sub)}" onclick="urgToggleBed(${i},'${esc(b.id)}')">
       <b>${esc(b.id)}</b><span>${sub}</span></button>`;
   }).join('');
+  const empty=!shown.length?`<div class="note" style="margin:4px 0;">No available beds in ${esc(r.block)} right now. Untick "Available only" to see what is planted there, or verify a bed ready on the Bed Status Board.</div>`:'';
   return `<div style="margin:4px 0 8px;">
-    <div class="note" style="margin-bottom:4px;">${esc(r.block)} · every bed shown so you can see what is growing next door before you pick. Selected <b>${got} of ${needed}</b>.</div>
-    <div class="urg-bed-grid">${tiles}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
+      <div class="note" style="margin:0;">${esc(r.block)} · ${avail.length} available of ${all.length} beds. Selected <b>${got} of ${needed}</b>.</div>
+      <label style="display:flex;gap:6px;align-items:center;font-size:12px;"><input type="checkbox" ${onlyAvail?'checked':''} onchange="urgAvailOnly(this.checked)"> Available only</label>
+    </div>
+    ${urg.blockErr?`<div class="notice" style="margin:0 0 6px;">${esc(urg.blockErr)}</div>`:''}
+    ${empty}${shown.length?`<div class="urg-bed-grid">${tiles}</div>`:''}
   </div>`;
 }
 function urgRowHTML(r,i){
