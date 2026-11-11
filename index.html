@@ -4481,7 +4481,7 @@ function calEvents(tab){
     if(cover!==(tab==='cover')) return;     /* cover crops appear ONLY on the Cover crops tab; cash crops never appear there */
     const c=calWave(w), who=`${w.crop||w.id}${w.cohortId?' · '+w.cohortId:''}`, base={loc:w.loc,crop:w.name,cid:w.crop,pd:w.plannedPlant||w.plant},
       tag=w.basis?` · ${w.basis==='VERIFIED'?'actual planting':'scheduled planting'} (planned ${calFull(w.plannedPlant)})`:'',
-      flag=w.windowState==='OUTSIDE'?'outside':(w.basis?'shift':''), nd=Math.abs(w.varianceDays||0),
+      flag=w.windowState==='OUTSIDE'?'outside':(w.basis&&(w.varianceDays||0)!==0?'shift':''), nd=Math.abs(w.varianceDays||0),
       when=w.basis==='VERIFIED'?'Planted':'Scheduled to plant', off=nd?`${nd} day${nd===1?'':'s'} ${w.varianceDays>0?'late':'early'}`:'on a different date',
       why=!flag?'':flag==='outside'?`${when} ${off} vs plan (${calFull(w.plannedPlant)}), outside the allowable window${w.windowRange?' ('+w.windowRange+')':''}. ${w.accepted?'Accepted by '+(w.acceptedBy||'a manager')+'.':'Not yet accepted by a manager.'}`:`${when} ${off} vs plan (${calFull(w.plannedPlant)})${w.windowState==='IN'?', inside the allowable window':''}. Dates below follow the ${w.basis==='VERIFIED'?'actual':'scheduled'} date.`;
     Object.assign(base,{flag,why});
