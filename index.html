@@ -704,6 +704,11 @@ function bedView(b){
       plannedDob:c.plannedDob||'', plantingDate:c.actualDob||'', harvestWindow:(c.harvestWindowStart||c.harvestWindowEnd)?((c.harvestWindowStart||'?')+' → '+(c.harvestWindowEnd||'?')):'', plantingWindow:c.plantingWindow||null, plantingDeviation:c.plantingDeviation||null,
       propagationPath:c.propagationPath||'', propagationVerifiedBy:c.propagationVerifiedBy||'', propagationVerifiedDate:c.propagationVerifiedDate||'',
       propagationOverrideBy:c.propagationOverrideBy||'', propagationOverrideDate:c.propagationOverrideDate||'', propagationOverrideReason:c.propagationOverrideReason||'' });
+  }else if(v.cohortId && v.occupied!==false){
+    /* The cohort board is loaded per planning year, so a cohort from another year (e.g. CAR-26-C01 while Season 2027 is selected) has no board row.
+     * The bed itself still holds it: keep what the live daily board sent (BED_MASTER.Current_Cohort_ID -> COHORT_PRODUCTION): crop, stage, status, planted, harvest window. */
+    ['cropId','cropName','cohortStatus','currentStage','plannedDob','plantingDate','harvestWindow','propagationPath','propagationVerifiedBy','propagationVerifiedDate','propagationOverrideBy','propagationOverrideDate','propagationOverrideReason'].forEach(k=>{ if(v[k]==null) v[k]=''; });
+    ['plantingWindow','plantingDeviation'].forEach(k=>{ if(v[k]==null) v[k]=null; });
   }else{
     Object.assign(v, { cohortId:'', cropId:'', cropName:'', cohortStatus:'', currentStage:'', plannedDob:'', plantingDate:'', harvestWindow:'', plantingWindow:null, plantingDeviation:null, propagationPath:'', propagationVerifiedBy:'', propagationVerifiedDate:'', propagationOverrideBy:'', propagationOverrideDate:'', propagationOverrideReason:'' });
   }
