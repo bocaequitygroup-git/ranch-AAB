@@ -859,7 +859,7 @@ async function propVerifyAndRetry(cohortId,kind){
 }
 async function pwAuthorizeAndRetry(cohortId,kind,date){
   const reason=String((ui.pwReasons||{})[cohortId]||'').trim();
-  if(reason.length<5){ toast('Enter an explanation of at least 5 characters to accept this planting date.'); return; }
+  if(!reason){ toast('Enter an explanation to accept this planting date.'); return; }
   try{ await apiCall('authorize-planting-window',{ cohortId, date, reason },60000); toast('Accepted and recorded. Retrying the assignment…'); }
   catch(e){ toast(e.message); return; }
   if(ui.pwReasons) delete ui.pwReasons[cohortId];
@@ -887,7 +887,7 @@ function ppAskBox(pp,cohortId){
   if(!pp) return '';
   const id=esc(cohortId);
   return `<div class="pw-box warn"><div class="pw-t">Nursery sign-off missing</div><div>${esc(pp.message||'')}</div>
-    <textarea placeholder="Explanation for planting without nursery sign-off (required, at least 5 characters)" oninput="ppSetReason('${id}',this.value)">${esc((ui.ppReasons||{})[cohortId]||'')}</textarea></div>`;
+    <textarea placeholder="Explanation for planting without nursery sign-off (required)" oninput="ppSetReason('${id}',this.value)">${esc((ui.ppReasons||{})[cohortId]||'')}</textarea></div>`;
 }
 /* Read-only record on the bed panel for a cohort that was planted off its planned date. */
 function pdSummaryBox(pd){
@@ -1046,7 +1046,7 @@ async function doVerifyPlanting(cohortId, actualDob){
     const pw=chk&&chk.plantingWindow;
     if(pw&&pw.state==='OUTSIDE_AUTH_REQUIRED'){
       reason=String((ui.pwReasons||{})[cohortId]||'').trim();
-      if(ui.modalDraft.pwDate!==actualDob || reason.length<5){   /* show the warning + allowable dates; the manager accepts by explaining and pressing the button again */
+      if(ui.modalDraft.pwDate!==actualDob || !reason){   /* show the warning + allowable dates; the manager accepts by explaining and pressing the button again */
         ui.modalDraft.pw=pw; ui.modalDraft.pwDate=actualDob; ui.modalDraft.dob=actualDob; render();
         toast('Outside the allowable planting window. Review the dates, enter an explanation, then accept.'); return;
       }
@@ -2320,7 +2320,7 @@ function overrideModal(){
 async function doOverridePostHarvest(){
   const d=ui.modalDraft, reason=String(d.reason||'').trim();
   if(!d.selected.length){ toast('Select at least one step to override.'); return; }
-  if(reason.length<5){ toast('An explanation is required for an override.'); return; }
+  if(!reason){ toast('An explanation is required for an override.'); return; }
   try{ await apiCall('override-post-harvest',{ cohortId:d.cohortId, activities:d.selected, reason }); toast('Override recorded.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
@@ -2343,7 +2343,7 @@ function verifyResolveModal(){
 }
 async function doVerifyResolve(){
   const d=ui.modalDraft, reason=String(d.reason||'').trim(), scope=d.scope, bedId=d.bedId;
-  if(reason.length<5){ toast('An explanation is required.'); return; }
+  if(!reason){ toast('An explanation is required.'); return; }
   closeModal();
   const ok=await doVerifyTurnover(scope,bedId,{reason});
   if(ok&&typeof bbForget==='function'){ try{ bbForget(); if(typeof bbLoad==='function') await bbLoad(true); }catch(e){} }
@@ -2903,7 +2903,7 @@ async function doPastDueOverride(){
   const d=ui.modalDraft, bedId=d.bedId, s=pdueState(bedId), reason=String(d.reason||'').trim();
   const items=s.items.filter(i=>s.sel.includes(pdueKey(i)));
   if(!items.length){ toast('Select at least one item.'); return; }
-  if(reason.length<5){ toast('An explanation is required for an override.'); return; }
+  if(!reason){ toast('An explanation is required for an override.'); return; }
   if(d.busy) return; d.busy=true; render();
   try{
     const r=await apiCall('override-past-due',{ bedId, reason, items:items.map(i=>({ kind:i.kind, key:i.key })) },60000);
@@ -5579,14 +5579,14 @@ function bbScreen(){
   const d=bb.dry, r=bb.res;
   const relPanel=`<div class="card"><div class="row"><span><b style="color:var(--ink);">Start of operations · ${esc(BLOCK_LABELS[bb.sel])}</b></span><span class="chip chip-neutral">${eligible} empty bed${eligible===1?'':'s'} not yet released</span></div>
     <div class="note" style="margin-top:6px;">Releases the empty beds of this block that are not verified or still in post-harvest, so the season generator can book them. Each bed goes through the engine's own override (R16) and Verify Bed Ready steps in your name. Beds holding a cohort, blocked beds and beds already Available are left alone.</div>
-    <div class="field"><label>Reason (stored on every bed, at least 5 characters)</label><input id="bb-reason" value="${esc(bb.reason)}" oninput="bb.reason=this.value;bbSyncRelease()" placeholder="e.g. Winter fallow complete; beds tilled and drip laid"></div>
+    <div class="field"><label>Reason (stored on every bed, required)</label><input id="bb-reason" value="${esc(bb.reason)}" oninput="bb.reason=this.value;bbSyncRelease()" placeholder="e.g. Winter fallow complete; beds tilled and drip laid"></div>
     <label class="note" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" ${bb.confirm?'checked':''} onchange="bb.confirm=this.checked;bbSyncRelease()"> I confirm these beds are physically ready for planting</label>
     ${d?`<div class="row"><span>Would release</span><b>${d.eligible}</b></div><div class="row"><span>Already available</span><span>${d.alreadyReady}</span></div><div class="row"><span>Not eligible (cohort, blocked, in use)</span><span>${d.notEligible}</span></div>`:''}
     ${r&&r.error?`<div class="error">${esc(r.error)}</div>`:''}
     ${r&&!r.error?`<div class="row"><span>Released</span><b>${r.released}</b></div>${r.partial?(bb.relBusy?`<div class="note" style="color:var(--warn);font-weight:600;">Still working: ${r.remaining} bed(s) left (batch ${r.rounds||1}). Each batch takes about 4 minutes. Keep this page open.</div>`:`<div class="note" style="color:var(--warn);font-weight:600;">Stopped with ${r.remaining} bed(s) left. Press Release again to continue.</div>`):''}${(r.skipped||[]).length?`<div class="note" style="color:var(--danger);">${r.skipped.length} skipped: ${esc(r.skipped.slice(0,8).map(x=>x.bedId+' ('+x.reason+')').join(', '))}${r.skipped.length>8?'…':''}</div>`:''}`:''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
       <button class="btn btn-outline" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy?'disabled':''} onclick="bbCount()">${bb.relBusy?'Working…':'Count beds'}</button>
-      <button id="bb-release" class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy||!d||!d.eligible||bb.reason.trim().length<5||!bb.confirm?'disabled':''} onclick="bbRelease()">Release ${d?d.eligible:''} bed${d&&d.eligible===1?'':'s'}</button>${bb.relBusy&&bb.res&&bb.res.partial?`<button class="btn btn-outline" style="width:auto;margin:0;padding:10px 18px;" onclick="bbRelStop()">Stop after this batch</button>`:''}</div></div>`;
+      <button id="bb-release" class="btn btn-primary" style="width:auto;margin:0;padding:10px 18px;" ${bb.relBusy||!d||!d.eligible||!bb.reason.trim()||!bb.confirm?'disabled':''} onclick="bbRelease()">Release ${d?d.eligible:''} bed${d&&d.eligible===1?'':'s'}</button>${bb.relBusy&&bb.res&&bb.res.partial?`<button class="btn btn-outline" style="width:auto;margin:0;padding:10px 18px;" onclick="bbRelStop()">Stop after this batch</button>`:''}</div></div>`;
   const overview=`<h2 style="margin:0 0 4px;">Bed status board · ${esc(BLOCK_LABELS[bb.sel])}</h2>
     <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Pick a block on the left, click a bed to open its profile on the right. Not verified and Blocked beds can be verified ready from the bed profile.</div>
     <div style="margin:10px 0 6px;">${grid||`<div class="empty">${bb.busy?'Loading\u2026':'No beds loaded.'}</div>`}</div>
@@ -5619,7 +5619,7 @@ function bbScreen(){
     ${secHtml}</div></div></div>
     <div class="panel ${bb.bedSel?'':'closed'}">${bb.bedSel?bbPanelHTML():''}</div>`;
 }
-function bbSyncRelease(){ const b=document.getElementById('bb-release'); if(b) b.disabled=!!(bb.relBusy||!bb.dry||!bb.dry.eligible||bb.reason.trim().length<5||!bb.confirm); }
+function bbSyncRelease(){ const b=document.getElementById('bb-release'); if(b) b.disabled=!!(bb.relBusy||!bb.dry||!bb.dry.eligible||!bb.reason.trim()||!bb.confirm); }
 
 /* ---- Tab: Bed Planting Plan > Smart allocation (generate-season, OfoSeasonGenerator.gs) ---- */
 const sa={busy:false,err:'',res:null,replace:false};
@@ -6023,7 +6023,7 @@ function phBulkOverrideModal(){
   <div class="note" style="margin-top:0;">Ticked steps count as done without being performed (for example no cover crop this year) on every bed listed below that still has them. Work already started or assigned on those steps is closed. Each override is logged against each bed with your name and your explanation. An override never releases a bed: it is released only when you verify it.</div>
   <div class="note" style="margin:0 0 6px;"><b>Beds:</b> ${phbBeds(d.ids).map(b=>esc(b.id)).join(', ')}</div>
   <div class="field"><label>Steps to override</label><button class="dc-mini" ${dis} onclick="phbPickCover()">Tick all cover crop steps</button>${body||'<div class="note">No remaining steps.</div>'}</div>
-  <div class="field"><label>Explanation (required, at least 5 characters)</label><textarea ${dis} style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;" placeholder="e.g. No cover crop this winter: bed is being re-planted in March" oninput="ui.modalDraft.reason=this.value">${esc(d.reason||'')}</textarea></div>
+  <div class="field"><label>Explanation (required)</label><textarea ${dis} style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;" placeholder="e.g. No cover crop this winter: bed is being re-planted in March" oninput="ui.modalDraft.reason=this.value">${esc(d.reason||'')}</textarea></div>
   <button class="btn btn-primary" ${dis} onclick="doBulkOverride()">${phb.busy?esc(phb.progress||'Working…'):'Override selected steps on '+n+' bed'+(n===1?'':'s')}</button>
   <button class="btn btn-ghost" ${dis} onclick="closeModal()">Cancel</button>`;
 }
@@ -6031,7 +6031,7 @@ async function doBulkOverride(){
   if(phb.busy) return;
   const d=ui.modalDraft, reason=String(d.reason||'').trim(), beds=phbBeds(d.ids);
   if(!d.selected.length){ toast('Select at least one step to override.'); return; }
-  if(reason.length<5){ toast('An explanation is required for an override.'); return; }
+  if(!reason){ toast('An explanation is required for an override.'); return; }
   if(!confirm('Override '+d.selected.length+' step'+(d.selected.length===1?'':'s')+' on up to '+beds.length+' bed'+(beds.length===1?'':'s')+'? Each override is logged with your name and the reason, and cannot be undone here.')) return;
   phb.busy=true; let ok=0, skipped=0; const fail=[];
   for(let i=0;i<beds.length;i++){
@@ -7026,7 +7026,7 @@ async function mockBackend(action, p){
       return ok({ bedId:bed.id, cohortId:bed.cohortId||'', asOf:new Date().toISOString().slice(0,10), items:demoPastDue[bed.id] });
     }
     case 'override-past-due': {
-      if(String(p.reason||'').trim().length<5) return bad('An explanation is required.','VALIDATION');
+      if(!String(p.reason||'').trim()) return bad('An explanation is required.','VALIDATION');
       const list=demoPastDue[p.bedId]||[], cleared=[], failed=[];
       (p.items||[]).forEach(r=>{ const at=list.findIndex(i=>i.kind===r.kind&&i.key===r.key); if(at<0) failed.push({ kind:r.kind, key:r.key, error:'No longer past due.' }); else { list.splice(at,1); cleared.push({ kind:r.kind, key:r.key }); } });
       return ok({ cleared, failed, remaining:list.length });
@@ -7135,7 +7135,7 @@ async function mockBackend(action, p){
       return ok({done:true});
     }
     case 'override-post-harvest':
-      if(String(p.reason||'').trim().length<5) return bad('An explanation is required.','OVERRIDE_REASON_REQUIRED');
+      if(!String(p.reason||'').trim()) return bad('An explanation is required.','OVERRIDE_REASON_REQUIRED');
       if(!(p.activities||[]).length) return bad('Select at least one step.','NO_STEPS_SELECTED');
       return ok({ done:true });
     case 'terminate-cohort': {
