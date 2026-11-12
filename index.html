@@ -1455,7 +1455,7 @@ function activityTab(b){
   const timeOf=r=>{ const d=dt(r); return d?d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}):(r.endTime||''); };
   const groups={}, order=[];
   rows.forEach(r=>{ const k=dayOf(r); if(!groups[k]){ groups[k]=[]; order.push(k); } groups[k].push(r); });
-  return `<div class="act-hint">Tap an activity to open its full profile.</div>`+order.map(k=>`<div class="bh-dom">${esc(k)}</div><div class="card act-log">${groups[k].map(r=>r._override?`<div class="row act-row" title="${esc(r.reason)}"><span>${esc(r.taskType)} <span class="chip chip-warn">Overridden</span> · ${esc(r.managerName)}</span><span class="act-time">${esc(timeOf(r))}</span></div>`:`<div class="row act-row" role="button" tabindex="0" title="Open activity profile" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')" onkeydown="if(event.key==='Enter')this.click()"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span class="act-time">${esc(timeOf(r))}<span class="act-go" aria-hidden="true">›</span></span></div>`).join('')}</div>`).join('');
+  return `<div class="act-hint">Tap an activity to open its full profile.</div>`+order.map(k=>`<div class="bh-dom">${esc(k)}</div><div class="card act-log">${groups[k].map(r=>r._override?`<div class="row act-row" title="${esc(r.reason)}"><span>${esc(r.taskType)} <span class="chip chip-warn">Overridden</span> · ${esc(r.managerName)}</span><span class="act-time">${esc(timeOf(r))}</span>${phNeedsJustify(r)?`<button class="dc-mini" onclick="justifyOverride('${esc(r.overrideId)}')">Justify</button>`:''}</div>`:`<div class="row act-row" role="button" tabindex="0" title="Open activity profile" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')" onkeydown="if(event.key==='Enter')this.click()"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span class="act-time">${esc(timeOf(r))}<span class="act-go" aria-hidden="true">›</span></span></div>`).join('')}</div>`).join('');
 }
 function exceptionsTab(b,exc){
   return exc.length? exc.map(x=>`<div class="card">
@@ -2308,6 +2308,22 @@ function togglePhCategory(cat,on){
   const p=PH_STEPS[ui.modalDraft.cohortId]||{steps:[]};
   p.steps.filter(s=>s.status!=='COMPLETE'&&(s.domain||'Other')===cat).forEach(s=>togglePhOverride(s.name,on)); render();
 }
+function phReasonFields(names,d){ d.reasons=d.reasons||{}; return names.map(n=>`<div class="field"><label>${esc(n)}</label><input type="text" data-step="${esc(n)}" value="${esc(d.reasons[n]||'')}" placeholder="Why this step is skipped (at least 15 characters)" style="width:100%;padding:8px;border:1.5px solid var(--line);border-radius:8px;" oninput="ui.modalDraft.reasons=ui.modalDraft.reasons||{};ui.modalDraft.reasons[this.dataset.step]=this.value"></div>`).join(''); }
+function phReasonsCheck(names,d){
+  const m={}; names.forEach(n=>{ m[n]=String(((d&&d.reasons)||{})[n]||'').trim(); });
+  for(const n of names){ if(m[n].length<15){ toast('Give '+n+' a reason of at least 15 characters.'); return null; } }
+  const seen={}; for(const n of names){ const k=m[n].toLowerCase(); if(seen[k]){ toast('Give each step its own reason. '+n+' repeats another step\u2019s text.'); return null; } seen[k]=1; }
+  return m;
+}
+function phNeedsJustify(r){ const t=String(r.reason||'').trim(); return t.length<15 || /^manager (override|used)/i.test(t); }
+async function justifyOverride(id){
+  const t=prompt('Justification for this override (at least 15 characters). The current reason is kept in the audit trail.');
+  if(t===null) return;
+  const reason=String(t).trim();
+  if(reason.length<15){ toast('Give a justification of at least 15 characters.'); return; }
+  try{ await apiCall('justify-override',{ justifications:[{ overrideId:id, reason }] }); toast('Justification recorded.'); await loadToday(); }
+  catch(e){ toast(e.message); }
+}
 function overrideModal(){
   const d=ui.modalDraft, p=PH_STEPS[d.cohortId]||{steps:[]}, g={};
   p.steps.filter(s=>s.status!=='COMPLETE').forEach(s=>{ const k=s.domain||'Other'; (g[k]=g[k]||[]).push(s); });
@@ -2316,15 +2332,15 @@ function overrideModal(){
   return `<h2 style="font-size:15px;">Manager override</h2>
   <div class="note" style="margin-top:0;">Selected steps count as done without being performed (e.g. no cover crop this year). Work already started or assigned on them is closed. Each override is logged with your name and explanation. An override never releases the bed: it is released only when you verify it.</div>
   <div class="field"><label>Steps to override</label>${body||'<div class="note">No remaining steps.</div>'}</div>
-  <div class="field"><label>Explanation (required)</label><textarea style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;" oninput="ui.modalDraft.reason=this.value">${esc(d.reason||'')}</textarea></div>
+  <div class="field"><label>Reason for each step (required, at least 15 characters)</label>${phReasonFields(d.selected,d)}</div>
   <button class="btn btn-primary" onclick="doOverridePostHarvest()">Override selected steps</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 async function doOverridePostHarvest(){
-  const d=ui.modalDraft, reason=String(d.reason||'').trim();
+  const d=ui.modalDraft;
   if(!d.selected.length){ toast('Select at least one step to override.'); return; }
-  if(!reason){ toast('An explanation is required for an override.'); return; }
-  try{ await apiCall('override-post-harvest',{ cohortId:d.cohortId, activities:d.selected, reason }); toast('Override recorded.'); closeModal(); await loadToday(); }
+  const m=phReasonsCheck(d.selected,d); if(!m) return;
+  try{ await apiCall('override-post-harvest',{ cohortId:d.cohortId, activities:d.selected, reasons:m }); toast('Override recorded.'); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); }
 }
 /* Why a bed cannot be released yet, in plain words (remaining required steps, the next one and what it is waiting on). */
@@ -2340,15 +2356,16 @@ function verifyResolveModal(){
   return `<h2 style="font-size:15px;">Verify bed ready</h2>
   <div class="note" style="margin-top:0;">Bed ${esc(d.bedId)} still has ${left.length} required step${left.length===1?'':'s'} not marked complete. Verifying counts them as done without being performed. Work already started or assigned on them is closed. Each is logged with your name and explanation, and the bed is released to Available.</div>
   <div class="field"><label>Steps that will be overridden</label>${left.map(s=>`<div style="margin-left:6px;">\u2022 ${esc(s.name)}</div>`).join('')||'<div class="note">None.</div>'}</div>
-  <div class="field"><label>Explanation (required)</label><textarea style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;" oninput="ui.modalDraft.reason=this.value">${esc(d.reason||'')}</textarea></div>
+  <div class="field"><label>Reason for each step (required, at least 15 characters)</label>${phReasonFields(left.map(s=>s.name),d)}</div>
   <button class="btn btn-primary" onclick="doVerifyResolve()">Verify bed ready &amp; release</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 async function doVerifyResolve(){
-  const d=ui.modalDraft, reason=String(d.reason||'').trim(), scope=d.scope, bedId=d.bedId;
-  if(!reason){ toast('An explanation is required.'); return; }
+  const d=ui.modalDraft, scope=d.scope, bedId=d.bedId;
+  const left=((PH_STEPS[scope]||{steps:[]}).steps||[]).filter(s=>s.status!=='COMPLETE').map(s=>s.name);
+  const m=phReasonsCheck(left,d); if(!m) return;
   closeModal();
-  const ok=await doVerifyTurnover(scope,bedId,{reason});
+  const ok=await doVerifyTurnover(scope,bedId,{reasons:m});
   if(ok&&typeof bbForget==='function'){ try{ bbForget(); if(typeof bbLoad==='function') await bbLoad(true); }catch(e){} }
 }
 let _verBusy=false;
@@ -2357,10 +2374,10 @@ async function doVerifyTurnover(scope,bedId,opts){
   if(_verBusy) return false;
   const bd=(state.beds||[]).find(x=>String(x.id)===String(bedId)), ph=bd&&bd.postHarvest;
   /* Steps still outstanding: the manager can verify anyway by explaining them (overridden and logged, then released in one action). */
-  if(ph&&!ph.readyToVerify&&!opts.reason){ PH_STEPS[scope]=ph; openModal('verifyResolve',{scope,bedId,reason:''}); return false; }
+  if(ph&&!ph.readyToVerify&&!opts.reasons){ PH_STEPS[scope]=ph; openModal('verifyResolve',{scope,bedId,reason:''}); return false; }
   _verBusy=true; busyShow('Verifying '+bedId+' and releasing it to Available\u2026');
   try{ /* The server refuses the release (BED_RELEASE_REFUSED) while any completed step is unverified; a release never signs work off for you. */
-    const extra=opts.reason?{ resolveOutstanding:true, reason:opts.reason }:{};
+    const extra=opts.reasons?{ resolveOutstanding:true, reasons:opts.reasons }:{};
     if(String(scope).indexOf('BED:')===0) await apiCall('verify-bed-ready',Object.assign({ bedId, requireVerified:true },extra)); else await apiCall('complete-cohort',Object.assign({ cohortId:scope, requireVerified:true },extra));
     busyHide(); _verBusy=false; toast('Bed '+bedId+' verified and released to Available.',5000); closePanel(); await loadToday(); if(typeof loadPlanningContext==='function' && ui.pBlock) await loadPlanningContext(true); return true; }
   catch(e){ busyHide(); _verBusy=false; toast('Could not release '+bedId+': '+((e&&e.message)||'the server did not accept it.'),9000); return false; }
@@ -6035,22 +6052,22 @@ function phBulkOverrideModal(){
   <div class="note" style="margin-top:0;">Ticked steps count as done without being performed (for example no cover crop this year) on every bed listed below that still has them. Work already started or assigned on those steps is closed. Each override is logged against each bed with your name and your explanation. An override never releases a bed: it is released only when you verify it.</div>
   <div class="note" style="margin:0 0 6px;"><b>Beds:</b> ${phbBeds(d.ids).map(b=>esc(b.id)).join(', ')}</div>
   <div class="field"><label>Steps to override</label><button class="dc-mini" ${dis} onclick="phbPickCover()">Tick all cover crop steps</button>${body||'<div class="note">No remaining steps.</div>'}</div>
-  <div class="field"><label>Explanation (required)</label><textarea ${dis} style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;" placeholder="e.g. No cover crop this winter: bed is being re-planted in March" oninput="ui.modalDraft.reason=this.value">${esc(d.reason||'')}</textarea></div>
+  <div class="field"><label>Reason for each step (required, at least 15 characters)</label>${phReasonFields(d.selected,d)}</div>
   <button class="btn btn-primary" ${dis} onclick="doBulkOverride()">${phb.busy?esc(phb.progress||'Working…'):'Override selected steps on '+n+' bed'+(n===1?'':'s')}</button>
   <button class="btn btn-ghost" ${dis} onclick="closeModal()">Cancel</button>`;
 }
 async function doBulkOverride(){
   if(phb.busy) return;
-  const d=ui.modalDraft, reason=String(d.reason||'').trim(), beds=phbBeds(d.ids);
+  const d=ui.modalDraft, beds=phbBeds(d.ids);
   if(!d.selected.length){ toast('Select at least one step to override.'); return; }
-  if(!reason){ toast('An explanation is required for an override.'); return; }
+  const m=phReasonsCheck(d.selected,d); if(!m) return;
   if(!confirm('Override '+d.selected.length+' step'+(d.selected.length===1?'':'s')+' on up to '+beds.length+' bed'+(beds.length===1?'':'s')+'? Each override is logged with your name and the reason, and cannot be undone here.')) return;
   phb.busy=true; let ok=0, skipped=0; const fail=[];
   for(let i=0;i<beds.length;i++){
     const b=beds[i], acts=phbRemaining(b).map(s=>s.name).filter(nm=>d.selected.includes(nm));
     if(!acts.length){ skipped++; continue; }
     phb.progress='Overriding bed '+(i+1)+' of '+beds.length+' ('+b.id+')…'; render();
-    try{ await apiCall('override-post-harvest',{ cohortId:phbScope(b), activities:acts, reason }, 120000); ok++; }
+    try{ await apiCall('override-post-harvest',{ cohortId:phbScope(b), activities:acts, reasons:Object.fromEntries(acts.map(nm=>[nm,m[nm]])) }, 120000); ok++; }
     catch(e){ fail.push(b.id+': '+(e&&e.message||e)); }
   }
   phb.busy=false; phb.progress='';
