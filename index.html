@@ -702,6 +702,15 @@ function proposalIndex(){
   proposalIndex._src=src; proposalIndex._map=m; return m;
 }
 /* UNVERIFIED = BED_MASTER.Bed_Status never initialised. It says nothing about the bed's history; it means no manager has attested the bed is physically ready. */
+/* DUAL STICKERS. Plan (slate outline) = the bed's original seasonal plan, from BED_PLANTING_PLAN. Active (amber when a shortfall, emerald otherwise)
+ * = the cohort on the ground and its verified DOB. The Active sticker drives every runtime calculation; the Plan sticker is for review only. */
+function bedStickers(b, cohort){
+  const p=b&&b.plan; let h='';
+  if(p) h+=`<span style="border:1.5px solid #64748B;color:#475569;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;">Plan: ${esc(p.cohortId||p.cropId)} | Window: ${esc(p.window||'none on file')}</span>`;
+  if(cohort){ const sf=!!(b&&b.shortfall), col=sf?'#D97706':'#059669';
+    h+=`<span style="background:${col};color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;">${sf?'Shortfall · ':''}Active: ${esc(cohort)} | Act. DOB: ${esc((b&&b.plantingDate)||'not verified')}</span>`; }
+  return h;
+}
 function bedState(v){ return v.cohortId ? 'OCCUPIED' : (v.postHarvest&&v.postHarvest.bedLevel ? 'POST_HARVEST' : (String(v.bedStatus||'').toUpperCase()==='UNVERIFIED' ? 'UNVERIFIED' : (v.proposals&&v.proposals.length ? 'PROPOSED' : 'AVAILABLE'))); }
 function bedView(b){
   const v = Object.assign({}, state.todayById[b.id]||{}, { id:b.id, blockId:b.blockId, locationType:b.locationType||(state.todayById[b.id]||{}).locationType||'' });
@@ -4894,7 +4903,7 @@ function bbMapSVG(){
         ${nOpen?`<text x="${bx+cw/2}" y="${by+52}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">${phDone?pht.done+'/'+pht.total+' done':pht.open+' open'}</text>${phTileBar(pht,bx,by,cw,ch)}`:''}`;
       svg+=`<g class="badge" tabindex="0" role="button" opacity="${match?1:0.28}" style="cursor:pointer;" onclick="bbBedClick('${esc(id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();bbBedClick('${esc(id)}');}">
         <title>${esc(tip)}</title>
-        <rect class="bed ${bb.bedSel===id?'selected':''}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${v.fill}"${phDone&&!cohortId?' stroke="#1F3A2E" stroke-width="2"':''}></rect>
+        <rect class="bed ${bb.bedSel===id?'selected':''}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${v.fill}"${v.plan&&v.plan.displaced?' stroke="#64748B" stroke-width="2" stroke-dasharray="4 3"':(phDone&&!cohortId?' stroke="#1F3A2E" stroke-width="2"':'')}></rect>
         <text x="${bx+6}" y="${by+11}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${esc(no)}</text>
         ${txt}
         ${nSess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E"></circle>`:''}
@@ -5168,7 +5177,7 @@ function bbPanelHTML(){
     const lastRows=kv('Last action',pick('Last_Action'))+(P.Last_Action_Date?kv('Last action date',when(P.Last_Action_Date)):'');
     const synced=state.lastSync?'Updated '+state.lastSync.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
     const sync=`<div class="syncrow"><span>${esc(synced)}</span><button ${ui.loading||bb.busy?'disabled':''} onclick="bbRefreshAll()">${ui.loading||bb.busy?'Loading\u2026':'Refresh'}</button></div>`;
-    const hd=`<div class="dp-hd"><div><b>Bed ${esc(id)}</b><div class="loc">${esc(blockLabel)}${locType?' \u00b7 '+esc(locType)+' bed':''}</div></div><span class="chip" style="background:${sty.fill};color:${sty.tc};">${esc(short)}</span></div>`;
+    const hd=`<div class="dp-hd"><div><b>Bed ${esc(id)}</b><div class="loc">${esc(blockLabel)}${locType?' \u00b7 '+esc(locType)+' bed':''}</div></div><span class="chip" style="background:${sty.fill};color:${sty.tc};">${esc(short)}</span></div><div class="dp-stickers" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">${bedStickers(b,cohort)}</div>`;
     let cohortCard;
     if(cohort){
       const cs=(b&&b.cohortStatus)||'';
