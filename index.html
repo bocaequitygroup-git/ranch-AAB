@@ -711,6 +711,19 @@ function bedStickers(b, cohort){
     h+=`<span style="background:${col};color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;">${sf?'Shortfall · ':''}Active: ${esc(cohort)} | Act. DOB: ${esc((b&&b.plantingDate)||'not verified')}</span>`; }
   return h;
 }
+/* Compact two-row sticker strip drawn UNDER a bed tile (tile geometry is untouched). Row 1 = Active (filled amber for a shortfall, emerald otherwise):
+ * the cohort on the ground and its verified Act. DOB. Row 2 = Plan (slate outline): the original seasonal plan. Hover shows the full text. */
+const TILE_STICKER_H=26;
+function tileStickers(v,bx,by,cw,ch){
+  if(!v) return '';
+  const y0=by+ch+2; let h='';
+  if(v.cohortId){ const sf=!!v.shortfall, col=sf?'#D97706':'#059669', dob=v.plantingDate||'';
+    h+=`<g><title>${esc((sf?'Shortfall · ':'')+'Active: '+v.cohortId+' | Act. DOB: '+(dob||'not verified'))}</title><rect x="${bx}" y="${y0}" width="${cw}" height="11" rx="5.5" fill="${col}"></rect><text x="${bx+cw/2}" y="${y0+8}" text-anchor="middle" font-size="7" font-weight="700" fill="#fff" pointer-events="none">${esc(dob?'Act. DOB '+dob:'DOB not verified')}</text></g>`; }
+  const p=v.plan;
+  if(p){ const id=p.cohortId||p.cropId||'';
+    h+=`<g><title>${esc('Plan: '+id+' | Window: '+(p.window||'none on file'))}</title><rect x="${bx+.75}" y="${y0+13}" width="${cw-1.5}" height="10" rx="5" fill="none" stroke="#64748B" stroke-width="1.5"></rect><text x="${bx+cw/2}" y="${y0+20.5}" text-anchor="middle" font-size="7" font-weight="600" fill="#475569" pointer-events="none">${esc('Plan: '+id)}</text></g>`; }
+  return h;
+}
 function bedState(v){ return v.cohortId ? 'OCCUPIED' : (v.postHarvest&&v.postHarvest.bedLevel ? 'POST_HARVEST' : (String(v.bedStatus||'').toUpperCase()==='UNVERIFIED' ? 'UNVERIFIED' : (v.proposals&&v.proposals.length ? 'PROPOSED' : 'AVAILABLE'))); }
 function bedView(b){
   const v = Object.assign({}, state.todayById[b.id]||{}, { id:b.id, blockId:b.blockId, locationType:b.locationType||(state.todayById[b.id]||{}).locationType||'' });
@@ -1327,7 +1340,7 @@ function noticeStrip(){
 }
 
 function mapSVG(){
-  const cols=BEDS_PER_ROW, cw=84, ch=58, gap=6, blockGap=26;
+  const cols=BEDS_PER_ROW, cw=84, ch=58, gap=6, blockGap=26, sh=TILE_STICKER_H;
   const grid=gridBeds();
   const blocks=[...new Set(grid.map(b=>b.blockId))];
   let svg='', curY=16;
@@ -1336,12 +1349,12 @@ function mapSVG(){
     svg += `<text class="blocklabel" x="10" y="${curY-5}">${esc(blk)}</text>`;
     beds.forEach((b,idx)=>{
       const v=bedView(b), match=bedMatches(v), st=bedState(v), has=st==='OCCUPIED', prop=st==='PROPOSED', ph=st==='POST_HARVEST', pr=prop?v.proposals[0]:null;
-      const col=idx%cols, row=Math.floor(idx/cols), bx=10+col*(cw+gap), by=curY+row*(ch+gap);
+      const col=idx%cols, row=Math.floor(idx/cols), bx=10+col*(cw+gap), by=curY+row*(ch+sh+gap);
       const exc=bedExceptions(v.id).some(x=>x.status!=='RESOLVED'), hr=state.harvestReady.some(h=>h.bedId===v.id), sess=bedSessions(v.id).length;
       const qf=bedFill(v), fill=has?qf:(ph?(phTile(v).started?POST_HARVEST_ACTIVE_FILL:POST_HARVEST_FILL):st==='UNVERIFIED'?UNVERIFIED_FILL:ui.overlay==='queue'?(qf!=='transparent'?qf:(prop?PROPOSED_FILL:qf)):(prop?PROPOSED_FILL:'#EEE')), tc=DARK_FILLS.includes(fill)?'#fff':'#1B1B18';
       const bedNo=esc(String(v.id).split('-')[1]||v.id);
       svg += `<g class="badge" opacity="${match?1:0.28}">
-        <rect class="bed ${prop?'proposed':''} ${ui.selectedBed===v.id?'selected':''}" data-bed="${esc(v.id)}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${fill}"></rect>
+        <rect class="bed ${prop?'proposed':''} ${ui.selectedBed===v.id?'selected':''}" data-bed="${esc(v.id)}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${fill}"${has&&v.plan&&v.plan.displaced?' stroke="#64748B" stroke-width="2" stroke-dasharray="4 3"':''}></rect>
         <text x="${bx+6}" y="${by+11}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${bedNo}</text>
         ${has&&match?`<text x="${bx+cw/2}" y="${by+29}" text-anchor="middle" font-size="11" font-weight="800" fill="${tc}">${esc(v.cohortId)}</text>
         <text x="${bx+cw/2}" y="${by+41}" text-anchor="middle" font-size="9" font-weight="600" fill="${tc}">${esc(String(v.cropName||'').slice(0,13))}</text>
@@ -1355,9 +1368,10 @@ function mapSVG(){
         ${exc?`<circle cx="${bx+cw-19}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
         ${hr?`<circle cx="${bx+cw-7}" cy="${by+ch-7}" r="4" fill="var(--ok)"></circle>`:''}
         ${has&&match?pwTileMark(v.plantingWindow,bx,by,ch):''}
+        ${tileStickers(v,bx,by,cw,ch)}
       </g>`;
     });
-    curY += rows*(ch+gap) + blockGap;
+    curY += rows*(ch+sh+gap) + blockGap;
   });
   const W=10+cols*(cw+gap);
   return `<svg viewBox="0 0 ${W} ${curY}" width="${W}" height="${curY}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;">${svg}</svg>`;
@@ -4695,10 +4709,11 @@ function irrCardHTML(it,i){
   const st=irrWorst(it), c=IRR_ST[st], sel=irrSel(it), canAssign=irrItemOpen(it)&&it.beds.some(irrAssignable), workers=irr.workers||[];
   const fmt=n=>n==null?'—':Number(n).toLocaleString('en-US');
   const beds=it.beds.map(b=>{ const a=irrItemOpen(it)&&irrAssignable(b), x=IRR_ST[b.status];
-    return `<label class="irr-bed">${a?`<input type="checkbox" ${sel.beds.includes(b.bedId)?'checked':''} onchange="irrToggle(${i},'beds','${esc(b.bedId)}')">`:''}<b>${esc(b.bedId)}</b>${b.zoneId?`<span class="irr-z">${esc(b.zoneId.replace('IRR-',''))}${b.shiftWindow?' · shift '+esc(b.shiftWindow):''}</span>`:''}${(b.gallons!=null||b.minutes!=null)?`<span class="irr-z">${b.gallons!=null?fmt(b.gallons)+' gal':''}${b.gallons!=null&&b.minutes!=null?' · ':''}${b.minutes!=null?b.minutes+' min':''}</span>`:''}<span class="irr-st" style="--c:${x[1]}">${x[0]}${b.workerName?' · '+esc(b.workerName):''}</span></label>`; }).join('');
+    return `<label class="irr-bed">${a?`<input type="checkbox" ${sel.beds.includes(b.bedId)?'checked':''} onchange="irrToggle(${i},'beds','${esc(b.bedId)}')">`:''}<b>${esc(b.bedId)}</b>${b.plan&&b.plan.displaced?bedStickers({plan:b.plan},''):''}${b.zoneId?`<span class="irr-z">${esc(b.zoneId.replace('IRR-',''))}${b.shiftWindow?' · shift '+esc(b.shiftWindow):''}</span>`:''}${(b.gallons!=null||b.minutes!=null)?`<span class="irr-z">${b.gallons!=null?fmt(b.gallons)+' gal':''}${b.gallons!=null&&b.minutes!=null?' · ':''}${b.minutes!=null?b.minutes+' min':''}</span>`:''}<span class="irr-st" style="--c:${x[1]}">${x[0]}${b.workerName?' · '+esc(b.workerName):''}</span></label>`; }).join('');
   const ws=canAssign?`<div class="irr-w">${workers.length?workers.map(w=>`<label class="irr-chip"><input type="checkbox" ${sel.workers.includes(w.id)?'checked':''} onchange="irrToggle(${i},'workers','${esc(w.id)}')">${esc(w.name||w.id)}</label>`).join(''):'<span class="note">Loading workers…</span>'}</div>
      <button class="btn" style="width:auto;margin:8px 0 0" ${irr.sending?'disabled':''} onclick="irrAssign(${i})">${irr.sending?'Assigning…':'Assign irrigation'}</button>`:'';
   return `<div class="cal-item" style="--c:${c[1]}"><div class="kind">${c[0]} · irrigation ${it.seq} of ${it.of}</div><div class="nm">${esc(it.cropName)} <span style="font-weight:600;color:var(--ink-soft)">${esc(it.cohortId)}</span></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0" title="Water depth, Kc, MAD and stage days follow the Active cohort and its verified DOB. The Plan sticker is for review only.">${bedStickers({shortfall:it.shortfall,plantingDate:it.plantingDate},it.cohortId)}</div>
     <div class="sb">Day ${it.dayAfterPlanting} after verified planting (${calFull(it.plantingDate)})${it.depthInches!=null?` · ${it.depthInches} in`:''}${it.reducedDepth?' · <b>reduced depth (pre-harvest dry-down)</b>':''}</div>
     ${irrWaterHTML(it)}${it.assignable===false?`<div class="irr-al">${esc(it.blockedReason||'Irrigation is closed for this cohort.')} It can no longer be assigned.</div>`:''}
     <div class="irr-beds">${beds}</div>${ws}</div>`;
@@ -4869,10 +4884,11 @@ function bbFilterBar(){
 }
 /* All blocks on one map, laid out exactly like the Daily board (mapSVG): block label, 8 tiles per row, bed number top left,
  * cohort / crop / status on the tile, dots for running tasks and open exceptions, dimmed when the filter or search does not match.
- * Only live data is drawn: fill = Bed_Status, crop + cohort appear only on a bed a cohort actually holds (never the planting plan). */
+ * Only live data is drawn: fill = Bed_Status, crop + cohort appear only on a bed a cohort actually holds (never the planting plan).
+ * The original plan appears ONLY as the slate Plan sticker under the tile (review only); the Active sticker is the ground truth. */
 const BB_SHORT={'UNVERIFIED':'Not verified','POST-HARVEST ACTIVITIES':'Post-harvest','AVAILABLE':'Available','RESERVED':'Reserved','PLANTED':'Planted','GROWING':'Growing','HARVEST READY':'Harvest ready','HARVESTING':'Harvesting','BLOCKED':'Blocked'};
 function bbMapSVG(){
-  const cols=BEDS_PER_ROW, cw=84, ch=58, gap=6, blockGap=26, pvc=pvCounts();
+  const cols=BEDS_PER_ROW, cw=84, ch=58, gap=6, blockGap=26, sh=TILE_STICKER_H, pvc=pvCounts();
   let svg='', curY=16, any=false;
   PLAN_BLOCKS.filter(b=>b===bb.sel).forEach(blk=>{   /* one block at a time, chosen from the block tabs (same idea as Bed layout) */
     const d=bb.data[blk], isSel=true;
@@ -4890,7 +4906,7 @@ function bbMapSVG(){
       const match=bbMatches(x,cv);
       const cohortId=String(x.currentCohortId||(cv&&cv.cohortId)||'').trim();
       const crop=String((cv&&cv.cohortId&&cv.cropName)||'');
-      const col=idx%cols, row=Math.floor(idx/cols), bx=10+col*(cw+gap), by=curY+row*(ch+gap);
+      const col=idx%cols, row=Math.floor(idx/cols), bx=10+col*(cw+gap), by=curY+row*(ch+sh+gap);
       const nSess=bedSessions(id).length, exc=bedExceptions(id).some(e=>e.status!=='RESOLVED');
       const pht=phTile(cv), nOpen=pht.total, phDone=pht.started;
       const l2=BB_SHORT[st]||v.label, no=id.split('-').pop();
@@ -4904,15 +4920,16 @@ function bbMapSVG(){
         ${nOpen?`<text x="${bx+cw/2}" y="${by+52}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">${phDone?pht.done+'/'+pht.total+' done':pht.open+' open'}</text>${phTileBar(pht,bx,by,cw,ch)}`:''}`;
       svg+=`<g class="badge" tabindex="0" role="button" opacity="${match?1:0.28}" style="cursor:pointer;" onclick="bbBedClick('${esc(id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();bbBedClick('${esc(id)}');}">
         <title>${esc(tip)}</title>
-        <rect class="bed ${bb.bedSel===id?'selected':''}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${v.fill}"${v.plan&&v.plan.displaced?' stroke="#64748B" stroke-width="2" stroke-dasharray="4 3"':(phDone&&!cohortId?' stroke="#1F3A2E" stroke-width="2"':'')}></rect>
+        <rect class="bed ${bb.bedSel===id?'selected':''}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${v.fill}"${cv&&cv.plan&&cv.plan.displaced&&cohortId?' stroke="#64748B" stroke-width="2" stroke-dasharray="4 3"':(phDone&&!cohortId?' stroke="#1F3A2E" stroke-width="2"':'')}></rect>
         <text x="${bx+6}" y="${by+11}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${esc(no)}</text>
         ${txt}
         ${nSess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E"></circle>`:''}
         ${exc?`<circle cx="${bx+cw-19}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
         ${pvc[id]?`<circle cx="${bx+cw-8}" cy="${by+ch-8}" r="6" fill="#E0A53D" stroke="#fff" stroke-width="1"></circle><text x="${bx+cw-8}" y="${by+ch-5.2}" text-anchor="middle" font-size="8" font-weight="800" fill="#1B1B18">${pvc[id]}</text>`:''}
+        ${cv?tileStickers(Object.assign({},cv,{cohortId:cohortId||cv.cohortId}),bx,by,cw,ch):''}
       </g>`;
     });
-    curY+=rows*(ch+gap)+blockGap;
+    curY+=rows*(ch+sh+gap)+blockGap;
   });
   if(!any&&!bb.busy) return `<div class="empty">No beds loaded.</div>`;
   const W=10+cols*(cw+gap);
