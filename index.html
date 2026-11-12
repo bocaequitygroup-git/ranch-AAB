@@ -395,6 +395,7 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .urg-row{display:grid;grid-template-columns:2.2fr 1.4fr .7fr .8fr 1.1fr auto;gap:6px;align-items:end;margin-bottom:8px;}
 .urg-row label{font-size:11px;color:var(--ink-soft);display:block;margin-bottom:2px;} .urg-row input,.urg-row select{width:100%;}
 .urg-badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#B4231A;color:#fff;letter-spacing:.2px;}
+.row span.urg-badge{color:#fff;}   /* .row span:first-child would otherwise force dark text on the red badge */
 .urg-pass{background:#E4F1E5;color:#1E6B2E;} .urg-fail{background:#FBE1DE;color:#9C1C13;}
 .urg-wave{border-top:1px solid var(--line);padding:7px 0;font-size:12.5px;} .urg-wave:first-child{border-top:0;}
 .urg-alarm-wrap{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;}
@@ -2231,6 +2232,7 @@ function startableActivities(bedId, hasCohortFallback){
   const list=cat.filter(a=>!(Number(a.postHarvestSequence)>0) && (!(a.allowedStages||[]).length || (a.allowedStages||[]).some(x=>stageKey(x)===stage))
     && (plantingVerified || String(a.domain||'').trim().toLowerCase()!=='cropcare')
     && (a.plantingRole!=='method' || a.name===plantActivity)   /* only the bed's own planting method */
+    && !(a.name===plantActivity && plantingPending(b))         /* already planted, awaiting manager verification: not assignable again */
     && govScopeOk(a,b));
   const noMethod=!list.length && stage==='preplanting' && !plantActivity;
   return {list, why: list.length?'':(noMethod?'This crop has no planting method. Set Planting_Method (DIRECT_SEED or TRANSPLANT) on CROP_REFERENCE.':`No activity is allowed at this cohort's stage (${stage||'not set'}).`)};
@@ -2802,6 +2804,15 @@ function vpActivityDate(bedId,cohortId){
 }
 /* Verify planting is only offered once a planting activity (DirectSeeding / Transplanting / Replanting) for this bed and cohort is COMPLETED. */
 function plantingDone(bedId,cohortId){ return !!vpActivityDate(bedId,cohortId); }
+/* A planting activity has been COMPLETED on this bed for this cohort but the cohort is not verified yet (still PRE_PLANTING).
+   Checks both the live sessions/today data and the bed's own activity log, so a planting logged in either place counts. */
+function plantingPending(b){
+  if(!b||!b.cohortId) return false;
+  if(b.plantingLogged!==undefined) return !!b.plantingLogged && !b.plantingVerified;   /* server flag (plantingStateForBed_) */
+  if(plantingDone(b.id,b.cohortId)) return true;
+  return (b.activityLog||[]).some(r=>['directseeding','transplanting','replanting'].includes(String(r.taskType||'').trim().toLowerCase())
+    && r.reviewStatus!=='VERIFIED' && (!r.cohortId||r.cohortId===b.cohortId));
+}
 function verifyPlantingModal(){
   const d=ui.modalDraft;
   if(!d.dob && !d.vpAutoDone){ d.vpAutoDone=true; const a=vpActivityDate(d.bedId,d.cohortId); if(a){ d.dob=a.date; d.vpAuto=a; } }
@@ -5522,7 +5533,7 @@ function pvActivities(){
     (ph.steps||[]).forEach(s=>{ if(s.work&&s.needsVerification) out.push({bed:b,step:s,key:b.id+'||'+s.name}); }); });
   return out.sort((a,b)=>bbBedCmp(a.bed.id,b.bed.id)||String(a.step.name).localeCompare(String(b.step.name)));
 }
-function pvPlantings(){ return (state.beds||[]).filter(b=>b.cohortId&&String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING').sort((a,b)=>bbBedCmp(a.id,b.id)); }
+function pvPlantings(){ return (state.beds||[]).filter(b=>b.cohortId&&String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING'&&plantingPending(b)).sort((a,b)=>bbBedCmp(a.id,b.id)); }
 function pvReadyBeds(){ return (state.beds||[]).filter(b=>b.postHarvest&&b.postHarvest.readyToVerify===true).sort((a,b)=>bbBedCmp(a.id,b.id)); }
 function pvCounts(){ const c={}; const add=(id,n)=>{ const k=pvBlockOf(id); c[k]=(c[k]||0)+n; c[id]=(c[id]||0)+n; };
   pvActivities().forEach(x=>add(x.bed.id,1)); pvPlantings().forEach(b=>add(b.id,1)); pvReadyBeds().forEach(b=>add(b.id,1)); return c; }
