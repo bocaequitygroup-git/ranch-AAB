@@ -1507,8 +1507,11 @@ function cohortActionButtons(b){
   }
   return btns.length? `<div style="margin:10px 0;">${btns.join('')}</div>` : '';
 }
+/* A session closed by a manager override is logged by completeActivity() with the note "Manager override by <id>: <reason>" (ManagerOverride.gs). */
+const isOvLog=r=>/^Manager override by /i.test(String(r&&r.notes||''));
+const ovLogBy=r=>{ const m=/^Manager override by ([^:]+):/i.exec(String(r.notes||'')); return m?m[1].trim():'manager'; };
 function activityTab(b){
-  const rows=[...(b.activityLog||[]).map(r=>({...r,_override:false})), ...(b.overrides||[]).map(o=>({...o,_override:true}))]
+  const rows=[...(b.activityLog||[]).map(r=>({...r,_override:false})), ...(b.overrides||[]).map(o=>({...o,_override:true}))]   /* b.overrides: skipped steps (server: POST_HARVEST_OVERRIDE_LOG) */
     .sort((x,y)=>(new Date(y.endTime)||0)-(new Date(x.endTime)||0));
   if(!rows.length) return `<div class="empty">No completed activity logged for this bed yet.</div>`;
   const dt=r=>{ const d=new Date(r.endTime); return isNaN(d)?null:d; };
@@ -1516,7 +1519,7 @@ function activityTab(b){
   const timeOf=r=>{ const d=dt(r); return d?d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}):(r.endTime||''); };
   const groups={}, order=[];
   rows.forEach(r=>{ const k=dayOf(r); if(!groups[k]){ groups[k]=[]; order.push(k); } groups[k].push(r); });
-  return `<div class="act-hint">Tap an activity to open its full profile.</div>`+order.map(k=>`<div class="bh-dom">${esc(k)}</div><div class="card act-log">${groups[k].map(r=>r._override?`<div class="row act-row" title="${esc(r.reason)}"><span>${esc(r.taskType)} <span class="chip chip-warn">Overridden</span> · ${esc(r.managerName)}</span><span class="act-time">${esc(timeOf(r))}</span>${phNeedsJustify(r)?`<button class="dc-mini" onclick="justifyOverride('${esc(r.overrideId)}')">Justify</button>`:''}</div>`:`<div class="row act-row" role="button" tabindex="0" title="Open activity profile" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')" onkeydown="if(event.key==='Enter')this.click()"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span class="act-time">${esc(timeOf(r))}<span class="act-go" aria-hidden="true">›</span></span></div>`).join('')}</div>`).join('');
+  return `<div class="act-hint">Tap an activity to open its full profile.</div>`+order.map(k=>`<div class="bh-dom">${esc(k)}</div><div class="card act-log">${groups[k].map(r=>r._override?`<div class="row act-row" title="${esc(r.reason)}"><span>${esc(r.taskType)} <span class="chip chip-warn">Overridden</span> · ${esc(r.managerName)}</span><span class="act-time">${esc(timeOf(r))}</span>${phNeedsJustify(r)?`<button class="dc-mini" onclick="justifyOverride('${esc(r.overrideId)}')">Justify</button>`:''}</div>`:`<div class="row act-row" role="button" tabindex="0" title="Open activity profile" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')" onkeydown="if(event.key==='Enter')this.click()"><span>${esc(r.taskType)}${isOvLog(r)?' <span class="chip chip-warn">Overridden</span>':''}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(isOvLog(r)?ovLogBy(r):(r.workerName||r.workerId))}</span><span class="act-time">${esc(timeOf(r))}<span class="act-go" aria-hidden="true">›</span></span></div>`).join('')}</div>`).join('');
 }
 function exceptionsTab(b,exc){
   return exc.length? exc.map(x=>`<div class="card">
@@ -2876,8 +2879,11 @@ function vpActivityDate(bedId,cohortId){
   const sess=(state.sessions||[]).filter(r=>r.bedId===bedId&&String(r.status||'').toUpperCase()==='COMPLETED'&&isP(r)&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
   const logs=(((state.todayById||{})[bedId]||{}).activityLog||[]).filter(r=>isP(r)&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
   const rows=sess.concat(logs).sort((a,b)=>(new Date(b.endTime||b.assignedTime)||0)-(new Date(a.endTime||a.assignedTime)||0));
+  const today=todayISO();
   for(const r of rows){   /* only a COMPLETED planting activity says when the crop went in */
-    const name=r.taskType||r.activityName||r.activity||'planting', dd=vpIsoDay(r.endTime);
+    const name=r.taskType||r.activityName||r.activity||'planting', sd=vpIsoDay(r.scheduledDate), dd=vpIsoDay(r.endTime);
+    /* The manager's scheduled day IS the actual planting day; the worker may tap Finish on another day. */
+    if(sd && sd<=today) return { date:sd, from:'the day the '+name+' activity was scheduled for (the actual planting day)' };
     if(dd) return { date:dd, from:'the day the '+name+' activity was completed' };
   }
   return null;
@@ -2895,7 +2901,12 @@ function plantingPending(b){
 }
 function verifyPlantingModal(){
   const d=ui.modalDraft;
-  if(!d.dob && !d.vpAutoDone){ d.vpAutoDone=true; const a=vpActivityDate(d.bedId,d.cohortId); if(a){ d.dob=a.date; d.vpAuto=a; } }
+  if(!d.dob && !d.vpAutoDone){
+    d.vpAutoDone=true;
+    const bd=(state.todayById||{})[d.bedId], rec=bd&&bd.plantingDate&&(!bd.cohortId||bd.cohortId===d.cohortId)?String(bd.plantingDate).slice(0,10):'';
+    const a=rec?{ date:rec, from:'the cohort’s recorded planting date (Actual DOB)' }:vpActivityDate(d.bedId,d.cohortId);   /* Actual DOB first, else the planting activity */
+    if(a){ d.dob=a.date; d.vpAuto=a; }
+  }
   const today=todayISO();   /* local date: toISOString() is UTC and offered tomorrow's date in the evening */
   const pw=d.pw, outside=!!pw&&pw.state==='OUTSIDE_AUTH_REQUIRED';
   return `<h2 style="font-size:15px;">Verify planting</h2>
@@ -5126,20 +5137,24 @@ function bhAssignRows(bedId,hasCohort,st,req,b){
   return {can,wait};
 }
 function bhHistory(b,d){
-  const log=(b&&b.activityLog)||[], fS=d.hf||'ALL', fD=d.hd||'ALL', lim=d.hl||25;
-  const stOf=r=>String(r.reviewStatus||'COMPLETED').toUpperCase(), scOf=r=>bhScope(r.taskType,{scope:r.scope,group:r.domain});
+  /* Manager overrides that closed no session (a skipped step) have no log row: they are listed here too (server: b.overrides). */
+  const ovs=((b&&b.overrides)||[]).map(o=>({ ...o, _ov:true, reviewStatus:'COMPLETED' }));
+  const log=((b&&b.activityLog)||[]).concat(ovs).sort((x,y)=>(new Date(y.endTime)||0)-(new Date(x.endTime)||0)), fS=d.hf||'ALL', fD=d.hd||'ALL', lim=d.hl||25;
+  const stOf=r=>r._ov?'OVERRIDDEN':String(r.reviewStatus||'COMPLETED').toUpperCase(), scOf=r=>bhScope(r.taskType,{scope:r.scope,group:r.domain});
   const cnt={ALL:log.length,COMPLETED:0,CHECKED:0,VERIFIED:0}; log.forEach(r=>{ cnt[stOf(r)]=(cnt[stOf(r)]||0)+1; });
   const rows=log.filter(r=>(fS==='ALL'||stOf(r)===fS)&&(fD==='ALL'||scOf(r)===fD));
-  const seg=[['ALL','All'],['COMPLETED','Completed'],['CHECKED','Checked'],['VERIFIED','Verified']];
+  const seg=[['ALL','All'],['COMPLETED','Completed'],['CHECKED','Checked'],['VERIFIED','Verified']].concat(cnt.OVERRIDDEN?[['OVERRIDDEN','Overridden']]:[]);
   const tools=`<div class="bh-tools"><div class="seg">${seg.map(([k,l])=>`<button class="${fS===k?'active':''}" onclick="bhSet('hf','${k}')">${l} (${cnt[k]||0})</button>`).join('')}</div>
     <select aria-label="Filter history by domain" onchange="bhSet('hd',this.value)"><option value="ALL">Both domains</option><option value="BED" ${fD==='BED'?'selected':''}>Bed domain</option><option value="CROP" ${fD==='CROP'?'selected':''}>Crop domain</option></select></div>
     <div class="qsub" style="margin:0 0 8px;text-transform:none;letter-spacing:0;">Completed = finished, not yet checked or verified. Checked = a manager reviewed it. Verified = a manager signed it off.</div>`;
   const row=r=>{
     const k=stOf(r), c=bhCat(r.taskType);
+    if(r._ov) return bhRow({ id:r.activityId||c.id||'', name:r.taskType||'', desc:shortDesc(c.description||'',110), worker:'', done:bhDate(r.endTime),
+      chips:'<span class="chip chip-warn">Overridden by manager</span>', note:`Overridden by ${esc(r.managerName||r.managerId||'a manager')}${r.reason?': '+esc(r.reason):''}` });
     const chip=k==='VERIFIED'?'<span class="chip chip-ok">Verified</span>':k==='CHECKED'?'<span class="chip chip-neutral">Checked</span>'
       :`<span class="chip chip-warn">Completed \u00b7 ${String(r.governance||'').toUpperCase()==='VERIFIED'?'awaiting verification':'awaiting check'}</span>`;
-    const by=k==='VERIFIED'?`Verified${r.verifiedBy?' by '+esc(r.verifiedBy):''}${r.verifiedDate?' \u00b7 '+esc(bhDate(r.verifiedDate)):''}`
-      :k==='CHECKED'?`Checked${r.checkedBy?' by '+esc(r.checkedBy):''}${r.checkedDate?' \u00b7 '+esc(bhDate(r.checkedDate)):''}`:'';
+    const by=(isOvLog(r)?`Overridden by ${esc(ovLogBy(r))}. `:'')+(k==='VERIFIED'?`Verified${r.verifiedBy?' by '+esc(r.verifiedBy):''}${r.verifiedDate?' \u00b7 '+esc(bhDate(r.verifiedDate)):''}`
+      :k==='CHECKED'?`Checked${r.checkedBy?' by '+esc(r.checkedBy):''}${r.checkedDate?' \u00b7 '+esc(bhDate(r.checkedDate)):''}`:'');
     const grp=r.domain||c.domain||'', sc=scOf(r);
     return bhRow({ id:r.activityId||c.id||'', name:r.taskType||'', desc:shortDesc(r.description||c.description||'',110), worker:r.workerName||r.workerId||'', done:bhDate(r.endTime),
       chips:(sc?`<span class="chip chip-neutral" title="Activity domain">${esc(bhScopeLabel(sc))}</span>`:'')+(grp?`<span class="chip chip-neutral" title="Activity group">${esc(grp)}</span>`:'')+(r.timing?`<span class="chip chip-warn" title="Planted off the planned date">Completed \u00b7 ${esc(String(r.timing).charAt(0)+String(r.timing).slice(1).toLowerCase())} ${(r.varianceDays>0?'+':'')+esc(r.varianceDays)}d</span>`:'')+chip, note:by });
@@ -5185,7 +5200,7 @@ function bbPanelHTML(){
   const blk=pvBlockOf(id), blockLabel=BLOCK_LABELS[blk]||pick('Block_ID',blk);
   const locType=String(pick('Location_Type',row.locationType)||'');
   const cropName=(b&&b.cohortId&&b.cropName)||'';
-  const exc=bedExceptions(id), sBed=(state.beds||[]).find(x=>String(x.id)===String(id))||{}, nHist=(sBed.activityLog||[]).length;
+  const exc=bedExceptions(id), sBed=(state.beds||[]).find(x=>String(x.id)===String(id))||{}, nHist=(sBed.activityLog||[]).length+(sBed.overrides||[]).length;
   const when=v=>{ if(!v) return ''; const t=new Date(v); return isNaN(t.getTime())?String(v):t.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); };
   const len=Number(P.Bed_Length), sp=Number(P['Center-to-Center Spacing (in)']);
   const area=(len>0&&sp>0)?(len*sp/12):null;   /* sq ft = bed length (ft) x spacing (in) / 12 */
