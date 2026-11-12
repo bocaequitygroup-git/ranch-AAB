@@ -1434,7 +1434,7 @@ function emptyBedBlock(b,sess){
 function cohortActionButtons(b){
   const cs=b.cohortStatus||'';
   const btns=[];
-  if(cs==='PRE_PLANTING'){
+  if(cs==='PRE_PLANTING' && plantingDone(b.id,b.cohortId)){
     btns.push(`<button class="btn btn-primary" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`);
   }
   if(cs==='PRE_PLANTING' || cs==='ACTIVE'){
@@ -1549,7 +1549,7 @@ function liveTaskBlock(b,sess){
 function verifyCloseBlock(b){
   const cs=String(b.cohortStatus||'').toUpperCase(), btns=[], notes=[];
   const hr=(state.harvestReady||[]).find(h=>h.bedId===b.id);
-  if(cs==='PRE_PLANTING') btns.push(`<button class="btn btn-primary" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`);
+  if(cs==='PRE_PLANTING' && plantingDone(b.id,b.cohortId)) btns.push(`<button class="btn btn-primary" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`);
   if(b.cohortId && hr) btns.push(`<button class="btn btn-primary" onclick="verifyHarvestReady('${esc(b.cohortId)}','${esc(b.id)}')">Verify harvest ready</button>`);
   if(b.postHarvest && b.postHarvest.readyToVerify){
     const scope=b.postHarvest.bedLevel?'BED:'+b.id:b.cohortId;
@@ -1960,7 +1960,7 @@ function gateActivitiesTab(b,m){
     <button class="btn btn-outline gt-btn" data-a="${esc(a.name)}" onclick="gateAssignOne(this)">Assign</button></div>`;
   const planting=list.filter(a=>a.plantingRole==='method'), care=list.filter(a=>a.plantingRole!=='method');
   const other=m.plant.filter(p=>!planting.some(a=>a.name===p.name));
-  const verifyBtn=String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING'?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`:'';
+  const verifyBtn=(String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING' && plantingDone(b.id,b.cohortId))?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`:'';
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
   const g={}; care.forEach(a=>{ const k=a.plantingRole==='recovery'?'Recovery':(a.domain||'Other'); (g[k]=g[k]||[]).push(a); });
   const careHTML=Object.keys(g).sort((x,y)=>rank(x)-rank(y)).map(k=>`<div class="ma-grp">${esc(k)}</div>`+g[k].map(row).join('')).join('');
@@ -2753,7 +2753,7 @@ function assignedList(){
   if(!list.length) return `<div class="empty">No approved cohorts are waiting to be planted.</div>`;
   return list.map(p=>`<div class="card"><div class="qtop"><div><b>${esc(p.cropName)}</b><div class="qsub">Wave ${esc(p.waveNumber)} · ${esc(p.cohortId)}</div></div><div class="qdates">Planned DOB<br>${esc(p.plannedDob)}</div></div>
     <div class="qrec"><span>Planting ready in</span><b>${esc(p.locationId)}</b></div>
-    <div class="qbtns"><button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(p.locationId)}',hasCohort:true})">New Activity</button><button class="btn btn-outline" onclick="openModal('verify-planting',{cohortId:'${esc(p.cohortId)}',bedId:'${esc(p.locationId)}'})">Verify planting</button></div></div>`).join('');
+    <div class="qbtns"><button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(p.locationId)}',hasCohort:true})">New Activity</button>${plantingDone(p.locationId,p.cohortId)?`<button class="btn btn-outline" onclick="openModal('verify-planting',{cohortId:'${esc(p.cohortId)}',bedId:'${esc(p.locationId)}'})">Verify planting</button>`:''}</div></div>`).join('');
 }
 function changeLocModal(){
   const d=ui.modalDraft, r=state.candidates||{locations:[]}, locs=r.locations||[];
@@ -2799,6 +2799,8 @@ function vpActivityDate(bedId,cohortId){
   }
   return null;
 }
+/* Verify planting is only offered once a planting activity (DirectSeeding / Transplanting / Replanting) for this bed and cohort is COMPLETED. */
+function plantingDone(bedId,cohortId){ return !!vpActivityDate(bedId,cohortId); }
 function verifyPlantingModal(){
   const d=ui.modalDraft;
   if(!d.dob && !d.vpAutoDone){ d.vpAutoDone=true; const a=vpActivityDate(d.bedId,d.cohortId); if(a){ d.dob=a.date; d.vpAuto=a; } }
