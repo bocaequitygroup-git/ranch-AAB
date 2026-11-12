@@ -5732,14 +5732,6 @@ function urgSet(i,key,val){
   const r=urg.rows[i]; if(!r) return; r[key]=val; urg.res=null; urg.err=''; urg.confirmOut=false;
   if(key==='block'||key==='waves'||key==='bedsPerWave') r.beds=[];   // bed picks depend on the block and on how many are needed
   if(key==='block'&&val) urgLoadBlock(val);   // browse the chosen block's beds from the server
-  // Suggested date: when a crop is chosen and the manager has not typed a date, pre-fill the crop's next Open Field Operation
-  // wave. This is only a suggestion: it never raises the window popup (the server still checks the window and the beds on Check),
-  // and it never clears the beds already picked. A date the manager typed is never replaced.
-  if(key==='cropId'){
-    const c=(urg.opts?urg.opts.crops:[]).find(x=>x.cropId===val);
-    if(!r.date||r.dateFromOfo){ r.date=(c&&c.nextOfoDate)||''; r.dateFromOfo=!!(c&&c.nextOfoDate); }
-  }
-  if(key==='date') r.dateFromOfo=false;   // typed or picked by the manager: no longer a suggestion
   if(key==='date' && r.cropId && r.date){
     if(r.date<todayISO()){ toast('The planting date is in the past.'); }
     else{ const c=urgWindowCheck(r.cropId,r.date); if(c) urg.alarm=c; }
@@ -5840,6 +5832,16 @@ function urgBedPickerHTML(r,i){
     ${empty}${shown.length?`<div class="urg-bed-grid">${tiles}</div>`:''}
   </div>`;
 }
+/* Planned DOB shown on the form: the first day of the allowable window the chosen date falls in (else the crop's first window).
+ * Same rule as the server (urgPlannedIso_). Empty until a crop and a date are chosen. */
+function urgPlannedClient_(r){
+  const c=(urg.opts?urg.opts.crops:[]).find(x=>x.cropId===r.cropId);
+  if(!c||!r.date||!(c.windows||[]).length) return '';
+  const y=r.date.slice(0,4), md=r.date.slice(5);
+  let pick=c.windows.find(w=>(w.from<=w.to ? (md>=w.from&&md<=w.to) : (md>=w.from||md<=w.to)));
+  pick=pick||c.windows[0];
+  return y+'-'+pick.from;
+}
 function urgRowHTML(r,i){
   const crops=urg.opts?urg.opts.crops:[]; let last='';
   const opts=`<option value="">Choose crop…</option>`+crops.map(c=>{ const g=c.category!==last?(last=c.category,`${last?'</optgroup>':''}<optgroup label="${esc(c.category)}">`):''; return `${g}<option value="${esc(c.cropId)}" ${r.cropId===c.cropId?'selected':''}>${esc(c.name)} (${esc(c.cropId)})</option>`; }).join('')+(crops.length?'</optgroup>':'');
@@ -5853,7 +5855,7 @@ function urgRowHTML(r,i){
     <div><label>Block</label><select onchange="urgSet(${i},'block',this.value)"><option value="">Choose block…</option>${['B1','B2','B3','B4'].map(b=>`<option value="${b}" ${r.block===b?'selected':''}>Block ${b.slice(1)}</option>`).join('')}</select></div>
     <div><button class="btn btn-ghost" style="width:auto;margin:0;" title="Remove" onclick="urgDelRow(${i})">✕</button></div>
   </div>
-  ${r.dateFromOfo&&r.date?`<div class="note" style="margin:-4px 0 6px;">Planting date suggested from Open Field Operation: the crop's next planned wave with no cohort yet. Change it if this urgent crop goes in on another day.</div>`:''}
+  ${urgPlannedClient_(r)?`<div class="note" style="margin:-4px 0 6px;">Planned DOB (first day of the crop's allowable window, from Open Field Operation): <b>${esc(urgPlannedClient_(r))}</b></div>`:''}
   ${urgBedPickerHTML(r,i)}
   ${incomplete?`<div class="note" style="margin:-4px 0 8px;color:#9C1C13;">Pick ${needed-r.beds.length} more bed${needed-r.beds.length===1?'':'s'} in ${esc(r.block)} before checking.</div>`:''}
   ${err.length?`<div class="notice" style="margin:-4px 0 8px;">${err.map(esc).join('<br>')}</div>`:''}`;
