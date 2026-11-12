@@ -1446,14 +1446,15 @@ function cohortActionButtons(b){
   return btns.length? `<div style="margin:10px 0;">${btns.join('')}</div>` : '';
 }
 function activityTab(b){
-  const rows=(b.activityLog||[]);
+  const rows=[...(b.activityLog||[]).map(r=>({...r,_override:false})), ...(b.overrides||[]).map(o=>({...o,_override:true}))]
+    .sort((x,y)=>(new Date(y.endTime)||0)-(new Date(x.endTime)||0));
   if(!rows.length) return `<div class="empty">No completed activity logged for this bed yet.</div>`;
   const dt=r=>{ const d=new Date(r.endTime); return isNaN(d)?null:d; };
   const dayOf=r=>{ const d=dt(r); return d?d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'}):'Earlier'; };
   const timeOf=r=>{ const d=dt(r); return d?d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}):(r.endTime||''); };
   const groups={}, order=[];
   rows.forEach(r=>{ const k=dayOf(r); if(!groups[k]){ groups[k]=[]; order.push(k); } groups[k].push(r); });
-  return `<div class="act-hint">Tap an activity to open its full profile.</div>`+order.map(k=>`<div class="bh-dom">${esc(k)}</div><div class="card act-log">${groups[k].map(r=>`<div class="row act-row" role="button" tabindex="0" title="Open activity profile" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')" onkeydown="if(event.key==='Enter')this.click()"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span class="act-time">${esc(timeOf(r))}<span class="act-go" aria-hidden="true">›</span></span></div>`).join('')}</div>`).join('');
+  return `<div class="act-hint">Tap an activity to open its full profile.</div>`+order.map(k=>`<div class="bh-dom">${esc(k)}</div><div class="card act-log">${groups[k].map(r=>r._override?`<div class="row act-row" title="${esc(r.reason)}"><span>${esc(r.taskType)} <span class="chip chip-warn">Overridden</span> · ${esc(r.managerName)}</span><span class="act-time">${esc(timeOf(r))}</span></div>`:`<div class="row act-row" role="button" tabindex="0" title="Open activity profile" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')" onkeydown="if(event.key==='Enter')this.click()"><span>${esc(r.taskType)}${r.timing?' ('+esc(String(r.timing).toLowerCase())+' '+(r.varianceDays>0?'+':'')+esc(r.varianceDays)+'d)':''} · ${esc(r.workerName||r.workerId)}</span><span class="act-time">${esc(timeOf(r))}<span class="act-go" aria-hidden="true">›</span></span></div>`).join('')}</div>`).join('');
 }
 function exceptionsTab(b,exc){
   return exc.length? exc.map(x=>`<div class="card">
