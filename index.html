@@ -1125,7 +1125,7 @@ function bedSessions(bedId){ return state.sessions.filter(x=>x.bedId===bedId && 
 function render(){ const sh0=$('.sheet'), st=(sh0&&!ui.resetScroll)?sh0.scrollTop:0;
   const ms0=$('.mapscroll'), pb0=$('.panelbody'), kMap=ui.screen+'|'+(ui.pMode||'')+((ui.screen==='planning'&&ui.pMode==='bedboard')?'|'+bb.sec:''); let kPan=''; try{ kPan=(ui.selectedBed||'')+'|'+ui.tab+'|'+(bb.bedSel||'')+'|'+bb.tab; }catch(e){}
   const msT=(ms0&&render._kMap===kMap&&!ui.resetScroll)?ms0.scrollTop:0, pbT=(pb0&&render._kPan===kPan)?pb0.scrollTop:0; render._kMap=kMap; render._kPan=kPan;
-  ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : ui.screen==='ranch' ? ranchScreen() : ui.screen==='planning' ? planningScreen() : ui.screen==='labor' ? laborScreen() : boardScreen(); attachMapEvents(); attachPlanningEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const ms1=$('.mapscroll'); if(ms1&&msT) ms1.scrollTop=msT; const pb1=$('.panelbody'); if(pb1&&pbT) pb1.scrollTop=pbT; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
+  ui.resetScroll=false; $('#app').innerHTML = ui.screen==='login' ? loginScreen() : ui.screen==='ranch' ? ranchScreen() : ui.screen==='planning' ? planningScreen() : ui.screen==='labor' ? laborScreen() : boardScreen(); attachMapEvents(); attachPlanningEvents(); const sh1=$('.sheet'); if(sh1&&st) sh1.scrollTop=st; const ms1=$('.mapscroll'); if(ms1&&msT) ms1.scrollTop=msT; const pb1=$('.panelbody'); if(pb1&&pbT) pb1.scrollTop=pbT; const idEl=$('#in-id'); if(idEl) idEl.focus(); if(ui.focusPending&&ui.modal==='queue'){ const fe=document.getElementById('qc-'+ui.focusCohort); if(fe){ fe.scrollIntoView({block:'center'}); ui.focusPending=false; } } if(asg.focusPending&&ui.screen==='planning'&&ui.pMode==='assigncohort'){ const fb=document.getElementById('ac-'+asg.focusBed); if(fb){ fb.scrollIntoView({block:'center'}); } asg.focusPending=false; } setConn(state.managerId?(IS_DEMO?'demo':'online'):'idle'); }
 /* ============================== RANCH LAYOUT (default landing page) ==============================
  * Logical, north-up spatial schematic of the vegetable production area: B1-B4 x 55 positions = 220 production beds,
  * plus 11 separate Zone 5 registry markers (not counted). Each block is an 11 x 5 INDEXING grid only; it is not a claim about
@@ -1852,7 +1852,10 @@ async function gateCheckSelected(){
   catch(e){ toast(e.message); }
 }
 function gateRelease(){ const b=dpBed(), m=gateModel(b); if(!m.cleared) return; doVerifyTurnover(m.scope,b.id); }
-function gateAssignCohort(){ closeModal(); goPlanning(); setPMode('assigncohort'); }
+/* Opened from a specific bed (the gate drawer or a bed's "Required" panel): remember which one, so the Assign
+ * Cohort board can jump straight to it instead of making the manager hunt through every ready bed. */
+function gateAssignCohort(bedId){ closeModal(); if(bedId){ asg.q=bedId; asg.block=''; asg.focusBed=bedId; asg.focusPending=true; } goPlanning(); setPMode('assigncohort'); }
+function acClearFocus(){ asg.q=''; asg.focusBed=''; render(); }
 /* ---- pieces ---- */
 function gateProgress(m,kind){ const n=kind==='done'?m.done:m.verified;
   return `<div class="gt-count"><b>${n} / ${m.total}</b> ${kind==='done'?'required done':'verified'}${kind==='done'&&m.verified!==m.done?` <span class="gt-sub" style="display:inline;">· ${m.verified} verified</span>`:''}</div><div class="dc-bar"><i style="width:${m.total?Math.round(n/m.total*100):0}%"></i></div>`; }
@@ -1861,7 +1864,7 @@ function gateNext(m,b){
   let state_='', acts='';
   if(m.released){
     if(b.cohortId){ state_='Crop work is open'; acts=btn('Open Activities',"setGateTab('crop')"); }
-    else { state_='✔ Bed is available'; acts=btn('Assign Cohort','gateAssignCohort()'); }
+    else { state_='✔ Bed is available'; acts=btn('Assign Cohort',"gateAssignCohort('"+esc(b.id)+"')"); }
   } else if(m.cleared){ state_='✔ Required activities are cleared'; acts=btn('Verify Bed Ready &amp; Release to Available','gateRelease()'); }
   else if(!m.open.length){ state_='Waiting for manager sign-off'; acts=btn('Review sign-offs',"setGateTab('verify')"); }
   else if(m.busy.length){ state_='Work in progress'; acts=btn('Reassign Crew','gateReassignCrew()','btn-outline')+(m.unassigned.length?btn('Dispatch Remaining Tasks','gateAssignOpen()'):''); }
@@ -1933,7 +1936,7 @@ function gateVerifyTab(b,m){
       :w&&w.verified?`Verified by ${esc(w.verifiedByName||w.verifiedBy||'manager')} · ${esc(avWhen(w.verifiedAt))}`
       :r.harvested?'Harvest closed by manager (Terminate cohort)':'Verified when the bed was released';
     return `<div class="gt-row is-done is-grey"><div class="gt-main"><div>${esc(gateRowLabel(r))}</div><div class="gt-sub">${stamp}</div>${w&&w.completedBy&&w.completedBy.length?`<div class="gt-sub">Done by ${w.completedBy.map(x=>esc(x.name)).join(', ')}${w.budgetHours!=null?' · '+avHM(w.actualHours)+' of '+avHM(w.budgetHours)+' budget':''}</div>`:''}</div></div>`; }).join('');
-  const gate=m.released?`<div class="gt-next"><div class="gt-next-h">What to do next</div><div class="gt-next-s">✔ Bed released to Available</div>${b.cohortId?'':'<button class="btn btn-primary" style="width:auto;margin:6px 0 0;" onclick="gateAssignCohort()">Assign Cohort</button>'}</div>`
+  const gate=m.released?`<div class="gt-next"><div class="gt-next-h">What to do next</div><div class="gt-next-s">✔ Bed released to Available</div>${b.cohortId?'':`<button class="btn btn-primary" style="width:auto;margin:6px 0 0;" onclick="gateAssignCohort('${esc(b.id)}')">Assign Cohort</button>`}</div>`
     :`<div class="gt-next"><div class="gt-next-h">What to do next</div>
       <div class="gt-next-s">${m.cleared?'✔ Required activities are cleared':m.verified+' of '+m.total+' required steps verified'}</div>
       <button class="btn btn-ok" style="width:auto;margin:6px 6px 0 0;" ${m.cleared?'':'disabled'} onclick="gateRelease()">Verify Bed Ready &amp; Release to Available</button>
@@ -1955,7 +1958,7 @@ function gateCropLock(b,m){
 function gateActivitiesTab(b,m){
   const why=gateCropLock(b,m);
   if(why) return `<div class="dp-box"><div class="t"><span>Activities · crop domain</span><span>🔒</span></div><div class="note" style="margin:0;">${esc(why)}</div>
-    ${m.released&&!b.cohortId?'<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="gateAssignCohort()">Assign Cohort</button>':''}</div>`;
+    ${m.released&&!b.cohortId?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="gateAssignCohort('${esc(b.id)}')">Assign Cohort</button>`:''}</div>`;
   const r=startableActivities(b.id,true), list=r.list, sessB=bedSessions(b.id);
   const statusOf=n=>{ const q=sessB.filter(s=>s.activity===n); return !q.length?'':q.some(gateLive)?'<span class="chip chip-ok">In progress</span>':'<span class="chip chip-warn">Assigned</span>'; };
   const row=a=>`<div class="gt-row"><div class="gt-main"><div><b>${esc((a.id?a.id+': ':'')+(GATE_LABEL[a.name]||a.name))}</b> ${statusOf(a.name)}</div>${a.description?`<div class="gt-sub">${esc(shortDesc(a.description,100))}</div>`:''}</div>
@@ -2528,7 +2531,7 @@ function reqStepsHTML(b){
           return p?`<div style="padding:4px 0;"><b>▶ Planting</b> <span style="font-size:11px;">Required next · planned: <b>${esc(p.cropName||p.cropId)}</b> (${esc(p.cohortId)}), planting ${esc(p.plannedDob||'?')}. Assign this cohort to the bed to open Planting.</span>
               <div style="margin-top:6px;"><button class="btn btn-primary" style="width:auto;margin:0;padding:6px 12px;font-size:12.5px;" ${asg.busy?'disabled':''} onclick="acAssign([this.dataset.v],true)" data-v="${esc(p.cohortId)}">Assign ${esc(p.cohortId)} to ${esc(b.id)}</button></div></div>`
             :`<div style="padding:4px 0;"><b>▶ Planting</b> <span style="font-size:11px;">Required next · no cohort is proposed for this bed yet.</span>
-              <div style="margin-top:6px;"><button class="btn btn-outline" style="width:auto;margin:0;padding:6px 12px;font-size:12.5px;" onclick="closeModal();goPlanning();setPMode('assigncohort')">Open Assign Cohort</button></div></div>`; })();
+              <div style="margin-top:6px;"><button class="btn btn-outline" style="width:auto;margin:0;padding:6px 12px;font-size:12.5px;" onclick="gateAssignCohort('${esc(b.id)}')">Open Assign Cohort</button></div></div>`; })();
   const locked = verified ? '' : `<div style="padding:3px 0;opacity:.55;font-size:11.5px;">🔒 Irrigation calendar and Crop Care open after planting is verified.</div>`;
   if(!rows && !hasC && String(b.bedStatus||'').toUpperCase()!=='AVAILABLE') return '';
   return `<details open style="margin:0 0 10px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px;"><summary style="cursor:pointer;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.03em;">Required before and at planting${steps.length?` · ${steps.length} reset step${steps.length===1?'':'s'} done`:''}</summary>${rows}${plant}${locked}</details>`;
@@ -6178,7 +6181,7 @@ function phCoverRow(p){
  * (BedAssignmentEngine.gs proposal). Assign one, the selected ones, or all of them. Assignment is approve-assignments ->
  * approveAssignment() -> assignBed(), so every server check still applies (plan link, planting window, bed free, rotation).
  * Assigning makes the bed RESERVED; planting itself still opens only on the planned date and is verified by the manager. */
-const asg={busy:false,tried:false,block:'',off:{},msg:''};
+const asg={busy:false,tried:false,block:'',off:{},msg:'',q:'',focusBed:'',focusPending:false};
 function ensureAcLoaded(force){
   if(asg.busy||(asg.tried&&!force)) return;   /* a failed load is retried only by Refresh, never in a render loop */
   asg.tried=true; if(state.aq.loaded&&!force) return;
@@ -6211,37 +6214,49 @@ async function acAssign(ids, skipConfirm){
   asg.busy=false; render();
 }
 function acToggle(cid,on){ if(on) delete asg.off[cid]; else asg.off[cid]=1; render(); }
-function acSelectAll(on){ acReadyBeds().forEach(b=>{ const p=acNext(b); if(!p) return; if(on) delete asg.off[p.cohortId]; else asg.off[p.cohortId]=1; }); render(); }
+/* True if a bed matches the current search text: by bed id, or by the crop/cohort of its proposed cohort. Typing a
+ * bed id (e.g. "B4-18") is the common case, so that match is checked first and is a plain substring, case-insensitive. */
+function acMatches(b,q){
+  q=String(q||'').trim().toLowerCase(); if(!q) return true;
+  if(String(b.id||'').toLowerCase().includes(q)) return true;
+  const p=acNext(b);
+  return !!p && (String(p.cropName||'').toLowerCase().includes(q) || String(p.cohortId||'').toLowerCase().includes(q));
+}
+function acFiltered(){ return acReadyBeds().filter(b=>(!asg.block||b.blockId===asg.block)&&acMatches(b,asg.q)); }
+function acSelectAll(on){ acFiltered().forEach(b=>{ const p=acNext(b); if(!p) return; if(on) delete asg.off[p.cohortId]; else asg.off[p.cohortId]=1; }); render(); }
+function acSearch(v){ asg.q=v; asg.focusBed=''; render(); }
 function acScreen(){
   ensureAcLoaded();
   const ready=acReadyBeds(), blocks=Array.from(new Set(ready.map(b=>b.blockId).filter(Boolean))).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
-  const shown=ready.filter(b=>!asg.block||b.blockId===asg.block).sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true}));
+  const shown=acFiltered().sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true}));
   const withP=shown.filter(b=>acNext(b)), noP=shown.filter(b=>!acNext(b)), sel=withP.filter(b=>!asg.off[acNext(b).cohortId]);
   const allIds=withP.map(b=>acNext(b).cohortId), selIds=sel.map(b=>acNext(b).cohortId);
-  const row=b=>{ const p=acNext(b);
-    return p?`<label class="ma-row ${asg.off[p.cohortId]?'':'on'}" style="align-items:center;"><input type="checkbox" ${asg.off[p.cohortId]?'':'checked'} ${asg.busy?'disabled':''} onchange="acToggle(this.dataset.v,this.checked)" data-v="${esc(p.cohortId)}">
+  const row=b=>{ const p=acNext(b), hit=asg.focusBed&&b.id===asg.focusBed;
+    return p?`<label id="ac-${esc(b.id)}" class="ma-row ${asg.off[p.cohortId]?'':'on'} ${hit?'qfocus':''}" style="align-items:center;"><input type="checkbox" ${asg.off[p.cohortId]?'':'checked'} ${asg.busy?'disabled':''} onchange="acToggle(this.dataset.v,this.checked)" data-v="${esc(p.cohortId)}">
         <span><b style="font-weight:700;">${esc(b.id)}</b> → ${esc(p.cropName||p.cropId)} <span class="d">${esc(p.cohortId)} · wave ${esc(p.waveNumber||'')} · planting ${esc(p.plannedDob||'?')}${p.reasons&&p.reasons.length?' · '+esc(p.reasons[0].replace(/^✓\s*/,'')):''}</span></span>
         <button class="btn btn-outline" style="width:auto;margin:0;padding:4px 10px;font-size:12px;" ${asg.busy?'disabled':''} onclick="event.preventDefault();acAssign([this.dataset.v],true)" data-v="${esc(p.cohortId)}">Assign</button></label>`
-      :`<div class="ma-row" style="opacity:.75;"><span style="width:20px;"></span><span><b style="font-weight:700;">${esc(b.id)}</b> <span class="d">Ready, but no planned cohort is proposed for this bed yet.</span></span></div>`; };
+      :`<div id="ac-${esc(b.id)}" class="ma-row ${hit?'qfocus':''}" style="opacity:.75;"><span style="width:20px;"></span><span><b style="font-weight:700;">${esc(b.id)}</b> <span class="d">Ready, but no planned cohort is proposed for this bed yet.</span></span></div>`; };
   const byBlock={}; shown.forEach(b=>{ (byBlock[b.blockId||'No block']=byBlock[b.blockId||'No block']||[]).push(b); });
   const body=Object.keys(byBlock).map(k=>`<div class="ma-grp">${esc(k)} · ${byBlock[k].length}</div>${byBlock[k].map(row).join('')}`).join('');
   return `<div class="card" style="max-width:920px;margin:0 auto;">
     <h2 style="margin:0 0 4px;font-size:18px;">Assign cohort to ready beds</h2>
     <div class="note" style="margin:0 0 10px;">Beds that are <b>Available · verified, ready to assign cohort</b>, with the cohort the confirmed Season Plan puts on each. Assigning makes the bed <b>Reserved</b>; planting still opens on the planned date and is verified by you afterwards. Beds still in post-harvest are not listed: release them first.</div>
+    ${asg.focusBed?`<div class="note" style="margin:0 0 10px;background:#EEF5EE;border:1px solid var(--forest);border-radius:6px;padding:6px 10px;">Showing <b>${esc(asg.focusBed)}</b>, highlighted below. <button class="btn btn-ghost" style="width:auto;padding:2px 8px;" onclick="acClearFocus()">Show all ready beds</button></div>`:''}
     <div class="qbtns" style="flex-wrap:wrap;gap:8px;">
+      <input type="text" placeholder="Find a bed, crop or cohort…" value="${esc(asg.q||'')}" oninput="acSearch(this.value)" style="flex:1;min-width:160px;max-width:260px;padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:6px;">
       <button class="btn btn-primary" ${(!allIds.length||asg.busy)?'disabled':''} onclick="acAssign(allIds_())">${asg.busy?'Working…':`Assign all ${allIds.length} ready bed${allIds.length===1?'':'s'}`}</button>
       <button class="btn btn-outline" style="width:auto;" ${(!selIds.length||asg.busy)?'disabled':''} onclick="acAssign(selIds_())">Assign selected (${selIds.length})</button>
       <button class="btn btn-ghost" style="width:auto;" onclick="acSelectAll(true)">Select all</button><button class="btn btn-ghost" style="width:auto;" onclick="acSelectAll(false)">Clear</button>
-      <select onchange="asg.block=this.value;render()"><option value="">All blocks</option>${blocks.map(x=>`<option ${asg.block===x?'selected':''} value="${esc(x)}">${esc(x)}</option>`).join('')}</select>
+      <select onchange="asg.block=this.value;asg.focusBed='';render()"><option value="">All blocks</option>${blocks.map(x=>`<option ${asg.block===x?'selected':''} value="${esc(x)}">${esc(x)}</option>`).join('')}</select>
       <button class="btn btn-outline" style="width:auto;" ${asg.busy?'disabled':''} onclick="acRefreshProposals()">Refresh proposals</button>
     </div>
-    <div class="note" style="margin:8px 0;">${ready.length} ready bed${ready.length===1?'':'s'} · ${withP.length} with a planned cohort · ${noP.length} without a proposal${noP.length?'. If the plan has changed or a proposal was rejected earlier, press <b>Refresh proposals</b>.':''}</div>
+    <div class="note" style="margin:8px 0;">${ready.length} ready bed${ready.length===1?'':'s'} · ${withP.length} with a planned cohort · ${noP.length} without a proposal${noP.length?'. If the plan has changed or a proposal was rejected earlier, press <b>Refresh proposals</b>.':''}${(asg.q||asg.block)&&shown.length!==ready.length?` · ${shown.length} match${shown.length===1?'':'es'} the current filter`:''}</div>
     ${asg.msg?`<div class="ma-res">${esc(asg.msg)}</div>`:''}
     ${!state.aq.loaded&&!state.aq.error?'<div class="note">Loading proposals…</div>':''}${state.aq.error?`<div class="note" style="color:var(--warn);">${esc(state.aq.error)}</div>`:''}
-    ${ready.length?`<div class="ma-list" style="max-height:60vh;">${body}</div>`:'<div class="empty">No bed is ready. Release beds on the Bed Status Board (finish the reset and Verify Bed Ready) and they appear here.</div>'}
+    ${ready.length?(shown.length?`<div class="ma-list" style="max-height:60vh;">${body}</div>`:`<div class="empty">No ready bed matches “${esc(asg.q)}”. <button class="btn btn-ghost" style="width:auto;" onclick="acClearFocus()">Clear search</button></div>`):'<div class="empty">No bed is ready. Release beds on the Bed Status Board (finish the reset and Verify Bed Ready) and they appear here.</div>'}
   </div>`;
 }
-function allIds_(){ return acReadyBeds().filter(b=>!asg.block||b.blockId===asg.block).map(acNext).filter(Boolean).map(p=>p.cohortId); }
+function allIds_(){ return acFiltered().map(acNext).filter(Boolean).map(p=>p.cohortId); }
 function selIds_(){ return allIds_().filter(id=>!asg.off[id]); }
 
 /* ---- render: screen shell ---- */
