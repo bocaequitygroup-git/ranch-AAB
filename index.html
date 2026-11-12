@@ -2227,9 +2227,8 @@ function startableActivities(bedId, hasCohortFallback){
                         : 'No cohort is assigned to this bed.'};
   }
   const stage=bedStageKey(b||{});
-  const gateDob=dispatchDob(b);
-  if(stage==='preplanting'&&gateDob&&String(gateDob)>new Date().toISOString().slice(0,10))
-    return {list:[], why:`Planting opens on ${gateDob}.`};
+  /* VPOS DOB rule: Planned_DOB is for planning and queue order only. It does not lock planting. The planting window is checked
+   * against the date the task is scheduled for (server pwGate_ at assignment; the accept box in this UI). */
   const plantingVerified=!!b.plantingDate;   /* Actual_DOB, stamped by Verify planting */
   const plantActivity=plantingActivityFor(b);
   const list=cat.filter(a=>!(Number(a.postHarvestSequence)>0) && (!(a.allowedStages||[]).length || (a.allowedStages||[]).some(x=>stageKey(x)===stage))
