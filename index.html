@@ -1369,6 +1369,7 @@ function panelHTML(){
   const b = bedViewById(ui.selectedBed); if(!b) return '';
   const sess=bedSessions(b.id), exc=bedExceptions(b.id), hr=state.harvestReady.find(h=>h.bedId===b.id);
   return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${b.cohortId?`${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}`:`${esc(b.blockId)} · ${esc(String(b.locationType||'field').toLowerCase())} bed · ${b.proposals.length?'Proposed':bedPanelStatus(b)}`}</div></div><button onclick="closePanel()">✕</button></div>
+  <div class="dp-stickers" style="display:flex;flex-wrap:wrap;gap:6px;padding:6px 12px;">${bedStickers(b,b.cohortId)}</div>
   <div class="tabs">
     <button class="${ui.tab==='overview'?'active':''}" onclick="setTab('overview')">Overview</button>
     ${b.cohortId?`<button class="${ui.tab==='activity'?'active':''}" onclick="setTab('activity')">Activity</button>`:''}
