@@ -2090,7 +2090,7 @@ async function dpSubmit(){
   const d=ui.dp; if(d.busy||!d.acts.length) return;
   if(d.acts.some(a=>!dpCrew(a).length)){ toast('Choose a worker for every selected activity.'); return; }
   if(d.acts.some(a=>isFertAct(a)&&!fertDone(fertOf(d,a)))){ toast('Enter the fertilizer type, brand name and quantity first.'); return; }
-  d.busy=true; busyShow('Dispatching '+d.acts.length+' task'+(d.acts.length===1?'':'s')+'… please wait'); dpRefresh();
+  d.busy=true; d.result=null; busyShow('Dispatching '+d.acts.length+' task'+(d.acts.length===1?'':'s')+'… please wait'); dpRefresh();
   try{
     const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments:fertAssignments(d,d.acts,dpCrew), scheduledDate:d.date }, 60000);
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] };
@@ -2250,7 +2250,7 @@ function modalHTML(){
   else if(ui.modal==='new-activity') inner=newActivityModal();
   else if(ui.modal==='activity-profile') inner=activityProfileModal();
   else if(ui.modal==='one-worker') inner=oneWorkerModal();
-  return `<div class="overlay" onclick="if(event.target===this&&ui.modal!=='urgent')closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  return `<div class="overlay" onclick="if(event.target===this&&ui.modal!=='urgent'&&!(ui.modalDraft&&ui.modalDraft.busy))closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -2750,7 +2750,7 @@ function maUsePlanned(){ const d=maD(), pl=maPlan(d); if(!pl.dob) return; d.date
 function maSetDate(n){ maD().dateTouched=true; const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; }
 async function submitMultiAssign(){
   const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||!c.fresh) return;
-  d.busy=true; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
+  d.busy=true; d.result=null; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
   try{
     const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]);
     const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments, scheduledDate:d.date }, 60000);
