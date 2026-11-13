@@ -926,7 +926,7 @@ function pdAskBox(pd,cohortId){
   if(!pd) return '';
   const id=esc(cohortId);
   return `<div class="pw-box warn"><div class="pw-t">Planting date differs from the plan</div><div>${esc(pd.message||'')}</div>
-    <textarea placeholder="Explanation for planting on a different date (required)" oninput="pdSetReason('${id}',this.value)">${esc((ui.pdReasons||{})[cohortId]||'')}</textarea></div>`;
+    <textarea placeholder="Reason for date change (differs from selected/planned date)" oninput="pdSetReason('${id}',this.value)">${esc((ui.pdReasons||{})[cohortId]||'')}</textarea></div>`;
 }
 /* NURSERY SIGN-OFF (rule R01): verify-planting answers PROPAGATION_NOT_VERIFIED for a GH_PROP cohort until propagation is verified.
  * The manager may plant anyway by explaining (propagationOverrideReason, >= 5 chars); the server records who / when / why. */
@@ -1133,7 +1133,7 @@ async function doVerifyPlanting(cohortId, actualDob){
     }
     if(e&&e.code==='DEVIATION_REASON_REQUIRED'){
       ui.modalDraft.pd={ message:e.message }; ui.modalDraft.pdDate=actualDob; ui.modalDraft.dob=actualDob; render();
-      toast('This is not the planned date. Enter an explanation, then verify again.'); return;
+      toast('This date differs from the selected or planned date. Enter a reason for the date change, then verify again.'); return;
     }
     toast(e.message);
   }
