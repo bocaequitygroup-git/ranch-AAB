@@ -566,7 +566,7 @@ function forceLogout(msg){ clearSession(); Object.assign(state,{managerId:null,n
  * "not signed in" answer, and when the tab is closed). Wrapped in try/catch because storage can be blocked. */
 const SESSION_KEY='ranch_aab_session';
 function saveSession(){ try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify({managerId:state.managerId,name:state.name,role:state.role,token:state.token})); }catch(e){} }
-function clearSession(){ try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){} if(window.vpCacheClear) window.vpCacheClear(); }
+function clearSession(){ try{ sessionStorage.removeItem(SESSION_KEY); sessionStorage.removeItem('vp.maDraft.v1'); }catch(e){} if(window.vpCacheClear) window.vpCacheClear(); }
 function restoreSession(){
   try{ const s=JSON.parse(sessionStorage.getItem(SESSION_KEY)||'null');
     if(s&&s.token&&s.managerId){ Object.assign(state,{managerId:s.managerId,name:s.name,role:s.role,token:s.token}); return true; } }catch(e){}
@@ -1226,7 +1226,37 @@ function selectBed(bedId){ ui.selectedBed=bedId; ui.tab='overview'; render(); pd
 function closePanel(){ ui.selectedBed=null; render(); }
 function setOverlay(mode){ ui.overlay=mode; render(); }
 function setTab(t){ ui.tab=t; render(); }
-function openModal(name, draft){ ui.modal=name; ui.modalDraft=draft||{}; render(); }
+/* A click on the dim background closes most dialogs. The activity-assignment dialog ('dispatch') never closes that way: its unsent picks
+ * would be lost. Use its Close button (the picks are kept, see maPersist) or Clear. */
+function ovBackdropClick(el,ev){
+  if(!ev||ev.target!==el) return;
+  if(ui.modal==='urgent'||ui.modal==='dispatch'||(ui.modalDraft&&ui.modalDraft.busy)) return;
+  closeModal();
+}
+/* Unsent assignment picks (activities, workers, date) are kept in this browser tab's sessionStorage, so an accidental close or a page
+ * refresh does not lose them. Only the bed-level multi-assign dialog is kept (not the one-activity dialog). Cleared on logout, by Clear,
+ * and when nothing is left unassigned. Wrapped in try/catch because storage can be blocked. */
+const MA_DRAFT_KEY='vp.maDraft.v1';
+function maPersist(){
+  try{
+    const d=ui.modalDraft;
+    if(!d||ui.modal!=='dispatch'||!d.bedId||d.fixedActivity) return;
+    if(!d.acts||!d.acts.length){ sessionStorage.removeItem(MA_DRAFT_KEY); return; }
+    sessionStorage.setItem(MA_DRAFT_KEY,JSON.stringify({bedId:d.bedId,acts:d.acts,map:d.map||{},date:d.date||'',dateTouched:!!d.dateTouched,q:d.q||'',cat:d.cat||'ALL'}));
+  }catch(e){}
+}
+function maRestore(draft){
+  try{
+    const s=JSON.parse(sessionStorage.getItem(MA_DRAFT_KEY)||'null');
+    if(!s||s.bedId!==draft.bedId||!Array.isArray(s.acts)||!s.acts.length) return;
+    Object.assign(draft,{acts:s.acts,map:s.map||{},date:s.date||draft.date||'',dateTouched:!!s.dateTouched,q:s.q||'',cat:s.cat||'ALL'});
+  }catch(e){}
+}
+function openModal(name, draft){
+  ui.modal=name; ui.modalDraft=draft||{};
+  if(name==='dispatch'&&ui.modalDraft.bedId&&!ui.modalDraft.fixedActivity) maRestore(ui.modalDraft);
+  render();
+}
 function closeModal(){ ui.dateImpact=null; ui.modal=null; ui.modalDraft={}; ui.focusCohort=null; ui.focusPending=false; render(); }
 
 function bedFill(bed){
@@ -1591,6 +1621,7 @@ function diRecordFor(bedId,acts,date,opts){
     .catch(function(){ if(mine()){ ui.dateImpact.loading=false; ui.dateImpact.failed=true; render(); } });
 }
 function maRecordPickedDate(opts){
+  maPersist();
   const d=maD(); let planned=''; try{ const pl=maPlan(d); planned=(pl&&pl.dob)||''; }catch(e){}
   diRecordFor(d.bedId,d.acts,d.date,Object.assign({ planned:planned },opts||{}));
 }
@@ -2432,7 +2463,7 @@ function modalHTMLBase(){
   else if(ui.modal==='new-activity') inner=newActivityModal();
   else if(ui.modal==='activity-profile') inner=activityProfileModal();
   else if(ui.modal==='one-worker') inner=oneWorkerModal();
-  return `<div class="overlay" onclick="if(event.target===this&&ui.modal!=='urgent'&&!(ui.modalDraft&&ui.modalDraft.busy))closeModal()"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  return `<div class="overlay" onclick="ovBackdropClick(this,event)"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -2775,6 +2806,7 @@ function maFootHTML(){
 }
 /* Partial re-render: keeps focus in the search box and the scroll position of both columns. */
 function maRefresh(){
+  maPersist();
   const g=id=>document.getElementById(id); if(!g('ma-acts')) return render();
   const keep=(el,fn)=>{ const t=el.scrollTop; fn(); el.scrollTop=t; };
   keep(g('ma-acts'),()=>{ g('ma-acts').innerHTML=maRowsActs(); }); keep(g('ma-planwrap'),()=>{ g('ma-planwrap').innerHTML=maPlanHTML(); });
