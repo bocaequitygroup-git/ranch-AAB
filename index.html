@@ -2453,7 +2453,7 @@ async function doOverridePostHarvest(){
   const d=ui.modalDraft;
   if(!d.selected.length){ toast('Select at least one step to override.'); return; }
   const m=phReasonsCheck(d.selected,d); if(!m) return;
-  try{ await apiCall('override-post-harvest',{ cohortId:d.cohortId, activities:d.selected, reasons:m }); toast('Override recorded.'); closeModal(); await loadToday(); }
+  try{ await apiCall('override-post-harvest',{ cohortId:d.cohortId, activities:d.selected, reasons:m }); const nSteps=d.selected.length; closeModal(); await loadToday(); assignDialog('Override completed', ['Recorded for '+nSteps+' step'+(nSteps===1?'':'s')+'.','Each override is logged with your name and the reason.']); }
   catch(e){ toast(e.message); }
 }
 /* Why a bed cannot be released yet, in plain words (remaining required steps, the next one and what it is waiting on). */
@@ -6237,7 +6237,7 @@ async function doBulkOverrideRun(){
   const ovLines=['Recorded on '+ok+' bed'+(ok===1?'':'s')+'.'];
   if(skipped) ovLines.push(skipped+(skipped===1?' bed had':' beds had')+' none of the chosen steps left, so nothing was changed there.');
   if(fail.length) ovLines.push(fail.length+' failed: '+fail.slice(0,3).join(' | ')+(fail.length>3?' …':''));
-  assignDialog(fail.length?'Override finished with errors':'Override finished', ovLines);
+  assignDialog(fail.length?'Override completed with errors':'Override completed', ovLines);
 }
 
 /* ---- Assign / replace modal: activities (rows) x workers (columns) ---- */
@@ -7534,7 +7534,7 @@ async function mockBackend(action, p){
     avVerifySelected:['Verifying activities…','Activities verified.'],
     gateCheckSelected:['Recording checks…','Activities checked.'],
     dpSubmit:['Dispatching tasks…',null],
-    doOverridePostHarvest:['Recording override…','Override recorded.'],
+    doOverridePostHarvest:['Recording override…',null],
     doVerifyResolve:['Verifying and releasing bed…','Bed verified and released.'],
     doVerifyTurnover:['Verifying and releasing bed…','Bed verified and released.'],
     submitMultiAssign:['Assigning tasks…',null],
