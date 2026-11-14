@@ -6234,7 +6234,10 @@ async function doBulkOverrideRun(){
   phb.busy=false; phb.progress='';
   beds.forEach(b=>{ if(!fail.some(f=>f.indexOf(b.id+':')===0)) delete pha.sel[b.id]; });
   closeModal(); await loadToday();
-  toast('Override recorded on '+ok+' bed'+(ok===1?'':'s')+(skipped?'; '+skipped+' had none of those steps left':'')+(fail.length?'. '+fail.length+' failed: '+fail.slice(0,3).join(' | ')+(fail.length>3?' …':''):'.'), fail.length?9000:4500);
+  const ovLines=['Recorded on '+ok+' bed'+(ok===1?'':'s')+'.'];
+  if(skipped) ovLines.push(skipped+(skipped===1?' bed had':' beds had')+' none of the chosen steps left, so nothing was changed there.');
+  if(fail.length) ovLines.push(fail.length+' failed: '+fail.slice(0,3).join(' | ')+(fail.length>3?' …':''));
+  assignDialog(fail.length?'Override finished with errors':'Override finished', ovLines);
 }
 
 /* ---- Assign / replace modal: activities (rows) x workers (columns) ---- */
