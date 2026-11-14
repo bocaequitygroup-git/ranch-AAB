@@ -939,11 +939,14 @@ function propSchedDate(kind){ try{ if(kind==='ma') return maD().date||''; const 
 async function propOverrideAndRetry(cohortId,kind){
   const reason=String((ui.propReasons||{})[cohortId]||'').trim();
   if(!reason){ toast('Enter an explanation to override the propagation verification.'); return; }
-  try{ await apiCall('verify-propagation',{ cohortId, overrideReason:reason, date:propSchedDate(kind) },60000); toast('Override recorded for '+cohortId+'.'); }
-  catch(e){ toast(e.message); return; }
+  busyShow('Recording override for '+cohortId+'… please wait');
+  try{ await apiCall('verify-propagation',{ cohortId, overrideReason:reason, date:propSchedDate(kind) },60000); }
+  catch(e){ busyHide(); toast(e.message); return; }
+  busyHide();
   if(ui.propReasons) delete ui.propReasons[cohortId];
-  if(kind==='dp') return dpSubmit();
+  if(kind==='dp') return dpSubmit();      /* the retry shows its own progress and its own OK */
   if(kind==='ma') return submitMultiAssign();
+  assignDialog('Override recorded',['The propagation verification for '+cohortId+' was overridden under your name. Your explanation is on record.']);
   await loadToday();
 }
 /* Lets the manager correct the date that triggered a planting-window alert and retry immediately, instead of
@@ -1567,15 +1570,34 @@ const ovLogBy=r=>{ const m=/^Manager override by ([^:]+):/i.exec(String(r.notes|
 /* Manager-selected planting date (PlantingSelection.gs). Captured at assignment, shown on the bed's Activity tab at once,
  * including while a window or propagation alarm is still open. */
 /* The Schedule date is written to the cohort's activity profile the moment it is picked (server: set-planting-selection). */
-function maRecordPickedDate(opts){
-  const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId);
-  const pl=(d.acts||[]).map(a=>String(a).replace(/^ACT_\d+:\s*/,'').trim()).find(a=>/^(transplanting|direct ?seeding)$/i.test(a));
-  if(!pl||!b||!b.cohortId||!d.date) return;
-  const pop=!!(opts&&opts.popup), date=d.date, cid=b.cohortId;
-  if(pop){ ui.dateImpact={ cohortId:cid, bedId:d.bedId, date:date, loading:true }; render(); }
+/* AUDIT FIX: ONE recorder for every place a planting date can be picked (multi-assign, the bed's Activity-tab dispatch panel, One-worker-to-many-beds).
+ * It records the Selected_Planting_Date on the cohort at once (server: set-planting-selection) and opens the date-impact pop-up. Planting on the PLANNED
+ * date never opens it (no acknowledgement, no alarm); opts.force is only for the manager's own "Review date impact" / "Use this date" actions. */
+function diPlantAct(names){ return (names||[]).map(a=>String(a||'').replace(/^ACT_\d+:\s*/,'').trim()).find(a=>/^(transplanting|direct ?seeding)$/i.test(a)); }
+function diPlannedFor(bedId){ try{ const v=bedViewById(bedId); return v&&v.cohortId?String(dispatchDob(v)||'').slice(0,10):''; }catch(e){ return ''; } }
+function diRecordFor(bedId,acts,date,opts){
+  opts=opts||{};
+  const b=(state.beds||[]).find(x=>x.id===bedId), pl=diPlantAct(acts);
+  if(!pl||!b||!b.cohortId||!date) return;
+  const cid=b.cohortId, planned=opts.planned||diPlannedFor(bedId);
+  let pop=!!opts.popup;
+  if(pop&&!opts.force&&planned&&planned===date) pop=false;   /* planned date: record it quietly */
+  if(pop){ ui.dateImpact={ cohortId:cid, bedId:bedId, date:date, loading:true }; render(); }
   const mine=()=>pop&&ui.dateImpact&&ui.dateImpact.date===date&&ui.dateImpact.cohortId===cid;
-  apiCall('set-planting-selection',{ bedId:d.bedId, cohortId:cid, activity:pl, date:date }).then(function(r){ (state.psel=state.psel||{})[cid]=r||{}; if(mine()) ui.dateImpact.loading=false; render(); })
+  apiCall('set-planting-selection',{ bedId:bedId, cohortId:cid, activity:pl, date:date }).then(function(r){
+    (state.psel=state.psel||{})[cid]=r||{};
+    if(mine()){ if(!opts.force&&r&&r.differsFromPlan===false) ui.dateImpact=null; else ui.dateImpact.loading=false; }
+    render(); })
     .catch(function(){ if(mine()){ ui.dateImpact.loading=false; ui.dateImpact.failed=true; render(); } });
+}
+function maRecordPickedDate(opts){
+  const d=maD(); let planned=''; try{ const pl=maPlan(d); planned=(pl&&pl.dob)||''; }catch(e){}
+  diRecordFor(d.bedId,d.acts,d.date,Object.assign({ planned:planned },opts||{}));
+}
+function dpPlantPop(){ const d=ui.dp; if(!d||!d.bedId) return; diRecordFor(d.bedId,d.acts,d.date,{ popup:true }); }
+function owPlantPop(){
+  const d=owD(); const bedId=(d.beds||[]).find(id=>{ const b=(state.beds||[]).find(x=>x.id===id); return b&&b.cohortId; });
+  if(!bedId||!d.activity) return; diRecordFor(bedId,[d.activity],d.date,{ popup:true });
 }
 function pselLoadFor(bedId){
   const b=(state.beds||[]).find(x=>x.id===bedId); if(!b||!b.cohortId) return Promise.resolve();
@@ -1593,10 +1615,10 @@ function maImpactLink(){
   const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId);
   const pl=(d.acts||[]).map(a=>String(a).replace(/^ACT_\d+:\s*/,'').trim()).find(a=>/^(transplanting|direct ?seeding)$/i.test(a));
   if(!pl||!b||!b.cohortId||!d.date) return '';
-  return '<div style="margin:8px 0 0;"><button class="btn btn-outline" style="width:auto;margin:0;padding:6px 12px;font-size:12px;" onclick="maRecordPickedDate({popup:true})">Review date impact</button></div>';
+  return '<div style="margin:8px 0 0;"><button class="btn btn-outline" style="width:auto;margin:0;padding:6px 12px;font-size:12px;" onclick="maRecordPickedDate({popup:true,force:true})">Review date impact</button></div>';
 }
 function dateImpactHTML(){
-  const m=ui.dateImpact; if(!m||ui.modal!=='dispatch') return '';
+  const m=ui.dateImpact; if(!m) return '';
   const head='<div class="ma-head"><h2 style="font-size:16px;margin:0;">Planting date '+esc(diFmt(m.date))+'</h2><button class="btn btn-ghost" style="width:auto;margin:0;padding:4px 10px;" onclick="closeDateImpact()" aria-label="Close">×</button></div>';
   const wrap=inner=>'<div class="overlay" style="z-index:70;"><div class="sheet" role="dialog" aria-modal="true">'+head+inner+'</div></div>';
   if(m.loading) return wrap('<div class="note">Working out what this date changes…</div>');
@@ -1645,13 +1667,16 @@ function diChange(m){
 function closeDateImpact(){ ui.dateImpact=null; render(); }
 function diUseDate(){
   const el=document.getElementById('di-date'), v=el&&el.value; if(!/^\d{4}-\d{2}-\d{2}$/.test(v||'')) return toast('Pick a valid date.');
-  const d=maD(); d.date=v; d.dateTouched=true; const e=document.getElementById('ma-date'); if(e) e.value=v; maRecordPickedDate({popup:true});
+  const d=maD(); d.date=v; d.dateTouched=true; const e=document.getElementById('ma-date'); if(e) e.value=v; maRecordPickedDate({popup:true,force:true});
 }
 async function diAccept(cohortId,date){
   const reason=String((ui.pwReasons||{})[cohortId]||'').trim();
   if(!reason){ toast('Enter an explanation to accept this planting date.'); return; }
-  try{ await apiCall('authorize-planting-window',{ cohortId, date, reason },60000); toast('Accepted and recorded.'); }
-  catch(e){ toast(e.message); return; }
+  busyShow('Recording your acceptance… please wait');
+  try{ await apiCall('authorize-planting-window',{ cohortId, date, reason },60000); }
+  catch(e){ busyHide(); toast(e.message); return; }
+  busyHide();
+  assignDialog('Planting date accepted',['The planting date '+diFmt(date)+' was accepted outside the allowable window under your name. Your explanation is on record.']);
   if(ui.pwReasons) delete ui.pwReasons[cohortId];
   const m=ui.dateImpact; if(m) await pselLoadFor(m.bedId);
 }
@@ -1659,9 +1684,12 @@ async function propOverrideFromPanel(cohortId){
   const reason=String((ui.propReasons||{})[cohortId]||'').trim();
   if(!reason){ toast('Enter an explanation to override the propagation verification.'); return; }
   const m=ui.dateImpact;
-  try{ await apiCall('verify-propagation',{ cohortId, overrideReason:reason, date:m&&m.date||'' },60000); toast('Override recorded for '+cohortId+'.'); }
-  catch(e){ toast(e.message); return; }
+  busyShow('Recording override for '+cohortId+'… please wait');
+  try{ await apiCall('verify-propagation',{ cohortId, overrideReason:reason, date:m&&m.date||'' },60000); }
+  catch(e){ busyHide(); toast(e.message); return; }
+  busyHide();
   if(ui.propReasons) delete ui.propReasons[cohortId];
+  assignDialog('Override recorded',['The propagation verification for '+cohortId+' was overridden under your name. Your explanation is on record.']);
   if(m) await pselLoadFor(m.bedId);
 }
 async function propVerifyFromPanel(cohortId){
@@ -1920,7 +1948,7 @@ function dpInnerLegacy(b,sess){
   <div class="dp-box"><div class="t"><span>Assign worker(s)</span><span class="qsub" style="text-transform:none;letter-spacing:0;">${d.workers.length} selected</span></div>
     <div class="dp-crew">${crewBox}</div>
     <div class="dp-tools"><button onclick="dpAllW(true)">Select all workers</button><button onclick="dpClearW()">Clear workers</button></div>
-    <div class="ma-date" style="margin-top:8px;"><b>Date</b><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(1)">Tomorrow</button><input type="date" id="dp-date" value="${esc(d.date)}" onchange="ui.dp.date=this.value||todayISO()"></div></div>
+    <div class="ma-date" style="margin-top:8px;"><b>Date</b><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:4px 9px;font-size:11.5px;" onclick="dpDate(1)">Tomorrow</button><input type="date" id="dp-date" value="${esc(d.date)}" onchange="ui.dp.date=this.value||todayISO();dpPlantPop()"></div></div>
   <div class="dp-box"><div class="t"><span>Select activities to dispatch (${d.acts.length} selected${d.cat!=='ALL'?' · showing '+esc((ACTION_CATS.find(c=>c[0]===d.cat)||[0,''])[1]):''})</span></div>
     ${dpCatTabs(d,rows)}
     ${ph&&(d.cat==='ALL'||d.cat==='POST')?`<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px;">Required workflow · ${done} / ${tot} complete</div><div class="dc-bar"><i style="width:${tot?Math.round(done/tot*100):0}%"></i></div>`:''}
@@ -2230,15 +2258,15 @@ function dpRefresh(){ const root=document.getElementById('dp-root'), b=dpBed(); 
 function dpTogW(id,on){ const d=ui.dp,i=d.workers.indexOf(id); if(on&&i<0) d.workers.push(id); if(!on&&i>=0) d.workers.splice(i,1); d.result=null; dpRefresh(); }
 function dpAllW(){ ui.dp.workers=(state.workers||[]).map(w=>w.workerId); ui.dp.result=null; dpRefresh(); }
 function dpClearW(){ ui.dp.workers=[]; ui.dp.result=null; dpRefresh(); }
-function dpPickA(n){ if(!n) return; const d=ui.dp; if(!d.acts.includes(n)) d.acts.push(n); d.result=null; dpRefresh(); }
-function dpTogA(n,on){ const d=ui.dp,i=d.acts.indexOf(n); if(on&&i<0) d.acts.push(n); if(!on&&i>=0){ d.acts.splice(i,1); delete d.custom[n]; } d.result=null; dpRefresh(); }
+function dpPickA(n){ if(!n) return; const d=ui.dp; if(!d.acts.includes(n)) d.acts.push(n); d.result=null; dpRefresh(); dpPlantPop(); }
+function dpTogA(n,on){ const d=ui.dp,i=d.acts.indexOf(n); if(on&&i<0) d.acts.push(n); if(!on&&i>=0){ d.acts.splice(i,1); delete d.custom[n]; } d.result=null; dpRefresh(); if(on) dpPlantPop(); }
 function dpAllA(){ const d=ui.dp, b=dpBed(); dpRows(b).filter(r=>!r.off&&(d.cat==='ALL'||r.cat===d.cat)).forEach(r=>{ if(!d.acts.includes(r.name)) d.acts.push(r.name); }); d.result=null; dpRefresh(); }
 function dpClearA(){ ui.dp.acts=[]; ui.dp.custom={}; ui.dp.result=null; dpRefresh(); }
 function dpCustomize(a){ ui.dp.custom[a]=ui.dp.workers.slice(); dpRefresh(); }
 function dpUseDefault(a){ delete ui.dp.custom[a]; dpRefresh(); }
 function dpAddCW(a,id){ if(!id) return; const l=ui.dp.custom[a]=ui.dp.custom[a]||[]; if(!l.includes(id)) l.push(id); dpRefresh(); }
 function dpDelCW(a,id){ const l=ui.dp.custom[a]||[], i=l.indexOf(id); if(i>=0) l.splice(i,1); dpRefresh(); }
-function dpDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); ui.dp.date=v; const e=document.getElementById('dp-date'); if(e) e.value=v; }
+function dpDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); ui.dp.date=v; const e=document.getElementById('dp-date'); if(e) e.value=v;  dpPlantPop(); }
 async function dpSubmit(){
   const d=ui.dp; if(d.busy||!d.acts.length) return;
   if(d.acts.some(a=>!dpCrew(a).length)){ toast('Choose a worker for every selected activity.'); return; }
@@ -2803,8 +2831,8 @@ function owBedsHTML(d){
 function owToggleBed(id,on){ const d=owD(), i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); d.result=null; if(!d.dateTouched) d.date=owDobDate(d); owRefresh(); }
 function owToggleBlock(csv,on){ const d=owD(); csv.split(',').forEach(id=>{ const i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); }); d.result=null; owRefresh(); }
 function owSetWorker(v){ const d=owD(); d.workerId=v||''; d.result=null; owRefresh(); }
-function owSetActivity(v){ const d=owD(); d.activity=v||''; d.beds=d.beds.filter(id=>owEligible(owBed(id),d.activity)); d.result=null; owRefresh(); }
-function owSetDate(n){ const d=owD(); d.date=owIso(n); d.dateTouched=true; owRefresh(); }
+function owSetActivity(v){ const d=owD(); d.activity=v||''; d.beds=d.beds.filter(id=>owEligible(owBed(id),d.activity)); d.result=null; owRefresh(); owPlantPop(); }
+function owSetDate(n){ const d=owD(); d.date=owIso(n); d.dateTouched=true; owRefresh(); owPlantPop(); }
 function owSearch(v){ owD().q=v; owRefresh(); }
 function owRefresh(){
   const g=id=>document.getElementById(id);
@@ -2837,7 +2865,7 @@ function oneWorkerModal(){
       <input class="ma-search" id="ow-search" type="search" placeholder="Search beds (ID, block, crop)…" value="${esc(d.q)}" oninput="owSearch(this.value)"></div>
       <div id="ow-beds" style="overflow-y:auto;max-height:48vh;">${owBedsHTML(d)}</div></div>
   </div>
-  <div class="ma-date"><b>Schedule</b><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(1)">Tomorrow</button><input type="date" id="ow-date" value="${esc(d.date)}" onchange="owD().date=this.value||todayISO();owD().dateTouched=true"></div>
+  <div class="ma-date"><b>Schedule</b><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(1)">Tomorrow</button><input type="date" id="ow-date" value="${esc(d.date)}" onchange="owD().date=this.value||todayISO();owD().dateTouched=true;owPlantPop()"></div>
   <div class="ma-foot" id="ow-foot">${owFootHTML()}</div>`;
 }
 async function submitOneWorker(){
