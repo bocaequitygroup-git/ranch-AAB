@@ -877,7 +877,7 @@ function pwBox(pw,o){
   const row=(k,v)=>v?`<div class="pw-r"><span>${esc(k)}</span><span>${esc(v)}</span></div>`:'';
   const h=pw.harvestFromPlanting;
   const detail=(pw.cropName||pw.cohortId||pw.checkedDate)
-    ? row('Crop',pw.cropName?pw.cropName+(sf?' (Shortfall Override)':''):'')+row('Cohort',pw.cohortId)+row(pw.planted?'Planted (actual)':'Planting date',pw.checkedDate)+row('Allowable planting dates',pw.rangeText)
+    ? row('Crop',pw.cropName?pw.cropName+(sf?' (Shortfall Override)':''):'')+row('Cohort',pw.cohortId)+row(pw.planted?'Planted (actual)':'Planting date',pw.checkedDate)+row('Planned DOB',pw.plannedDob)+row('Allowable planting dates',pw.rangeText)
       +(h?row('Harvest (from planting date)',h.earliest+' \u2192 '+h.latest)+row('Based on',h.basis):'')+row('Window source',PW_BASIS_LABEL[pw.basis]||pw.basis)
     : `<div>${esc(pw.message||'')}</div>`;
   const why=st==='OUTSIDE_AUTH_REQUIRED'?(pw.planted?'This cohort was planted on a date outside the allowable window and no manager acceptance is on record.'
@@ -916,7 +916,8 @@ function propVerifyBox(failed,kind){
   (failed||[]).forEach(f=>{
     if(!f||f.errorCode!=='PROPAGATION_NOT_VERIFIED') return;
     const id=propCohortOf(f); if(!id||seen[id]) return; seen[id]=1;
-    out.push(`<div class="pw-box warn"><div class="pw-t">Propagation verification required</div><div>${esc(plainMsg_(f.message)||'Confirm that the propagated crop is ready to transplant before assigning this task.')}</div><div class="pw-why">Check that the seedlings are ready to transplant, then confirm. The assignment is retried for you.</div><button class="btn btn-danger" onclick="propVerifyAndRetry('${esc(id)}','${esc(kind||'')}')">Confirm propagation ready and retry</button></div>`);
+    const stale=!!(f.staleErrorCode||/no longer covers/i.test(String(f.message||'')));
+    out.push(`<div class="pw-box warn"><div class="pw-t">${stale?'Propagation re-verification required':'Propagation verification required'}</div><div>${esc(plainMsg_(f.message)||'Confirm that the propagated crop is ready to transplant before assigning this task.')}</div><div class="pw-why">Check that the seedlings are ready to transplant, then confirm. The assignment is retried for you.</div><button class="btn btn-danger" onclick="propVerifyAndRetry('${esc(id)}','${esc(kind||'')}')">Confirm propagation ready and retry</button></div>`);
   });
   return out.join('');
 }
@@ -1541,6 +1542,43 @@ function maRecordPickedDate(){
 function pselLoadFor(bedId){
   const b=(state.beds||[]).find(x=>x.id===bedId); if(!b||!b.cohortId) return Promise.resolve();
   return apiCall('get-planting-selection',{ cohortId:b.cohortId }).then(function(r){ (state.psel=state.psel||{})[b.cohortId]=r||{}; render(); }).catch(function(){});
+}
+/* PHASE 3: consequence panel for the date just picked in the multi-assign modal. Reads state.psel[cohortId] (server: psGetSelection_,
+ * which returns harvestWindow / propagation / windowCheck / propagationStale on every set-/get-planting-selection). Inline, never a popup.
+ * Every field is optional: a missing one simply omits its row, so an older backend degrades to showing nothing. */
+function maConsequenceHTML(){
+  const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId);
+  const pl=(d.acts||[]).map(a=>String(a).replace(/^ACT_\d+:\s*/,'').trim()).find(a=>/^(transplanting|direct ?seeding)$/i.test(a));
+  if(!pl||!b||!b.cohortId||!d.date) return '';
+  const s=(state.psel||{})[b.cohortId];
+  if(!s||!s.selectedDate||!(s.harvestWindow||s.propagation||s.windowCheck||s.propagationStale)) return '';
+  if(s.selectedDate!==d.date) return '<div class="note" style="margin:8px 0 0;">Updating the consequences of '+esc(d.date)+'…</div>';
+  const row=(k,v)=>v?'<div class="pw-r"><span>'+esc(k)+'</span><span>'+esc(v)+'</span></div>':'';
+  const h=s.harvestWindow, p=s.propagation, w=s.windowCheck, st=s.propagationStale;
+  const out=[];
+  if(w&&(w.state==='IN_WINDOW'||w.state==='OUTSIDE_AUTHORIZED'||w.state==='OUTSIDE_AUTH_REQUIRED')){
+    const ok=w.state!=='OUTSIDE_AUTH_REQUIRED';
+    out.push('<div class="pw-box'+(w.state==='IN_WINDOW'?' ok':(w.state==='OUTSIDE_AUTHORIZED'?' ok':' warn'))+'" style="margin:8px 0 0;"><div class="pw-t">'+esc(
+      w.state==='IN_WINDOW'?'Inside the allowable planting window':w.state==='OUTSIDE_AUTHORIZED'?'Outside the window, accepted by a manager':'Outside the allowable planting window')+'</div>'
+      +row('Allowable planting dates',w.rangeText)+(ok?'':'<div class="pw-why">Assigning will ask for a written explanation.</div>')+'</div>');
+  }
+  if(h||p){
+    out.push('<div class="pw-box ok" style="margin:8px 0 0;"><div class="pw-t">If planted on '+esc(d.date)+'</div>'
+      +(h?row('Harvest ready',h.earliest+' \u2192 '+h.latest)+row('Based on',h.basis):'')
+      +(p?row('Propagation must start',p.propagationStart)+row('Lead time',p.leadDays+' day(s)'):'')+'</div>');
+  }
+  if(st&&st.stale){
+    out.push('<div class="pw-box warn" style="margin:8px 0 0;"><div class="pw-t">Propagation re-verification required</div><div>'+esc(st.reason||'The earlier propagation sign-off does not cover this date.')+'</div>'
+      +'<div class="pw-why">Check the seedlings against this earlier date, then confirm again. Transplanting cannot be assigned until you do.</div>'
+      +'<button class="btn btn-danger" onclick="propVerifyFromPanel(\''+esc(b.cohortId)+'\')">Confirm propagation ready for '+esc(d.date)+'</button></div>');
+  }
+  return out.join('');
+}
+async function propVerifyFromPanel(cohortId){
+  if(!confirm('Confirm that the propagated crop for '+cohortId+' is ready to transplant on the selected date? Your confirmation is recorded under your name.')) return;
+  try{ await apiCall('verify-propagation',{ cohortId },60000); toast('Propagation confirmed for '+cohortId+'.'); }
+  catch(e){ toast(e.message); return; }
+  const d=maD(); if(d&&d.bedId) await pselLoadFor(d.bedId);
 }
 function pselBlock(b){
   if(!b||!b.cohortId) return '';
@@ -2621,7 +2659,7 @@ function maRefresh(){
   const g=id=>document.getElementById(id); if(!g('ma-acts')) return render();
   const keep=(el,fn)=>{ const t=el.scrollTop; fn(); el.scrollTop=t; };
   keep(g('ma-acts'),()=>{ g('ma-acts').innerHTML=maRowsActs(); }); keep(g('ma-planwrap'),()=>{ g('ma-planwrap').innerHTML=maPlanHTML(); });
-  g('ma-cats').innerHTML=maCatTabs(); g('ma-foot').innerHTML=maFootHTML(); const n=g('ma-n'); if(n) n.textContent=maD().acts.length;
+  g('ma-cats').innerHTML=maCatTabs(); g('ma-foot').innerHTML=maFootHTML(); const cq=g('ma-conseq'); if(cq) cq.innerHTML=maConsequenceHTML(); const n=g('ma-n'); if(n) n.textContent=maD().acts.length;
   const tk=g('ma-tasks'); if(tk) tk.innerHTML=bedTasksBlock(maD().bedId,{buttons:false});
 }
 /* Read-only "Required" block: the finished reset steps (Done, verified, grayed out), then Planting as the one open required step,
@@ -2750,6 +2788,7 @@ function multiAssignModal(){
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(1)">Tomorrow</button>
     <input type="date" id="ma-date" value="${esc(d.date)}" onchange="maD().date=this.value||todayISO();maD().dateTouched=true;maRecordPickedDate()">
     ${(()=>{ const pl=maPlan(d); return pl.dob?`<span class="qsub" style="text-transform:none;letter-spacing:0;">Planned planting date for ${esc(pl.cohortId)}: <b>${esc(pl.dob)}</b></span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maUsePlanned()">Use planned date</button>`:''; })()}</div>
+  <div id="ma-conseq">${maConsequenceHTML()}</div>
   <div class="ma-foot" id="ma-foot">${maFootHTML()}</div>`;
 }
 /* The Schedule box opens on the bed's cohort's DOB - Planned_DOB (the control date; Actual_DOB is never used here) - and the manager can change it from there
