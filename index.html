@@ -917,7 +917,10 @@ function propVerifyBox(failed,kind){
     if(!f||f.errorCode!=='PROPAGATION_NOT_VERIFIED') return;
     const id=propCohortOf(f); if(!id||seen[id]) return; seen[id]=1;
     const stale=!!(f.staleErrorCode||/no longer covers/i.test(String(f.message||'')));
-    out.push(`<div class="pw-box warn"><div class="pw-t">${stale?'Propagation re-verification required':'Propagation verification required'}</div><div>${esc(plainMsg_(f.message)||'Confirm that the propagated crop is ready to transplant before assigning this task.')}</div><div class="pw-why">Check that the seedlings are ready to transplant, then confirm. The assignment is retried for you.</div><button class="btn btn-danger" onclick="propVerifyAndRetry('${esc(id)}','${esc(kind||'')}')">Confirm propagation ready and retry</button></div>`);
+    out.push(`<div class="pw-box warn"><div class="pw-t">${stale?'Propagation re-verification required':'Propagation verification required'}</div><div>${esc(plainMsg_(f.message)||'Confirm that the propagated crop is ready to transplant before assigning this task.')}</div><div class="pw-why">Check that the seedlings are ready to transplant, then confirm. The assignment is retried for you.</div><button class="btn btn-danger" onclick="propVerifyAndRetry('${esc(id)}','${esc(kind||'')}')">Confirm propagation ready and retry</button>
+      <div class="pw-fix" style="margin-top:10px;"><div>Or override this requirement. Write why; the override is recorded under your name for this planting date.</div>
+      <textarea placeholder="Explanation for overriding the propagation verification (required)" oninput="propSetReason('${esc(id)}',this.value)">${esc((ui.propReasons||{})[id]||'')}</textarea>
+      <button class="btn btn-outline" style="width:auto;margin:6px 0 0;padding:6px 12px;" onclick="propOverrideAndRetry('${esc(id)}','${esc(kind||'')}')">Override with explanation and retry</button></div></div>`);
   });
   return out.join('');
 }
@@ -925,6 +928,20 @@ async function propVerifyAndRetry(cohortId,kind){
   if(!confirm('Confirm that the propagated crop for '+cohortId+' is ready to transplant? Your confirmation is recorded under your name.')) return;
   try{ await apiCall('verify-propagation',{ cohortId },60000); toast('Propagation confirmed for '+cohortId+'.'); }
   catch(e){ toast(e.message); return; }
+  if(kind==='dp') return dpSubmit();
+  if(kind==='ma') return submitMultiAssign();
+  await loadToday();
+}
+/* STEP 2: manager override of the nursery (R01) gate. Same route as confirm-and-retry ('verify-propagation') with overrideReason; any non-blank
+ * explanation is accepted. The server records who / when / why / for which planting date, then the assignment is retried. */
+function propSetReason(id,v){ (ui.propReasons=ui.propReasons||{})[id]=v; }
+function propSchedDate(kind){ try{ if(kind==='ma') return maD().date||''; const e=document.getElementById('dp-date'); return e?e.value:''; }catch(e){ return ''; } }
+async function propOverrideAndRetry(cohortId,kind){
+  const reason=String((ui.propReasons||{})[cohortId]||'').trim();
+  if(!reason){ toast('Enter an explanation to override the propagation verification.'); return; }
+  try{ await apiCall('verify-propagation',{ cohortId, overrideReason:reason, date:propSchedDate(kind) },60000); toast('Override recorded for '+cohortId+'.'); }
+  catch(e){ toast(e.message); return; }
+  if(ui.propReasons) delete ui.propReasons[cohortId];
   if(kind==='dp') return dpSubmit();
   if(kind==='ma') return submitMultiAssign();
   await loadToday();
@@ -1121,10 +1138,27 @@ async function rejectAssignment(cohortId){
     toast(cohortId+' rejected.');
   }catch(e){ toast(e.message); }
 }
+/* STEP 3: VERIFICATION DATE. User-facing date of the verification. Defaults to the Actual planting date (follows it until the manager types another),
+ * and may be ANY date on or after it (Verification_Date >= Actual planting date). There is no upper "days ago" limit. The server also records an
+ * immutable System_Logged_At timestamp (new Date()) that the manager never sees or edits. */
+function vpVdField(d){
+  const dob=d.dob||'', v=d.vdateTouched?(d.vdate||''):dob;
+  return '<div class="field"><label>Verification date</label><input id="md-vdate" type="date" value="'+esc(v)+'" min="'+esc(dob)+'" oninput="vpVdSet(this.value)">'
+    +'<div class="qsub">Defaults to the actual planting date. Any date on or after it is accepted, so a late or historical verification is not blocked. The system separately records the exact time you submit this; that cannot be edited.</div></div>';
+}
+function vpVdSet(v){ const d=ui.modalDraft; if(!d) return; d.vdate=v; d.vdateTouched=true; }
+function vpVdSync(){
+  const d=ui.modalDraft, a=document.getElementById('md-dob'), v=document.getElementById('md-vdate'); if(!d||!a||!v) return;
+  d.dob=a.value||d.dob||''; v.min=a.value||''; if(!d.vdateTouched) v.value=a.value||'';
+}
 async function doVerifyPlanting(cohortId, actualDob){
   if(!actualDob){ toast('Enter the actual planting date.'); return; }
   if(!/^\d{4}-\d{2}-\d{2}$/.test(actualDob)){ toast('That is not a valid planting date.'); return; }
   if(actualDob>todayISO()){ toast('The planting date cannot be in the future.'); return; }   // server enforces this too (verifyPlanting_hardened.gs)
+  /* STEP 3: Verification date defaults to the actual planting date; any date on or after it is allowed. */
+  const vdEl=document.getElementById('md-vdate'), verificationDate=(vdEl&&vdEl.value)||actualDob;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(verificationDate)){ toast('That is not a valid verification date.'); return; }
+  if(verificationDate<actualDob){ toast('The verification date cannot be before the actual planting date ('+actualDob+').'); return; }
   /* Warn first: is the date the manager entered inside the crop's allowable planting window? */
   let reason='';
   try{
@@ -1141,7 +1175,7 @@ async function doVerifyPlanting(cohortId, actualDob){
   /* Missed / early planting date: the explanation is sent only for the date it was written for. */
   const dvReason=(ui.modalDraft.pdDate===actualDob)?String((ui.pdReasons||{})[cohortId]||'').trim():'';
   try{
-    const res=await apiCall('verify-planting', Object.assign({ cohortId, actualDob }, reason?{ windowOverrideReason:reason }:{}, dvReason?{ deviationReason:dvReason }:{}));
+    const res=await apiCall('verify-planting', Object.assign({ cohortId, actualDob, verificationDate }, reason?{ windowOverrideReason:reason }:{}, dvReason?{ deviationReason:dvReason }:{}));
     if(ui.pwReasons) delete ui.pwReasons[cohortId];
     if(ui.pdReasons) delete ui.pdReasons[cohortId];
     const dv=res&&res.plantingDeviation, h=dv&&dv.harvest;
@@ -1190,7 +1224,7 @@ function closePanel(){ ui.selectedBed=null; render(); }
 function setOverlay(mode){ ui.overlay=mode; render(); }
 function setTab(t){ ui.tab=t; render(); }
 function openModal(name, draft){ ui.modal=name; ui.modalDraft=draft||{}; render(); }
-function closeModal(){ ui.modal=null; ui.modalDraft={}; ui.focusCohort=null; ui.focusPending=false; render(); }
+function closeModal(){ ui.dateImpact=null; ui.modal=null; ui.modalDraft={}; ui.focusCohort=null; ui.focusPending=false; render(); }
 
 function bedFill(bed){
   if(ui.overlay==='queue'){ const q=state.queueByBed[bed.id]; return QUEUE_COLOR[q||'NONE']; }
@@ -1533,46 +1567,102 @@ const ovLogBy=r=>{ const m=/^Manager override by ([^:]+):/i.exec(String(r.notes|
 /* Manager-selected planting date (PlantingSelection.gs). Captured at assignment, shown on the bed's Activity tab at once,
  * including while a window or propagation alarm is still open. */
 /* The Schedule date is written to the cohort's activity profile the moment it is picked (server: set-planting-selection). */
-function maRecordPickedDate(){
+function maRecordPickedDate(opts){
   const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId);
   const pl=(d.acts||[]).map(a=>String(a).replace(/^ACT_\d+:\s*/,'').trim()).find(a=>/^(transplanting|direct ?seeding)$/i.test(a));
   if(!pl||!b||!b.cohortId||!d.date) return;
-  apiCall('set-planting-selection',{ bedId:d.bedId, cohortId:b.cohortId, activity:pl, date:d.date }).then(function(r){ (state.psel=state.psel||{})[b.cohortId]=r||{}; render(); }).catch(function(){});
+  const pop=!!(opts&&opts.popup), date=d.date, cid=b.cohortId;
+  if(pop){ ui.dateImpact={ cohortId:cid, bedId:d.bedId, date:date, loading:true }; render(); }
+  const mine=()=>pop&&ui.dateImpact&&ui.dateImpact.date===date&&ui.dateImpact.cohortId===cid;
+  apiCall('set-planting-selection',{ bedId:d.bedId, cohortId:cid, activity:pl, date:date }).then(function(r){ (state.psel=state.psel||{})[cid]=r||{}; if(mine()) ui.dateImpact.loading=false; render(); })
+    .catch(function(){ if(mine()){ ui.dateImpact.loading=false; ui.dateImpact.failed=true; render(); } });
 }
 function pselLoadFor(bedId){
   const b=(state.beds||[]).find(x=>x.id===bedId); if(!b||!b.cohortId) return Promise.resolve();
   return apiCall('get-planting-selection',{ cohortId:b.cohortId }).then(function(r){ (state.psel=state.psel||{})[b.cohortId]=r||{}; render(); }).catch(function(){});
 }
-/* PHASE 3: consequence panel for the date just picked in the multi-assign modal. Reads state.psel[cohortId] (server: psGetSelection_,
- * which returns harvestWindow / propagation / windowCheck / propagationStale on every set-/get-planting-selection). Inline, never a popup.
- * Every field is optional: a missing one simply omits its row, so an older backend degrades to showing nothing. */
-function maConsequenceHTML(){
+/* STEP 1: DATE-IMPACT POP-UP. Opens the moment the manager picks a planting date in the multi-assign modal (date field, Today / Tomorrow,
+ * Use planned date, or ticking a planting activity). Reads state.psel[cohortId] (server psGetSelection_: harvestWindow, plannedHarvest,
+ * propagation, windowCheck, propagationStale). It is a layer ABOVE the assign modal (ui.dateImpact), so the assignment in progress is never lost.
+ * Every server field is optional: a missing one omits its row. */
+const diDay=(a,b)=>{ const p=x=>{ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(x||'')); return m?Date.UTC(+m[1],+m[2]-1,+m[3]):NaN; }; const n=Math.round((p(b)-p(a))/864e5); return isNaN(n)?null:n; };
+const diAdd=(iso,n)=>{ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||'')); if(!m) return ''; return new Date(Date.UTC(+m[1],+m[2]-1,+m[3]+n)).toISOString().slice(0,10); };
+const diFmt=x=>{ try{ return /^\d{4}-\d{2}-\d{2}/.test(String(x||''))?calFull(String(x).slice(0,10)):(x||'—'); }catch(e){ return x||'—'; } };
+const diShift=n=>n==null?'':(n===0?'same as plan':Math.abs(n)+' day'+(Math.abs(n)===1?'':'s')+(n>0?' later':' earlier')+' than plan');
+function maImpactLink(){
   const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId);
   const pl=(d.acts||[]).map(a=>String(a).replace(/^ACT_\d+:\s*/,'').trim()).find(a=>/^(transplanting|direct ?seeding)$/i.test(a));
   if(!pl||!b||!b.cohortId||!d.date) return '';
-  const s=(state.psel||{})[b.cohortId];
-  if(!s||!s.selectedDate||!(s.harvestWindow||s.propagation||s.windowCheck||s.propagationStale)) return '';
-  if(s.selectedDate!==d.date) return '<div class="note" style="margin:8px 0 0;">Updating the consequences of '+esc(d.date)+'…</div>';
+  return '<div style="margin:8px 0 0;"><button class="btn btn-outline" style="width:auto;margin:0;padding:6px 12px;font-size:12px;" onclick="maRecordPickedDate({popup:true})">Review date impact</button></div>';
+}
+function dateImpactHTML(){
+  const m=ui.dateImpact; if(!m||ui.modal!=='dispatch') return '';
+  const head='<div class="ma-head"><h2 style="font-size:16px;margin:0;">Planting date '+esc(diFmt(m.date))+'</h2><button class="btn btn-ghost" style="width:auto;margin:0;padding:4px 10px;" onclick="closeDateImpact()" aria-label="Close">×</button></div>';
+  const wrap=inner=>'<div class="overlay" style="z-index:70;"><div class="sheet" role="dialog" aria-modal="true">'+head+inner+'</div></div>';
+  if(m.loading) return wrap('<div class="note">Working out what this date changes…</div>');
+  const s=(state.psel||{})[m.cohortId];
+  if(m.failed||!s||s.selectedDate!==m.date) return wrap('<div class="pw-box warn"><div class="pw-t">Could not work out the impact of this date</div><div>The date was not confirmed as saved. Pick the date again.</div></div>'+diChange(m));
   const row=(k,v)=>v?'<div class="pw-r"><span>'+esc(k)+'</span><span>'+esc(v)+'</span></div>':'';
-  const h=s.harvestWindow, p=s.propagation, w=s.windowCheck, st=s.propagationStale;
+  const h=s.harvestWindow, ph=s.plannedHarvest, p=s.propagation, w=s.windowCheck, st=s.propagationStale, planned=s.plannedDob;
+  const hs=(h&&ph&&ph.earliest)?diDay(ph.earliest,h.earliest):null;
   const out=[];
-  if(w&&(w.state==='IN_WINDOW'||w.state==='OUTSIDE_AUTHORIZED'||w.state==='OUTSIDE_AUTH_REQUIRED')){
-    const ok=w.state!=='OUTSIDE_AUTH_REQUIRED';
-    out.push('<div class="pw-box'+(w.state==='IN_WINDOW'?' ok':(w.state==='OUTSIDE_AUTHORIZED'?' ok':' warn'))+'" style="margin:8px 0 0;"><div class="pw-t">'+esc(
-      w.state==='IN_WINDOW'?'Inside the allowable planting window':w.state==='OUTSIDE_AUTHORIZED'?'Outside the window, accepted by a manager':'Outside the allowable planting window')+'</div>'
-      +row('Allowable planting dates',w.rangeText)+(ok?'':'<div class="pw-why">Assigning will ask for a written explanation.</div>')+'</div>');
-  }
-  if(h||p){
-    out.push('<div class="pw-box ok" style="margin:8px 0 0;"><div class="pw-t">If planted on '+esc(d.date)+'</div>'
-      +(h?row('Harvest ready',h.earliest+' \u2192 '+h.latest)+row('Based on',h.basis):'')
-      +(p?row('Propagation must start',p.propagationStart)+row('Lead time',p.leadDays+' day(s)'):'')+'</div>');
-  }
-  if(st&&st.stale){
-    out.push('<div class="pw-box warn" style="margin:8px 0 0;"><div class="pw-t">Propagation re-verification required</div><div>'+esc(st.reason||'The earlier propagation sign-off does not cover this date.')+'</div>'
+  // 1. planting date vs the plan
+  out.push('<div class="pw-box ok"><div class="pw-t">Planting date</div>'+row('Selected date',diFmt(s.selectedDate))+row('Original planned date',planned?diFmt(planned):'none on record')
+    +(planned?row('Difference',diShift(diDay(planned,s.selectedDate))):'')+'<div class="pw-why">Saved to the cohort now and shown in the bed’s Activity tab.</div></div>');
+  // 2. propagation
+  if(p){
+    const origStart=planned?diAdd(planned,-p.leadDays):'';
+    out.push('<div class="pw-box ok"><div class="pw-t">Propagation</div>'
+      +'<div>This crop needs <b>'+esc(p.leadDays)+' day'+(p.leadDays===1?'':'s')+'</b> of propagation before it is ready to plant.</div>'
+      +row('New propagation start',diFmt(p.propagationStart))+(origStart?row('Original start (planned date)',diFmt(origStart)):'')+'</div>');
+  } else out.push('<div class="pw-box ok"><div class="pw-t">Propagation</div><div>No propagation lead time applies to this crop (direct-seeded or none on file).</div></div>');
+  if(st&&st.stale) out.push('<div class="pw-box warn"><div class="pw-t">Propagation re-verification required</div><div>'+esc(st.reason||'The earlier propagation sign-off does not cover this date.')+'</div>'
       +'<div class="pw-why">Check the seedlings against this earlier date, then confirm again. Transplanting cannot be assigned until you do.</div>'
-      +'<button class="btn btn-danger" onclick="propVerifyFromPanel(\''+esc(b.cohortId)+'\')">Confirm propagation ready for '+esc(d.date)+'</button></div>');
-  }
-  return out.join('');
+      +'<button class="btn btn-danger" onclick="propVerifyFromPanel(\''+esc(m.cohortId)+'\')">Confirm propagation ready for '+esc(diFmt(s.selectedDate))+'</button>'
+      +'<div class="pw-why">Or override it with an explanation:</div><textarea placeholder="Explanation for overriding the propagation verification (required)" oninput="propSetReason(\''+esc(m.cohortId)+'\',this.value)">'+esc((ui.propReasons||{})[m.cohortId]||'')+'</textarea>'
+      +'<button class="btn btn-outline" onclick="propOverrideFromPanel(\''+esc(m.cohortId)+'\')">Override with explanation</button></div>');
+  // 3. harvest
+  if(h) out.push('<div class="pw-box ok"><div class="pw-t">Harvest</div>'
+      +row('New projected harvest',diFmt(h.earliest)+' → '+diFmt(h.latest))+(ph&&ph.earliest?row('Original planned harvest',diFmt(ph.earliest)+' → '+diFmt(ph.latest)):'')
+      +(hs!=null?row('Shift',diShift(hs)):'')+(h.minDays?'<div class="pw-why">'+esc(h.minDays+'–'+h.maxDays)+' days from planting to first harvest.</div>':'')+'</div>');
+  // 4. allowable window
+  if(w&&(w.state==='IN_WINDOW'||w.state==='OUTSIDE_AUTHORIZED'||w.state==='OUTSIDE_AUTH_REQUIRED')){
+    const need=w.state==='OUTSIDE_AUTH_REQUIRED', id=esc(m.cohortId), dt=esc(s.selectedDate);
+    out.push('<div class="pw-box'+(need?'':' ok')+'"><div class="pw-t">'+esc(w.state==='IN_WINDOW'?'Inside the allowable planting window':w.state==='OUTSIDE_AUTHORIZED'?'Outside the window, accepted by a manager':'Outside the allowable planting window')+'</div>'
+      +row('Allowable planting dates',w.rangeText)
+      +(need?'<div class="pw-why">You can keep this date or change it. Keeping it outside the window needs your written explanation.</div>'
+        +'<textarea placeholder="Explanation for planting on '+esc(diFmt(s.selectedDate))+' (required)" oninput="pwSetReason(\''+id+'\',this.value)">'+esc((ui.pwReasons||{})[m.cohortId]||'')+'</textarea>'
+        +'<button class="btn btn-danger" onclick="diAccept(\''+id+'\',\''+dt+'\')">Accept '+esc(diFmt(s.selectedDate))+'</button>':'')+'</div>');
+  } else if(w&&w.state==='NO_WINDOW') out.push('<div class="note">No allowable planting window is on file for this crop, so nothing restricts this date.</div>');
+  // 5. irrigation
+  out.push('<div class="pw-box warn"><div class="pw-t">Irrigation</div><div>'+(s.differsFromPlan?'Because this date differs from the plan, the irrigation schedule for this cohort will shift to follow the new planting date once planting is verified.':'Irrigation schedules start from the verified planting date. If the verified date differs from this one, the irrigation schedule will shift with it.')+'</div></div>');
+  return wrap(out.join('')+diChange(m)+'<div class="qbtns"><button class="btn btn-primary" onclick="closeDateImpact()">OK</button></div>');
+}
+function diChange(m){
+  return '<div class="pw-box" style="border-color:var(--line);background:var(--paper);"><div class="pw-t">Change the date</div><div class="pw-fix" style="border:0;padding:0;margin:0;"><input type="date" id="di-date" value="'+esc(m.date)+'">'
+    +'<button class="btn btn-outline" style="width:auto;margin:0;padding:6px 12px;" onclick="diUseDate()">Use this date</button></div></div>';
+}
+function closeDateImpact(){ ui.dateImpact=null; render(); }
+function diUseDate(){
+  const el=document.getElementById('di-date'), v=el&&el.value; if(!/^\d{4}-\d{2}-\d{2}$/.test(v||'')) return toast('Pick a valid date.');
+  const d=maD(); d.date=v; d.dateTouched=true; const e=document.getElementById('ma-date'); if(e) e.value=v; maRecordPickedDate({popup:true});
+}
+async function diAccept(cohortId,date){
+  const reason=String((ui.pwReasons||{})[cohortId]||'').trim();
+  if(!reason){ toast('Enter an explanation to accept this planting date.'); return; }
+  try{ await apiCall('authorize-planting-window',{ cohortId, date, reason },60000); toast('Accepted and recorded.'); }
+  catch(e){ toast(e.message); return; }
+  if(ui.pwReasons) delete ui.pwReasons[cohortId];
+  const m=ui.dateImpact; if(m) await pselLoadFor(m.bedId);
+}
+async function propOverrideFromPanel(cohortId){
+  const reason=String((ui.propReasons||{})[cohortId]||'').trim();
+  if(!reason){ toast('Enter an explanation to override the propagation verification.'); return; }
+  const m=ui.dateImpact;
+  try{ await apiCall('verify-propagation',{ cohortId, overrideReason:reason, date:m&&m.date||'' },60000); toast('Override recorded for '+cohortId+'.'); }
+  catch(e){ toast(e.message); return; }
+  if(ui.propReasons) delete ui.propReasons[cohortId];
+  if(m) await pselLoadFor(m.bedId);
 }
 async function propVerifyFromPanel(cohortId){
   if(!confirm('Confirm that the propagated crop for '+cohortId+' is ready to transplant on the selected date? Your confirmation is recorded under your name.')) return;
@@ -2289,7 +2379,8 @@ function activityProfileModal(){
 
   return `${header}${status}${planting}${assign}${time}${output}${review}${record}${close}`;
 }
-function modalHTML(){
+function modalHTML(){ return modalHTMLBase()+dateImpactHTML(); }
+function modalHTMLBase(){
   if(!ui.modal) return '';
   let inner='';
   if(ui.modal==='dispatch') inner=ui.modalDraft.fixedActivity?dispatchModal():multiAssignModal();
@@ -2600,7 +2691,7 @@ function maVisible(){ const d=maD(), q=d.q.trim().toLowerCase();
 function maOpenSet(){ const o={}; bedSessions(maD().bedId).forEach(s=>{ o[String(s.workerId||'').toUpperCase()+'|'+s.activity]=1; }); return o; }
 function maWName(id){ return ((state.workers||[]).find(w=>w.workerId===id)||{}).name||id; }
 function workerLoad(id){ return (state.sessions||[]).filter(s=>s.workerId===id && String(s.status||'').toUpperCase()!=='COMPLETED').length; }
-function maToggleAct(name,on){ maToggleActCore(name,on); maRecordPickedDate(); }
+function maToggleAct(name,on){ maToggleActCore(name,on); maRecordPickedDate({popup:!!on&&/^(transplanting|direct ?seeding)$/i.test(String(name).replace(/^ACT_\d+:\s*/,'').trim())}); }
 function maToggleActCore(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } d.result=null; maAutoDate(); maRefresh(); }
 function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0){ d.acts.push(a.name); d.map[a.name]=d.map[a.name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[a.name]; } }); d.result=null; maRefresh(); }
 function maAddWorker(act,id){ if(!id) return; const l=maD().map[act]=maD().map[act]||[]; if(!l.includes(id)) l.push(id); maD().result=null; maRefresh(); }
@@ -2659,7 +2750,7 @@ function maRefresh(){
   const g=id=>document.getElementById(id); if(!g('ma-acts')) return render();
   const keep=(el,fn)=>{ const t=el.scrollTop; fn(); el.scrollTop=t; };
   keep(g('ma-acts'),()=>{ g('ma-acts').innerHTML=maRowsActs(); }); keep(g('ma-planwrap'),()=>{ g('ma-planwrap').innerHTML=maPlanHTML(); });
-  g('ma-cats').innerHTML=maCatTabs(); g('ma-foot').innerHTML=maFootHTML(); const cq=g('ma-conseq'); if(cq) cq.innerHTML=maConsequenceHTML(); const n=g('ma-n'); if(n) n.textContent=maD().acts.length;
+  g('ma-cats').innerHTML=maCatTabs(); g('ma-foot').innerHTML=maFootHTML(); const cq=g('ma-conseq'); if(cq) cq.innerHTML=maImpactLink(); const n=g('ma-n'); if(n) n.textContent=maD().acts.length;
   const tk=g('ma-tasks'); if(tk) tk.innerHTML=bedTasksBlock(maD().bedId,{buttons:false});
 }
 /* Read-only "Required" block: the finished reset steps (Done, verified, grayed out), then Planting as the one open required step,
@@ -2786,9 +2877,9 @@ function multiAssignModal(){
   <div class="ma-date"><b>Schedule</b>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(0)">Today</button>
     <button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maSetDate(1)">Tomorrow</button>
-    <input type="date" id="ma-date" value="${esc(d.date)}" onchange="maD().date=this.value||todayISO();maD().dateTouched=true;maRecordPickedDate()">
+    <input type="date" id="ma-date" value="${esc(d.date)}" onchange="maD().date=this.value||todayISO();maD().dateTouched=true;maRecordPickedDate({popup:true})">
     ${(()=>{ const pl=maPlan(d); return pl.dob?`<span class="qsub" style="text-transform:none;letter-spacing:0;">Planned planting date for ${esc(pl.cohortId)}: <b>${esc(pl.dob)}</b></span><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="maUsePlanned()">Use planned date</button>`:''; })()}</div>
-  <div id="ma-conseq">${maConsequenceHTML()}</div>
+  <div id="ma-conseq">${maImpactLink()}</div>
   <div class="ma-foot" id="ma-foot">${maFootHTML()}</div>`;
 }
 /* The Schedule box opens on the bed's cohort's DOB - Planned_DOB (the control date; Actual_DOB is never used here) - and the manager can change it from there
@@ -2810,8 +2901,8 @@ function defaultSchedDate(bedId){
 function maPlan(d){ let v=null; try{ v=bedViewById(d.bedId); }catch(e){} const dob=(v&&v.cohortId&&!v.plantingDate&&dispatchDob(v))?String(dispatchDob(v)).slice(0,10):''; return {dob:/^\d{4}-\d{2}-\d{2}$/.test(dob)?dob:'',cohortId:(v&&v.cohortId)||'',crop:(v&&v.cropName)||''}; }
 function maAutoDate(){ const d=maD(); if(d.dateTouched) return;
   d.date=defaultSchedDate(d.bedId); const e=document.getElementById('ma-date'); if(e) e.value=d.date; }
-function maUsePlanned(){ const d=maD(), pl=maPlan(d); if(!pl.dob) return; d.date=pl.dob<todayISO()?todayISO():pl.dob; d.dateTouched=true; const e=document.getElementById('ma-date'); if(e) e.value=d.date; maRecordPickedDate(); }
-function maSetDate(n){ maD().dateTouched=true; const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; maRecordPickedDate(); }
+function maUsePlanned(){ const d=maD(), pl=maPlan(d); if(!pl.dob) return; d.date=pl.dob<todayISO()?todayISO():pl.dob; d.dateTouched=true; const e=document.getElementById('ma-date'); if(e) e.value=d.date; maRecordPickedDate({popup:true}); }
+function maSetDate(n){ maD().dateTouched=true; const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); maD().date=v; const e=document.getElementById('ma-date'); if(e) e.value=v; maRecordPickedDate({popup:true}); }
 async function submitMultiAssign(){
   const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||!c.fresh) return;
   d.busy=true; d.result=null; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
@@ -3027,7 +3118,8 @@ function verifyPlantingModal(){
   ${pdPlannedLine(d)}
   ${vpSelLine(d)}
   ${pdAskBox(d.pd,d.cohortId)}
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" max="${esc(today)}" oninput="vpSelUpdate()">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" max="${esc(today)}" oninput="vpSelUpdate();vpVdSync()">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
+  ${vpVdField(d)}
   <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':((d.pd)?'Record explanation and verify planting':'Verify planting')}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
