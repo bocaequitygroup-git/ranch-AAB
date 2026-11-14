@@ -6210,7 +6210,14 @@ function phBulkOverrideModal(){
   <button class="btn btn-primary" ${dis} onclick="doBulkOverride()">${phb.busy?esc(phb.progress||'Working…'):'Override selected steps on '+n+' bed'+(n===1?'':'s')}</button>
   <button class="btn btn-ghost" ${dis} onclick="closeModal()">Cancel</button>`;
 }
+/* Any unexpected error inside the override used to leave phb.busy set, so the button stayed disabled and every later click did nothing. */
 async function doBulkOverride(){
+  if(phb.busy) return;
+  try{ await doBulkOverrideRun(); }
+  catch(e){ phb.busy=false; phb.progress=''; toast('The override did not finish: '+((e&&e.message)||e), 9000); }
+  finally{ phb.busy=false; phb.progress=''; }
+}
+async function doBulkOverrideRun(){
   if(phb.busy) return;
   const d=ui.modalDraft, beds=phbBeds(d.ids);
   if(!d.selected.length){ toast('Select at least one step to override.'); return; }
