@@ -1257,7 +1257,7 @@ function openModal(name, draft){
   if(name==='dispatch'&&ui.modalDraft.bedId&&!ui.modalDraft.fixedActivity) maRestore(ui.modalDraft);
   render();
 }
-function closeModal(){ ui.dateImpact=null; ui.modal=null; ui.modalDraft={}; ui.focusCohort=null; ui.focusPending=false; render(); }
+function closeModal(){ maPersist(); ui.dateImpact=null; ui.modal=null; ui.modalDraft={}; ui.focusCohort=null; ui.focusPending=false; render(); }
 
 function bedFill(bed){
   if(ui.overlay==='queue'){ const q=state.queueByBed[bed.id]; return QUEUE_COLOR[q||'NONE']; }
@@ -2921,6 +2921,7 @@ async function submitOneWorker(){
   owRefresh();
 }
 function multiAssignModal(){
+  maPersist();   /* save exactly what is about to be shown (activities, workers, date) */
   const d=maD(), b=(state.beds||[]).find(x=>x.id===d.bedId)||{};
   return `<div class="ma-head"><h2 style="font-size:16px;margin:0;">Assign activities · Bed ${esc(d.bedId)}</h2><span class="qsub">${esc(b.cropName||'')}${b.currentStage?' · '+esc(b.currentStage):''}</span></div>
   ${reqStepsHTML(b)}
