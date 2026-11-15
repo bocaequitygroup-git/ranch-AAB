@@ -906,7 +906,7 @@ function pwWarnHTML(failed,kind){
     if(!pw) return; const key=pw.cohortId||pw.message; if(seen[key]) return; seen[key]=1;
     out.push(pwBox(pw,{ retry:kind }));
   });
-  return out.join('')+propVerifyBox(failed,kind);
+  return out.join('')+propVerifyBox(failed,kind)+mgrOvBox(failed,kind);
 }
 /* NURSERY SIGN-OFF (R01) at assignment: Transplanting on a greenhouse-propagated cohort is refused until the manager marks propagation verified.
  * The server route verify-propagation {cohortId} exists; this gives the manager the button that calls it, then retries the assignment. */
@@ -923,6 +923,23 @@ function propVerifyBox(failed,kind){
       <button class="btn btn-outline" style="width:auto;margin:6px 0 0;padding:6px 12px;" onclick="propOverrideAndRetry('${esc(id)}','${esc(kind||'')}')">Override with explanation and retry</button></div></div>`);
   });
   return out.join('');
+}
+
+/* MANAGER OVERRIDE (rule 2): a planting rule that refuses a task (bed not released, wrong stage, planting not verified, ...) can be overridden with an
+ * explanation in ANY wording. The server (start-sessions overrideReason) lets the gate pass and records who / when / why (MANAGER_OVERRIDE_LOG). */
+const MGR_OV_CODES=['BED_NOT_RELEASED','BED_NOT_PLANTABLE','BED_TURNOVER_INCOMPLETE','STAGE_NOT_ALLOWED','PLANTING_NOT_VERIFIED','WRONG_PLANTING_METHOD','PLANTING_METHOD_UNKNOWN'];
+const MGR_OV_LABEL={ BED_NOT_RELEASED:'The bed has not been released for planting.', BED_NOT_PLANTABLE:'The bed is not in a plantable status.', BED_TURNOVER_INCOMPLETE:'Reset work on the bed is unfinished or unverified.', STAGE_NOT_ALLOWED:'This activity is not allowed at the cohort\u2019s current stage.', PLANTING_NOT_VERIFIED:'The cohort\u2019s planting has not been verified yet.', WRONG_PLANTING_METHOD:'This is not the planting method set for the crop.', PLANTING_METHOD_UNKNOWN:'The crop has no planting method on file.' };
+function mgrOvSetReason(v){ ui.mgrOvReason=v; }
+function mgrOvBox(failed,kind){
+  const seen={}, rows=(failed||[]).filter(f=>f&&MGR_OV_CODES.includes(f.errorCode)&&!seen[f.errorCode]&&(seen[f.errorCode]=1)); if(!rows.length) return '';
+  return `<div class="pw-box warn"><div class="pw-t">A rule blocked this task</div>${rows.map(f=>`<div>${esc(MGR_OV_LABEL[f.errorCode]||f.errorCode)}</div>`).join('')}
+    <div class="pw-why">You can override this rule. Write why, in your own words; the override is recorded under your name.</div>
+    <textarea placeholder="Explanation for the override (required)" oninput="mgrOvSetReason(this.value)">${esc(ui.mgrOvReason||'')}</textarea>
+    <button class="btn btn-danger" onclick="mgrOvRetry('${esc(kind||'')}')">Override with explanation and retry</button></div>`;
+}
+async function mgrOvRetry(kind){
+  if(!String(ui.mgrOvReason||'').trim()){ toast('Enter an explanation to override this rule.'); return; }
+  return kind==='dp' ? dpSubmit() : submitMultiAssign();
 }
 async function propVerifyAndRetry(cohortId,kind){
   if(!confirm('Confirm that the propagated crop for '+cohortId+' is ready to transplant? Your confirmation is recorded under your name.')) return;
@@ -1154,10 +1171,22 @@ function vpVdSync(){
   const d=ui.modalDraft, a=document.getElementById('md-dob'), v=document.getElementById('md-vdate'); if(!d||!a||!v) return;
   d.dob=a.value||d.dob||''; v.min=a.value||''; if(!d.vdateTouched) v.value=a.value||'';
 }
+/* MANAGER OVERRIDE inside Verify planting: a future planting date, or no finished planting activity, is refused unless the manager explains (any wording). */
+function vpOvSet(v){ const d=ui.modalDraft; if(d) d.ovReason=v; }
+function vpOvBox(d){
+  if(!d||!d.ov) return '';
+  return `<div class="pw-box warn"><div class="pw-t">Manager override</div><div>${esc(d.ov.message||'')}</div><div class="pw-why">You can override this rule. Write why, in your own words; it is recorded under your name.</div>
+    <textarea placeholder="Explanation for the override (required)" oninput="vpOvSet(this.value)">${esc(d.ovReason||'')}</textarea></div>`;
+}
 async function doVerifyPlanting(cohortId, actualDob){
   if(!actualDob){ toast('Enter the actual planting date.'); return; }
   if(!/^\d{4}-\d{2}-\d{2}$/.test(actualDob)){ toast('That is not a valid planting date.'); return; }
-  if(actualDob>todayISO()){ toast('The planting date cannot be in the future.'); return; }   // server enforces this too (verifyPlanting_hardened.gs)
+  const ovReason=ui.modalDraft.ov?String(ui.modalDraft.ovReason||'').trim():'';
+  if(actualDob>todayISO() && !ovReason){   /* a future date is a rule the manager may override with an explanation (server: verifyPlanting_hardened.gs) */
+    ui.modalDraft.ov={ code:'FUTURE_ACTUAL_DOB', message:'The planting date '+actualDob+' is in the future. Planting is normally verified only after the crop is in the ground.' }; ui.modalDraft.dob=actualDob; render();
+    toast('Future date. Enter an explanation to override this rule, then verify again.'); return;
+  }
+  if(ui.modalDraft.ov && !ovReason){ toast('Enter an explanation to override this rule.'); return; }
   /* STEP 3: Verification date defaults to the actual planting date; any date on or after it is allowed. */
   const vdEl=document.getElementById('md-vdate'), verificationDate=(vdEl&&vdEl.value)||actualDob;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(verificationDate)){ toast('That is not a valid verification date.'); return; }
@@ -1178,7 +1207,9 @@ async function doVerifyPlanting(cohortId, actualDob){
   /* Missed / early planting date: the explanation is sent only for the date it was written for. */
   const dvReason=(ui.modalDraft.pdDate===actualDob)?String((ui.pdReasons||{})[cohortId]||'').trim():'';
   try{
-    const res=await apiCall('verify-planting', Object.assign({ cohortId, actualDob, verificationDate }, reason?{ windowOverrideReason:reason }:{}, dvReason?{ deviationReason:dvReason }:{}));
+    busyShow('Verifying planting… please wait');
+    const res=await apiCall('verify-planting', Object.assign({ cohortId, actualDob, verificationDate }, reason?{ windowOverrideReason:reason }:{}, dvReason?{ deviationReason:dvReason }:{}, ovReason?{ overrideReason:ovReason }:{}));
+    busyHide();
     if(ui.pwReasons) delete ui.pwReasons[cohortId];
     if(ui.pdReasons) delete ui.pdReasons[cohortId];
     const dv=res&&res.plantingDeviation, h=dv&&dv.harvest;
@@ -1186,8 +1217,15 @@ async function doVerifyPlanting(cohortId, actualDob){
     if(dv){ const n=Math.abs(dv.varianceDays||0); msg='Planting verified ('+n+' day'+(n===1?'':'s')+' '+String(dv.timing||'').toLowerCase()+').'+(h?' Harvest window moved '+(h.shiftDays>0?'+':'')+h.shiftDays+' day'+(Math.abs(h.shiftDays)===1?'':'s')+' to '+h.earliest+' \u2192 '+h.latest+'.':''); }
     if(res&&res.plantingDeviationWarning) msg+=' '+res.plantingDeviationWarning;
     else if(dv&&dv.warning) msg+=' '+dv.warning;
-    toast(msg); closeModal(); execInvalidate(); await loadToday();
+    const wasOv=!!(res&&res.overridden&&res.overridden.length);
+    closeModal(); execInvalidate(); await loadToday();
+    if(wasOv) assignDialog('Planting verified under manager override',[msg,'The rule was overridden under your name and your explanation is on record.']); else toast(msg);
   }catch(e){
+    busyHide();
+    if(e&&(e.code==='FUTURE_ACTUAL_DOB'||e.code==='PLANTING_ACTIVITY_NOT_DONE')){
+      ui.modalDraft.ov={ code:e.code, message:e.message }; ui.modalDraft.dob=actualDob; render();
+      toast('A rule blocked this. Enter an explanation to override it, then verify again.'); return;
+    }
     if(e&&e.code==='DEVIATION_REASON_REQUIRED'){
       ui.modalDraft.pd={ message:e.message }; ui.modalDraft.pdDate=actualDob; ui.modalDraft.dob=actualDob; render();
       toast('This date differs from the selected or planned date. Enter a reason for the date change, then verify again.'); return;
@@ -1601,7 +1639,7 @@ const ovLogBy=r=>{ const m=/^Manager override by ([^:]+):/i.exec(String(r.notes|
  * including while a window or propagation alarm is still open. */
 /* The Schedule date is written to the cohort's activity profile the moment it is picked (server: set-planting-selection). */
 /* AUDIT FIX: ONE recorder for every place a planting date can be picked (multi-assign, the bed's Activity-tab dispatch panel, One-worker-to-many-beds).
- * It records the Selected_Planting_Date on the cohort at once (server: set-planting-selection) and opens the date-impact pop-up. Planting on the PLANNED
+ * It records the Manager_Selected_Planting_Date on the cohort at once (server: set-planting-selection) and opens the date-impact pop-up. Planting on the PLANNED
  * date never opens it (no acknowledgement, no alarm); opts.force is only for the manager's own "Review date impact" / "Use this date" actions. */
 function diPlantAct(names){ return (names||[]).map(a=>String(a||'').replace(/^ACT_\d+:\s*/,'').trim()).find(a=>/^(transplanting|direct ?seeding)$/i.test(a)); }
 function diPlannedFor(bedId){ try{ const v=bedViewById(bedId); return v&&v.cohortId?String(dispatchDob(v)||'').slice(0,10):''; }catch(e){ return ''; } }
@@ -1688,7 +1726,7 @@ function dateImpactHTML(){
         +'<button class="btn btn-danger" onclick="diAccept(\''+id+'\',\''+dt+'\')">Accept '+esc(diFmt(s.selectedDate))+'</button>':'')+'</div>');
   } else if(w&&w.state==='NO_WINDOW') out.push('<div class="note">No allowable planting window is on file for this crop, so nothing restricts this date.</div>');
   // 5. irrigation
-  out.push('<div class="pw-box warn"><div class="pw-t">Irrigation</div><div>'+(s.differsFromPlan?'Because this date differs from the plan, the irrigation schedule for this cohort will shift to follow the new planting date once planting is verified.':'Irrigation schedules start from the verified planting date. If the verified date differs from this one, the irrigation schedule will shift with it.')+'</div></div>');
+  out.push('<div class="pw-box warn"><div class="pw-t">Irrigation and harvest will change</div><div>'+(s.differsFromPlan?'Changing the planting date changes the schedule: irrigation for this cohort will start from <b>'+esc(diFmt(s.selectedDate))+'</b> (planned '+esc(planned?diFmt(planned):'none')+')'+(h?' and harvest will be ready <b>'+esc(diFmt(h.earliest))+' → '+esc(diFmt(h.latest))+'</b>':'')+'. Click OK to acknowledge.':'Irrigation schedules start from the verified planting date. If the verified date differs from this one, the irrigation and harvest dates will shift with it.')+'</div></div>');
   return wrap(out.join('')+diChange(m)+'<div class="qbtns"><button class="btn btn-primary" onclick="closeDateImpact()">OK</button></div>');
 }
 function diChange(m){
@@ -2304,7 +2342,7 @@ async function dpSubmit(){
   if(d.acts.some(a=>isFertAct(a)&&!fertDone(fertOf(d,a)))){ toast('Enter the fertilizer type, brand name and quantity first.'); return; }
   d.busy=true; d.result=null; busyShow('Dispatching '+d.acts.length+' task'+(d.acts.length===1?'':'s')+'… please wait'); dpRefresh();
   try{
-    const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments:fertAssignments(d,d.acts,dpCrew), scheduledDate:d.date }, 60000);
+    const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments:fertAssignments(d,d.acts,dpCrew), scheduledDate:d.date, overrideReason:(String(ui.mgrOvReason||'').trim()||undefined) }, 60000); ui.mgrOvReason='';
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] }; pselLoadFor(d.bedId);
     if(d.result.created.length) assignDialog(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' dispatched', ['Bed '+d.bedId+'. Each task shows as Pending until the worker taps Start.'].concat(d.result.failed.length?[d.result.failed.length+' could not be dispatched. Those rows are still open.']:[]));
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
@@ -2969,7 +3007,7 @@ async function submitMultiAssign(){
   d.busy=true; d.result=null; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
   try{
     const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]);
-    const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments, scheduledDate:d.date }, 60000);
+    const r=await apiCall('start-sessions',{ bedId:d.bedId, assignments, scheduledDate:d.date, overrideReason:(String(ui.mgrOvReason||'').trim()||undefined) }, 60000); ui.mgrOvReason='';
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] }; pselLoadFor(d.bedId);
     if(d.result.created.length) assignDialog(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' assigned', ['Bed '+d.bedId+'. Each task shows as Pending until the worker taps Start.'].concat(d.result.failed.length?[d.result.failed.length+' could not be assigned. Those rows are still open below.']:[]));
     /* keep only pairs that FAILED so the manager can adjust them; drop everything that went through or was already open */
@@ -3179,9 +3217,10 @@ function verifyPlantingModal(){
   ${pdPlannedLine(d)}
   ${vpSelLine(d)}
   ${pdAskBox(d.pd,d.cohortId)}
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" max="${esc(today)}" oninput="vpSelUpdate();vpVdSync()">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
+  ${vpOvBox(d)}
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" oninput="vpSelUpdate();vpVdSync()">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
   ${vpVdField(d)}
-  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${outside?'Accept date and verify planting':((d.pd)?'Record explanation and verify planting':'Verify planting')}</button>
+  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${d.ov?'Override and verify planting':(outside?'Accept date and verify planting':((d.pd)?'Record explanation and verify planting':'Verify planting'))}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function moveModal(){
