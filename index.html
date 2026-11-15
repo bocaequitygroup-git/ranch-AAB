@@ -1166,7 +1166,7 @@ function vpVdField(d){
   return '<div class="field"><label>Verification date</label><input id="md-vdate" type="date" value="'+esc(v)+'" min="'+esc(dob)+'" oninput="vpVdSet(this.value)">'
     +'<div class="qsub">Defaults to the actual planting date. Any date on or after it is accepted, so a late or historical verification is not blocked. The system separately records the exact time you submit this; that cannot be edited.</div></div>';
 }
-function vpVdSet(v){ const d=ui.modalDraft; if(!d) return; d.vdate=v; d.vdateTouched=true; }
+function vpVdSet(v){ const d=ui.modalDraft; if(!d) return; d.vdate=v; d.vdateTouched=true; vpSelUpdate(); }
 function vpVdSync(){
   const d=ui.modalDraft, a=document.getElementById('md-dob'), v=document.getElementById('md-vdate'); if(!d||!a||!v) return;
   d.dob=a.value||d.dob||''; v.min=a.value||''; if(!d.vdateTouched) v.value=a.value||'';
@@ -2438,6 +2438,8 @@ function activityProfileModal(){
   const actualDob=pick(f.actualDob,bed.plantingDate);
   const planting=isPlanting?box('Planting',
       row('Planned DOB', pick(f.plannedDob,bed.plannedDob)) +
+      row('Manager-selected planting date', f.selectedDate?(f.selectedDate+(f.selectedBy?' · '+f.selectedBy:'')+(f.selectedAt?' · '+when(f.selectedAt):'')):'') +
+      (f.selectedDate&&f.selectedWindowState==='OUTSIDE_AUTHORIZED'?row('Window result','Outside the allowable window — accepted'+(f.selectedExceptionReason?': '+f.selectedExceptionReason:'')):'') +
       row(actualDob?'Actual DOB':'Actual DOB (not verified yet)', actualDob) +
       row('Verified stamp', pick(f.verifiedAt,log.verifiedDate)?when(pick(f.verifiedAt,log.verifiedDate)):'Awaiting Verify planting') +
       row('Timing vs plan', timing?timing+(vd?' ('+(vd>0?'+':'')+vd+' d)':''):'')):'';
@@ -3139,17 +3141,44 @@ function rejectModal(){
   <button class="btn btn-danger" onclick="rejectAssignment('${esc(d.cohortId)}')">Reject recommendation</button>
   <button class="btn btn-ghost" onclick="openModal('queue')">Back</button>`;
 }
-/* What the manager selected when assigning the planting, compared with the date being verified. */
-function vpSelText(sel, dob){
-  if(!sel||!sel.selectedDate) return '';
-  const today=todayISO(); let s='You selected <b>'+esc(sel.selectedDate)+'</b> when you assigned this planting'+(sel.selectedByName?' ('+esc(sel.selectedByName)+')':'')+(sel.basis==='SESSION_FALLBACK'?' [from the task schedule; no selection record yet]':'')+'.';
-  if(sel.exceptionAccepted) s+=' It was outside the allowable window and accepted'+(sel.exceptionReason?': '+esc(sel.exceptionReason):'')+'.';
-  if(sel.selectedDate>today) s+=' <b>That day has not arrived yet.</b>';
-  if(/^\d{4}-\d{2}-\d{2}$/.test(dob||'')){ const n=pdDays(sel.selectedDate,dob), a=Math.abs(n); s+=n?' The date being verified is '+a+' day'+(a===1?'':'s')+(n>0?' after':' before')+' it.':' The date being verified matches it.'; }
-  return s;
+/* ONE dates block for Verify planting. Four dates, each with a fixed name, so it is always clear which one is the ACTUAL planting date:
+ *   Planned DOB                      the original plan (never changed)
+ *   Manager-selected planting date   Manager_Selected_Planting_Date: what the manager chose when assigning the planting (a reference only)
+ *   ACTUAL planting date             the day the crop really went in: this is the date being verified and becomes Actual_DOB
+ *   Verification date                the day of the sign-off: defaults to the actual date, any later date allowed */
+function vpDatesHTML(d, dob, vdate){
+  const iso=x=>/^\d{4}-\d{2}-\d{2}$/.test(x||''), today=todayISO();
+  const planned=(pdPlannedFor(d.cohortId)||(d.sel&&d.sel.plannedDob)||''), sel=(d.sel&&d.sel.selectedDate)?d.sel:null;
+  const rel=(ref,date,what)=>{ if(!iso(ref)||!iso(date)) return ''; const n=pdDays(ref,date), k=Math.abs(n); return n?k+' day'+(k===1?'':'s')+(n>0?' later':' earlier')+' than '+what:'same day as '+what; };
+  const row=(k,v,sub,strong)=>'<div class="pw-r"><span'+(strong?' style="color:var(--ink);font-weight:800;"':'')+'>'+esc(k)+'</span><span><b>'+v+'</b>'+(sub?'<div class="qsub" style="margin:2px 0 0;font-weight:400;">'+sub+'</div>':'')+'</span></div>';
+  let selSub='';
+  if(sel){
+    selSub='Chosen when the planting was assigned'+(sel.selectedByName?' by '+esc(sel.selectedByName):'')+(sel.basis==='SESSION_FALLBACK'?' (taken from the task schedule; no selection record yet)':'')+'.';
+    if(sel.exceptionAccepted) selSub+=' Outside the allowable window and accepted'+(sel.exceptionReason?': '+esc(sel.exceptionReason):'')+'.';
+    if(sel.selectedDate>today) selSub+=' This day has not arrived yet; it is a reference only and is never used as the actual date.';
+  }
+  const actSub=[];
+  if(iso(dob)){
+    if(planned) actSub.push(rel(planned,dob,'the planned DOB'));
+    if(sel) actSub.push(rel(sel.selectedDate,dob,'the manager-selected date'));
+    if(dob>today) actSub.push('<b>In the future.</b> The crop cannot be in the ground yet; verifying needs a manager override explanation.');
+  }
+  const vdSub=(iso(vdate)&&iso(dob)&&vdate<dob)?'<b>Cannot be before the actual planting date.</b>':(iso(vdate)&&iso(dob)&&vdate>dob?'Verified '+rel(dob,vdate,'the planting day')+'.':'');
+  return '<div class="pw-box ok"><div class="pw-t">Dates</div>'
+    +row('Planned DOB (original plan)',planned?esc(planned):'none on record')
+    +row('Manager-selected planting date',sel?esc(sel.selectedDate):'none recorded',selSub)
+    +row('ACTUAL planting date (verified here)',iso(dob)?esc(dob):'not entered yet',actSub.filter(Boolean).join(' '),true)
+    +row('Verification date',iso(vdate)?esc(vdate):'defaults to the actual planting date',vdSub)
+    +'</div>';
 }
-function vpSelLine(d){ const t=vpSelText(d.sel,d.dob||''); return `<div class="note" id="md-selline" style="margin:6px 0;${t?'':'display:none;'}">${t}</div>`; }
-function vpSelUpdate(){ const d=ui.modalDraft, el=document.getElementById('md-selline'), inp=document.getElementById('md-dob'); if(!el||!d||!d.sel) return; const t=vpSelText(d.sel, inp?inp.value:''); el.innerHTML=t; el.style.display=t?'':'none'; }
+function vpDatesLine(d){
+  const v=d.vdateTouched?(d.vdate||''):(d.dob||'');
+  return '<div id="md-selline">'+vpDatesHTML(d,d.dob||'',v)+'</div>';
+}
+function vpSelUpdate(){
+  const d=ui.modalDraft, el=document.getElementById('md-selline'), a=document.getElementById('md-dob'), v=document.getElementById('md-vdate'); if(!el||!d) return;
+  el.innerHTML=vpDatesHTML(d,a?a.value:(d.dob||''),v&&v.value?v.value:(a?a.value:''));
+}
 function pdPlannedLine(d){
   const planned=pdPlannedFor(d.cohortId); if(!planned) return '';
   const v=pdDays(planned,d.dob||todayISO()), n=Math.abs(v);
@@ -3170,9 +3199,9 @@ function vpActivityDate(bedId,cohortId){
   const today=todayISO();
   for(const r of rows){   /* only a COMPLETED planting activity says when the crop went in */
     const name=r.taskType||r.activityName||r.activity||'planting', sd=vpIsoDay(r.scheduledDate), dd=vpIsoDay(r.endTime);
-    /* The manager's scheduled day IS the actual planting day; the worker may tap Finish on another day. */
-    if(sd && sd<=today) return { date:sd, from:'the day the '+name+' activity was scheduled for (the actual planting day)' };
-    if(dd) return { date:dd, from:'the day the '+name+' activity was completed' };
+    /* The day the planting activity was COMPLETED is the actual planting day; the scheduled day is only a fallback. */
+    if(dd && dd<=today) return { date:dd, from:'the day the '+name+' activity was completed' };
+    if(sd && sd<=today) return { date:sd, from:'the day the '+name+' activity was scheduled for' };
   }
   return null;
 }
@@ -3189,6 +3218,18 @@ function plantingPending(b){
 }
 function verifyPlantingModal(){
   const d=ui.modalDraft;
+  /* Already verified: show what was recorded and stop. The server refuses a second verification (WRONG_STATUS), and the form below would only
+     confuse which date is the actual one. */
+  { const bv=(state.todayById||{})[d.bedId], cs=String(bv&&bv.cohortStatus||'').toUpperCase();
+    if(bv&&bv.cohortId===d.cohortId&&cs&&cs!=='PRE_PLANTING'){
+      const act=String(bv.plantingDate||'').slice(0,10), pl=pdPlannedFor(d.cohortId)||String(bv.plannedDob||'').slice(0,10);
+      return `<h2 style="font-size:15px;">Planting already verified</h2>
+      <div class="pw-box ok"><div class="pw-t">Cohort ${esc(d.cohortId)}</div>
+        <div class="pw-r"><span>Planned DOB (original plan)</span><span><b>${esc(pl||'none on record')}</b></span></div>
+        <div class="pw-r"><span style="color:var(--ink);font-weight:800;">ACTUAL planting date</span><span><b>${esc(act||'recorded')}</b></span></div></div>
+      <p style="font-size:12.5px;color:var(--ink-soft);">This cohort is ${esc(cs)}; the actual planting date drives its irrigation and harvest dates and cannot be verified again.</p>
+      <button class="btn btn-primary" onclick="closeModal()">OK</button>`;
+    } }
   if(!d.dob && !d.vpAutoDone){
     d.vpAutoDone=true;
     const bd=(state.todayById||{})[d.bedId], rec=bd&&bd.plantingDate&&(!bd.cohortId||bd.cohortId===d.cohortId)?String(bd.plantingDate).slice(0,10):'';
@@ -3214,11 +3255,10 @@ function verifyPlantingModal(){
   return `<h2 style="font-size:15px;">Verify planting</h2>
   <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock. The planned DOB is not changed; if the actual date differs, the harvest window follows the actual planting date.</p>
   ${pwBox(pw,{ reason:true })}
-  ${pdPlannedLine(d)}
-  ${vpSelLine(d)}
+  ${vpDatesLine(d)}
   ${pdAskBox(d.pd,d.cohortId)}
   ${vpOvBox(d)}
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" oninput="vpSelUpdate();vpVdSync()">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" oninput="vpVdSync();vpSelUpdate()">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
   ${vpVdField(d)}
   <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${d.ov?'Override and verify planting':(outside?'Accept date and verify planting':((d.pd)?'Record explanation and verify planting':'Verify planting'))}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
