@@ -2300,14 +2300,42 @@ function gateActivitiesTab(b,m){
   const statusOf=n=>{ const q=sessB.filter(s=>s.activity===n); return !q.length?'':q.some(gateLive)?'<span class="chip chip-ok">In progress</span>':'<span class="chip chip-warn">Assigned</span>'; };
   const row=a=>`<div class="gt-row"><div class="gt-main"><div><b>${esc((a.id?a.id+': ':'')+(GATE_LABEL[a.name]||a.name))}</b> ${statusOf(a.name)}</div>${a.description?`<div class="gt-sub">${esc(shortDesc(a.description,100))}</div>`:''}</div>
     <button class="btn btn-outline gt-btn" data-a="${esc(a.name)}" onclick="gateAssignOne(this)">Assign</button></div>`;
-  const planting=list.filter(a=>a.plantingRole==='method'), care=list.filter(a=>a.plantingRole!=='method');
+  const isPrep=a=>DS_PREREQS.some(p=>p[1]===a.name||p[0]===a.id);
+  const planting=list.filter(a=>a.plantingRole==='method'), prepList=list.filter(a=>a.plantingRole!=='method'&&isPrep(a)), care=list.filter(a=>a.plantingRole!=='method'&&!isPrep(a));
   const other=m.plant.filter(p=>!planting.some(a=>a.name===p.name));
+  /* DIRECT-SEED PREREQUISITES: ACT_060/061/062 belong with ACT_007 (not under Crop care) and gate it. Live status from 'get-direct-seed-prereqs'. */
+  const dsApplies=planting.some(a=>a.name==='DirectSeeding')||!!(m.plant.find(p=>p.name==='DirectSeeding')||{}).applies;
+  let dsE=null;
+  if(dsApplies&&b.cohortId){
+    dsE=dsPreEntry(b.id);
+    if(!dsE||(!dsE.loading&&Date.now()-(dsE.at||0)>20000)) setTimeout(()=>dsPreFetch(b.id,true),0);
+  }
+  const dsItems=(dsE&&dsE.items)||[], dsVer=dsItems.filter(i=>i.status==='VERIFIED').length, dsTot=dsItems.length||DS_PREREQS.length;
+  const dsHeld=!!(dsE&&!dsE.loading&&!dsE.error&&!dsE.ready&&!dsE.overrideOnFile&&(!dsE.errorCode||dsE.errorCode==='DIRECT_SEED_NOT_READY'));
+  const dsMissing=dsItems.filter(i=>i.status!=='VERIFIED');
+  const gateChip=a=>{ if(!dsIsAct(a.name)||!dsApplies||!dsE) return '';
+    if(dsE.loading) return '<span class="chip chip-neutral">Checking prerequisites…</span>';
+    if(dsHeld) return `<span class="chip chip-warn">🔒 Blocked · ${dsVer}/${dsTot} prerequisites verified</span>`;
+    if(dsE.ready||dsE.overrideOnFile) return `<span class="chip chip-ok">${dsE.ready?'Prerequisites verified':'Override on file'}</span>`;
+    return ''; };
+  const gateSub=a=>(dsIsAct(a.name)&&dsHeld&&dsMissing.length)?`<div class="gt-sub" style="color:var(--warn);font-weight:600;">Still needed: ${dsMissing.map(i=>esc(i.id+' '+i.name)+' ('+esc(i.text||i.status)+')').join('; ')}</div>`:'';
+  const plantRow=a=>{ const held=dsIsAct(a.name)&&dsHeld;
+    return `<div class="gt-row"><div class="gt-main"><div><b>${esc((a.id?a.id+': ':'')+(GATE_LABEL[a.name]||a.name))}</b> ${statusOf(a.name)} ${gateChip(a)}</div>${a.description?`<div class="gt-sub">${esc(shortDesc(a.description,100))}</div>`:''}${gateSub(a)}</div>
+      <button class="btn ${held?'btn-danger':'btn-outline'} gt-btn" data-a="${esc(a.name)}" onclick="gateAssignOne(this)" ${held?'title="Prerequisites are not verified. You can only assign this with a written override."':''}>${held?'Assign (override required)':'Assign'}</button></div>`; };
+  const prepRows=(dsItems.length?dsItems:DS_PREREQS.map(p=>({id:p[0],name:p[1],status:'',text:''}))).map(i=>{
+    const a=prepList.find(x=>x.name===i.name||x.id===i.id)||{name:i.name,id:i.id,description:''};
+    const open=i.status!=='VERIFIED'&&i.status!=='AWAITING_VERIFICATION'&&prepList.some(x=>x.name===i.name||x.id===i.id);
+    return `<div class="gt-row"><div class="gt-main"><div><b>${esc(i.id+': '+i.name)}</b> ${i.status?dsPreChip(i.status):''} ${statusOf(a.name)}</div>${a.description?`<div class="gt-sub">${esc(shortDesc(a.description,100))}</div>`:''}</div>
+      ${open?`<button class="btn btn-outline gt-btn" data-a="${esc(a.name)}" onclick="gateAssignOne(this)">Assign</button>`:''}</div>`; }).join('');
+  const prepBlock=dsApplies?`<div class="ma-grp">Direct-seed preparation · required before ACT_007</div>
+      <div class="pw-box${dsHeld?' warn':''}" style="margin:4px 0 6px;"><div class="pw-why" style="margin:0;"><b>Required before ACT_007 (DirectSeeding) can be assigned or started: all 3 must be completed and verified by a manager.</b>${dsE&&!dsE.loading&&!dsE.error?` Status: <b>${dsVer}/${dsTot} verified</b>.`:''}${dsE&&dsE.error?' (Status could not be loaded; the server still enforces this.)':''}</div></div>${prepRows}
+      <div class="ma-grp">Planting</div>`:'';
   const verifyBtn=(String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING' && plantingDone(b.id,b.cohortId))?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`:'';
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
   const g={}; care.forEach(a=>{ const k=a.plantingRole==='recovery'?'Recovery':(a.domain||'Other'); (g[k]=g[k]||[]).push(a); });
   const careHTML=Object.keys(g).sort((x,y)=>rank(x)-rank(y)).map(k=>`<div class="ma-grp">${esc(k)}</div>`+g[k].map(row).join('')).join('');
   return `<div class="dp-box"><div class="t"><span>Planting execution</span></div>
-      ${planting.map(row).join('')||`<div class="note" style="margin:0;">${esc(r.why||'No planting activity is open at this stage.')}</div>`}
+      ${prepBlock}${planting.map(plantRow).join('')||`<div class="note" style="margin:0;">${esc(r.why||'No planting activity is open at this stage.')}</div>`}
       ${other.map(p=>`<div class="gt-row is-na"><div class="gt-main"><div>${esc(gateRowLabel(p))}</div><div class="gt-sub">not for this crop</div></div></div>`).join('')}${verifyBtn}</div>
     <div class="dp-box"><div class="t"><span>Crop care &amp; maintenance</span></div>${careHTML||`<div class="note" style="margin:0;">${esc(planting.length||!r.why?'Crop care opens after planting is verified.':r.why)}</div>`}
       <button class="btn btn-outline" style="width:auto;margin:8px 0 0;" onclick="openModal('dispatch',{bedId:'${esc(b.id)}',hasCohort:true})">Assign several activities…</button></div>
@@ -3019,14 +3047,14 @@ const DS_PREREQS=[['ACT_060','Pre-Seed Tillage'],['ACT_061','Direct-Seed Bed Sha
 function dsIsAct(n){ return /^(ACT_007:\s*)?DirectSeeding$/i.test(String(n||'').trim()); }
 function dsPreKey(bedId){ const b=(state.beds||[]).find(x=>x.id===bedId)||{}; return b.cohortId?bedId+'|'+b.cohortId:''; }
 function dsPreEntry(bedId){ const k=dsPreKey(bedId); return k?((ui.dsPre||{})[k]||null):null; }
-function dsPreRepaint(){ if(document.getElementById('ma-acts')) maRefresh(); else if(document.getElementById('dp-root')) dpRefresh(); }
+function dsPreRepaint(){ if(document.getElementById('ma-acts')) maRefresh(); else if(document.getElementById('dp-root')) dpRefresh(); else render(); }
 async function dsPreFetch(bedId,force){
   const k=dsPreKey(bedId); if(!k) return null;
   ui.dsPre=ui.dsPre||{}; const cur=ui.dsPre[k];
   if(cur&&!force&&(cur.loading||cur.items)) return cur;
   ui.dsPre[k]={loading:true}; dsPreRepaint();
-  try{ const b=(state.beds||[]).find(x=>x.id===bedId)||{}; const r=await apiCall('get-direct-seed-prereqs',{bedId,cohortId:b.cohortId}); ui.dsPre[k]=Object.assign({},r||{}); }
-  catch(e){ ui.dsPre[k]={error:e.message||'Could not check the preparation steps.'}; }
+  try{ const b=(state.beds||[]).find(x=>x.id===bedId)||{}; const r=await apiCall('get-direct-seed-prereqs',{bedId,cohortId:b.cohortId}); ui.dsPre[k]=Object.assign({at:Date.now()},r||{}); }
+  catch(e){ ui.dsPre[k]={at:Date.now(),error:e.message||'Could not check the preparation steps.'}; }
   dsPreRepaint(); return ui.dsPre[k];
 }
 /* true = hold the assignment. Only a real DIRECT_SEED_NOT_READY holds it: crop/propagation problems and lookup errors are left to the server's own refusal and message. */
