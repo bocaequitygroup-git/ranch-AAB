@@ -2238,7 +2238,7 @@ function gateOverviewTab(b,m){
   };
   const g1=GATE_GROUPS[0], g2=GATE_GROUPS[1], g3=GATE_GROUPS[2];
   const dsRows=m.ds.items.map(i=>`<div class="gt-row ${i.verified?'is-done':''}"><span class="gt-box" aria-hidden="true">${i.verified?'☑':'☐'}</span><div class="gt-main">
-      <div><b>${esc(i.id+': '+i.name)}</b> <span class="chip chip-neutral gt-tag">Required</span></div><div class="gt-sub">${esc(i.text||'not started')}${i.status==='NOT_ASSIGNED'?' — <button class="gt-link" data-a="'+esc(i.name)+'" onclick="gateAssignOne(this)">assign</button>':''}</div></div></div>`).join('');
+      <div><b>${esc(i.id+': '+i.name)}</b> <span class="chip chip-neutral gt-tag">Required</span> ${dsEstBadge(i.id)}</div><div class="gt-sub">${esc(dsPrepDesc(i.id))}</div><div class="gt-sub">${esc(i.text||'not started')}${i.status==='NOT_ASSIGNED'?' — <button class="gt-link" data-a="'+esc(i.name)+'" onclick="gateAssignOne(this)">assign</button>':''}</div></div></div>`).join('');
   const dsBlock=`<div class="gt-grp"><div class="gt-grp-h">Step 3: Direct-Seeding Readiness (Rule R_D01)</div>
       <div class="gt-sub" style="margin:0 0 6px;"><b>Mandatory before ACT_007 (DirectSeeding) can be assigned or started.</b> All 3 must be completed and manager-verified (or waived via override at assignment).</div>${dsRows}</div>`;
   const plantRows=m.prop.map(p=>`<div class="gt-row"><span class="gt-box" aria-hidden="true">ℹ</span><div class="gt-main">
@@ -2269,7 +2269,7 @@ function gateRequiredTab(b,m){
     +sec('In progress',m.rows.filter(r=>!r.done&&r.sessions.length).length,prog)
     +(m.ds.on?sec('Direct-seeding readiness · Rule R_D01',m.ds.items.filter(i=>!i.verified).length,
       `<div class="gt-sub" style="margin:0 0 6px;"><b>Mandatory before ACT_007 (DirectSeeding) can be assigned or started.</b> All 3 must be completed and manager-verified (or waived via override at assignment).</div>`
-      +m.ds.items.map(i=>`<div class="gt-row ${i.verified?'is-done':''}"><div class="gt-main"><div><b>${esc(i.id+': '+i.name)}</b> ${i.status?dsPreChip(i.status):''}</div><div class="gt-sub">${esc(i.text||'not started')}</div></div>${i.status==='NOT_ASSIGNED'?`<button class="btn btn-outline gt-btn" data-a="${esc(i.name)}" onclick="gateAssignOne(this)">Assign to Worker(s)</button>`:''}</div>`).join('')):'')
+      +m.ds.items.map(i=>`<div class="gt-row ${i.verified?'is-done':''}"><div class="gt-main"><div><b>${esc(i.id+': '+i.name)}</b> ${i.status?dsPreChip(i.status):''} ${dsEstBadge(i.id)}</div><div class="gt-sub">${esc(dsPrepDesc(i.id))}</div><div class="gt-sub">${esc(i.text||'not started')}</div></div>${i.status==='NOT_ASSIGNED'?`<button class="btn btn-outline gt-btn" data-a="${esc(i.name)}" onclick="gateAssignOne(this)">Assign to Worker(s)</button>`:''}</div>`).join('')):'')
     +sec('Completed',m.done,doneRows)
     +gateNext(m,b)
     +(sessB.length?activeWorkSection(b,sessB):'');
@@ -3064,6 +3064,14 @@ function maSetDate(n){ maD().dateTouched=true; const t=new Date(); t.setDate(t.g
  * checklist up front, offers to add the missing ones to the same assignment, and holds the Assign button until the rule is met or the manager
  * writes an override reason (recorded under their name). Data: 'get-direct-seed-prereqs' (read-only). */
 const DS_PREREQS=[['ACT_060','Pre-Seed Tillage'],['ACT_061','Direct-Seed Bed Shaping & Crown Firming'],['ACT_062','Pre-Plant Moisture Check']];
+/* Standard labor per 300-ft bed (display only; the sheet's Description and Notes hold the full text). A function, so it is safe to call from any render. */
+function dsPrepInfo(id){ return ({
+  ACT_060:{min:20,range:'15–25',note:'Est. 15–25 min per 300-ft bed (includes hitching and transit)',desc:'Perform 1–2 slow passes with a rotary tiller or power harrow across the 300-foot bed to break surface clods and create a fine, uniform tilth for direct seeding.'},
+  ACT_061:{min:12,range:'10–15',note:'Est. 10–15 min per 300-ft bed',desc:'Shape the bare-soil bed using the 60-inch wheel-center layout to form a level 30-inch crown, then roll with a cultipacker or firming basket to eliminate air pockets.'},
+  ACT_062:{min:4,range:'3–5',note:'Est. 3–5 min manual check (+30–60 min passive irrigation if dry)',desc:'Walk the 300-foot bed and verify uniform soil moisture at a 1–2 inch depth by hand or soil probe; run a pre-sow soak if dry and confirm water pressure readiness.'}
+})[id]||null; }
+function dsEstBadge(id){ const p=dsPrepInfo(id); return p?`<span class="chip chip-neutral gt-tag" title="${esc(p.note)}">~${p.min} min/bed</span>`:''; }
+function dsPrepDesc(id){ const p=dsPrepInfo(id); return p?p.desc:''; }
 function dsIsAct(n){ return /^(ACT_007:\s*)?DirectSeeding$/i.test(String(n||'').trim()); }
 function dsPreKey(bedId){ const b=(state.beds||[]).find(x=>x.id===bedId)||{}; return b.cohortId?bedId+'|'+b.cohortId:''; }
 function dsPreEntry(bedId){ const k=dsPreKey(bedId); return k?((ui.dsPre||{})[k]||null):null; }
@@ -5928,6 +5936,7 @@ const NA_GROUPS_BY_SCOPE={ CROP:['Planting','CropCare','Harvest','State','Lifecy
 const NA_STAGES_BY_SCOPE={ CROP:[['PrePlanting','PrePlanting · cohort assigned, not yet planted'],['Growing','Growing'],['HarvestReady','HarvestReady · ready to pick']],
                            BED:[['HarvestComplete','HarvestComplete · bed turnover, no living crop']] };
 const NA_UNITS=['lbs','gal','acres','days'];
+const NA_LABOR_BASES=[['PER_RUN','Per session (one bed)'],['PER_ACRE','Per acre'],['PER_100_LBS','Per 100 lb harvested'],['PER_100_TRAYS','Per 100 trays']];
 const NA_RULES=[['','Any crop'],['Cycle_Class!=Perennial','Every crop except perennials'],['Cycle_Class=Perennial','Perennials only']];
 const NA_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 const na={ id:'', last:'', st:'idle', note:'', cropQ:'' };   /* st: idle | loading | ok | estimated */
@@ -5949,7 +5958,7 @@ async function naLoadId(force){
 function naPaintId(){ const e=document.getElementById('na-id'); if(e) e.value=na.st==='loading'?'Reading ACTIVITY_REFERENCE…':(na.id||'—'); }
 function naInit(){ const d=ui.modalDraft; if(d._init) return d;
   Object.assign(d,{_init:1,name:'',group:'',scope:'',cls:'',description:'',notes:'',worker:true,manager:true,approval:false,stages:[],crops:[],ruleKind:'',
-    qty:false,unit:'',trigger:false,target:'Growing',exception:false,isFertilizer:false,ph:false,phSeq:'',bufDays:'',bufMax:'',startMonth:'',startDay:'',err:''});
+    qty:false,unit:'',trigger:false,target:'Growing',exception:false,isFertilizer:false,ph:false,laborBasis:'',laborHours:'',phSeq:'',bufDays:'',bufMax:'',startMonth:'',startDay:'',err:''});
   naLoadId(true); return d; }
 function naGroupVal(d){ return d.group; }
 function naUnitVal(d){ return d.qty?d.unit:'none'; }
@@ -5963,6 +5972,7 @@ function naProblems(d){
   if(!d.cls) out.push('Choose the Governance_Class.');
   if(!d.stages.length) out.push('Tick at least one allowed lifecycle stage.');
   if(d.qty&&!d.unit) out.push('Choose the Default_Unit for a quantity-based activity.');
+  if(!d.laborBasis) out.push('Choose the labor budget basis (every activity needs one).'); else if(!(Number(d.laborHours)>0)) out.push('Enter the labor budget hours (more than 0).');
   if(d.ph){ const q=naNum(d.phSeq); if(q===null||!Number.isInteger(q)||q<1) out.push('Enter the post-harvest checklist step number (a whole number, 1 or more).');
     const bd=naNum(d.bufDays), bm=naNum(d.bufMax);
     if((bd!==null&&(!Number.isInteger(bd)||bd<0))||(bm!==null&&(!Number.isInteger(bm)||bm<0))) out.push('Waiting-period days must be whole numbers, 0 or more.');
@@ -6055,6 +6065,9 @@ function newActivityModal(){
   ${chk('ph','Part of the post-harvest turnover checklist','Requires_Post_Harvest · a required step before a bed is released. It joins the checklist of every bed in turnover.')}
   ${d.ph?`<div class="field"><label for="na-phseq">Checklist step number * ${col('Post_Harvest_Sequence')}</label><input id="na-phseq" inputmode="numeric" placeholder="e.g. 11" style="max-width:120px;" value="${esc(d.phSeq)}" oninput="naTxt('phSeq',this.value)"><div class="qsub" style="margin-top:3px;">Steps run in number order. Each number can be used once; the save tells you which are taken.</div></div>
   <div class="field"><label>Waiting period ${col('Buffer_Duration_Days')} ${col('Buffer_Max_Days')} <span style="font-weight:400;">(only for a timed gate such as Sanitation Break)</span></label><div style="display:flex;gap:8px;"><input inputmode="numeric" placeholder="Days" aria-label="Buffer duration days" value="${esc(d.bufDays)}" oninput="naTxt('bufDays',this.value)"><input inputmode="numeric" placeholder="Max days" aria-label="Buffer max days" value="${esc(d.bufMax)}" oninput="naTxt('bufMax',this.value)"></div></div>`:''}`:''}
+  ${h3('Labor budget')}
+  <div class="field"><label for="na-lbasis">Labor budget basis * <span style="font-weight:400;">(every activity needs one)</span></label><select id="na-lbasis" onchange="naSet('laborBasis',this.value)"><option value="" ${d.laborBasis?'':'selected'}>Choose a basis…</option>${NA_LABOR_BASES.map(([v,l])=>opt(v,l,d.laborBasis)).join('')}</select></div>
+  <div class="field"><label for="na-lhours">Hours * <span style="font-weight:400;">(for the basis chosen above)</span></label><input id="na-lhours" inputmode="decimal" style="max-width:160px;" value="${esc(d.laborHours)}" oninput="naTxt('laborHours',this.value)"></div>
   ${h3('Row preview')}
   <details style="margin-bottom:6px;"><summary style="cursor:pointer;font-size:12px;font-weight:700;">Show the row as it will appear in ACTIVITY_REFERENCE</summary>
     <div class="bb-wrap" style="max-height:300px;margin-top:6px;"><table class="bb-t"><thead><tr><th>Column</th><th>Value</th></tr></thead><tbody id="na-prev">${naPreviewInner(d)}</tbody></table></div></details>
@@ -6075,7 +6088,7 @@ async function doCreateActivity(){
     workerExecutable:!!d.worker,managerExecutable:!!d.manager,requiresApproval:!!d.approval,allowedStages:d.stages.slice(),allowedCrops:d.scope==='CROP'?d.crops.join(', '):'',cropRule:d.scope==='CROP'?(d.ruleKind||''):'',
     quantityBased:!!d.qty,defaultUnit:naUnitVal(d),triggersStateChange:!!d.trigger,stateChangeTarget:d.trigger?d.target:'',generatesException:!!d.exception,
     isFertilizer:d.scope==='CROP'&&!!d.isFertilizer,requiresPostHarvest:!!d.ph,postHarvestSequence:d.ph?d.phSeq:'',bufferDurationDays:d.ph?d.bufDays:'',bufferMaxDays:d.ph?d.bufMax:'',
-    earliestStartMonth:d.startMonth||'',earliestStartDay:d.startDay||''}};
+    laborBasis:d.laborBasis||'',laborHours:d.laborHours||'',earliestStartMonth:d.startMonth||'',earliestStartDay:d.startDay||''}};
   try{ const r=await apiCall('create-activity',body); toast('Activity '+(r&&r.activityId?r.activityId+' ':'')+'added.'+(r&&r.note?' '+r.note:''),5200);
     na.st='idle'; na.id=''; if(ui.modal) closeModal(); else { ui.modalDraft={}; na.cropQ=''; render(); } await loadToday(); }
   catch(e){ d.err=e.message; render(); const el=document.querySelector('.sheet')||document.querySelector('.mapscroll'); if(el) el.scrollTop=0; }
