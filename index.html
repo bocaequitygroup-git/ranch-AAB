@@ -1182,10 +1182,6 @@ async function doVerifyPlanting(cohortId, actualDob){
   if(!actualDob){ toast('Enter the actual planting date.'); return; }
   if(!/^\d{4}-\d{2}-\d{2}$/.test(actualDob)){ toast('That is not a valid planting date.'); return; }
   const ovReason=ui.modalDraft.ov?String(ui.modalDraft.ovReason||'').trim():'';
-  if(actualDob>todayISO() && !ovReason){   /* a future date is a rule the manager may override with an explanation (server: verifyPlanting_hardened.gs) */
-    ui.modalDraft.ov={ code:'FUTURE_ACTUAL_DOB', message:'The planting date '+actualDob+' is in the future. Planting is normally verified only after the crop is in the ground.' }; ui.modalDraft.dob=actualDob; render();
-    toast('Future date. Enter an explanation to override this rule, then verify again.'); return;
-  }
   if(ui.modalDraft.ov && !ovReason){ toast('Enter an explanation to override this rule.'); return; }
   /* STEP 3: Verification date defaults to the actual planting date; any date on or after it is allowed. */
   const vdEl=document.getElementById('md-vdate'), verificationDate=(vdEl&&vdEl.value)||actualDob;
@@ -3269,13 +3265,12 @@ function vpDatesHTML(d, dob, vdate){
   if(sel){
     selSub='Chosen when the planting was assigned'+(sel.selectedByName?' by '+esc(sel.selectedByName):'')+(sel.basis==='SESSION_FALLBACK'?' (taken from the task schedule; no selection record yet)':'')+'.';
     if(sel.exceptionAccepted) selSub+=' Outside the allowable window and accepted'+(sel.exceptionReason?': '+esc(sel.exceptionReason):'')+'.';
-    if(sel.selectedDate>today) selSub+=' This day has not arrived yet; it is a reference only and is never used as the actual date.';
+    selSub+=' Reference only; it is never used as the actual date.';
   }
   const actSub=[];
   if(iso(dob)){
     if(planned) actSub.push(rel(planned,dob,'the planned DOB'));
     if(sel) actSub.push(rel(sel.selectedDate,dob,'the manager-selected date'));
-    if(dob>today) actSub.push('<b>In the future.</b> The crop cannot be in the ground yet; verifying needs a manager override explanation.');
   }
   const vdSub=(iso(vdate)&&iso(dob)&&vdate<dob)?'<b>Cannot be before the actual planting date.</b>':(iso(vdate)&&iso(dob)&&vdate>dob?'Verified '+rel(dob,vdate,'the planting day')+'.':'');
   return '<div class="pw-box ok"><div class="pw-t">Dates</div>'
@@ -3283,15 +3278,46 @@ function vpDatesHTML(d, dob, vdate){
     +row('Manager-selected planting date',sel?esc(sel.selectedDate):'none recorded',selSub)
     +row('ACTUAL planting date (verified here)',iso(dob)?esc(dob):'not entered yet',actSub.filter(Boolean).join(' '),true)
     +row('Verification date',iso(vdate)?esc(vdate):'defaults to the actual planting date',vdSub)
-    +'</div>';
+    +'</div>'+vpPreviewHTML(d,dob);
+}
+/* Live preview for the date being typed: asks the server (check-planting with actualDob) for the window result, harvest window and shift. */
+function vpPreviewFetch(d,dob){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dob||'')){ d.prev=null; d.prevFor=''; return; }
+  if(d.prevFor===dob) return;
+  d.prevFor=dob; d.prevSeq=(d.prevSeq||0)+1; const seq=d.prevSeq;
+  apiCall('check-planting',{ cohortId:d.cohortId, actualDob:dob }).then(r=>{
+    if(ui.modalDraft!==d||d.prevSeq!==seq) return;
+    d.prev=(r&&(r.planting||(r.data&&r.data.planting)))||null;
+    const a=document.getElementById('md-dob'), v=document.getElementById('md-vdate'), el=document.getElementById('md-selline');
+    if(el) el.innerHTML=vpDatesHTML(d,a?a.value:(d.dob||''),v&&v.value?v.value:(a?a.value:''));
+  }).catch(()=>{});
+}
+function vpPreviewHTML(d,dob){
+  const p=(d.prevFor===dob)?d.prev:null;
+  if(!p||!/^\d{4}-\d{2}-\d{2}$/.test(dob||'')) return '';
+  const st=String(p.state||'');
+  const ok=(st==='AS_PLANNED'||st==='DIFFERENT_IN_WINDOW'||st==='SELECTION_ACCEPTED');
+  const label={AS_PLANNED:'On the planned date',DIFFERENT_IN_WINDOW:'Not the planned date, inside the allowable window',
+    OUTSIDE_NEEDS_NOTE:'Outside the allowable planting window: a written explanation is needed',
+    SELECTION_ACCEPTED:'The date you accepted at assignment',SELECTION_CHANGED:'Not the date you selected'}[st]||'Outside the allowable window (already accepted)';
+  const v=Number(p.varianceDays)||0, n=Math.abs(v);
+  const shift=v?(n+' day'+(n===1?'':'s')+(v>0?' later':' earlier')+' than the plan'):'0 days (on schedule)';
+  return '<div class="pw-box '+(ok?'ok':'warn')+'"><div class="pw-t">Impact of '+esc(dob)+'</div>'
+    +'<div style="font-weight:700;margin-bottom:6px;">'+esc(label)+'</div>'
+    +'<div class="pw-r"><span>Schedule vs plan</span><span><b>'+esc(shift)+'</b></span></div>'
+    +(p.harvestEarliest?'<div class="pw-r"><span>Harvest window</span><span><b>'+esc(p.harvestEarliest)+' to '+esc(p.harvestLatest)+'</b></span></div>':'')
+    +(p.windowRange?'<div class="pw-r"><span>Allowable window</span><span><b>'+esc(p.windowRange)+'</b></span></div>':'')
+    +'<div class="pw-why">Irrigation and harvest dates follow this date once verified.</div></div>';
 }
 function vpDatesLine(d){
   const v=d.vdateTouched?(d.vdate||''):(d.dob||'');
+  vpPreviewFetch(d,d.dob||'');
   return '<div id="md-selline">'+vpDatesHTML(d,d.dob||'',v)+'</div>';
 }
 function vpSelUpdate(){
   const d=ui.modalDraft, el=document.getElementById('md-selline'), a=document.getElementById('md-dob'), v=document.getElementById('md-vdate'); if(!el||!d) return;
-  el.innerHTML=vpDatesHTML(d,a?a.value:(d.dob||''),v&&v.value?v.value:(a?a.value:''));
+  const dob0=a?a.value:(d.dob||''); vpPreviewFetch(d,dob0);
+  el.innerHTML=vpDatesHTML(d,dob0,v&&v.value?v.value:(a?a.value:''));
 }
 function pdPlannedLine(d){
   const planned=pdPlannedFor(d.cohortId); if(!planned) return '';
@@ -3314,8 +3340,7 @@ function vpActivityDate(bedId,cohortId){
   for(const r of rows){   /* only a COMPLETED planting activity says when the crop went in */
     const name=r.taskType||r.activityName||r.activity||'planting', sd=vpIsoDay(r.scheduledDate), dd=vpIsoDay(r.endTime);
     /* The day the planting activity was COMPLETED is the actual planting day; the scheduled day is only a fallback. */
-    if(dd && dd<=today) return { date:dd, from:'the day the '+name+' activity was completed' };
-    if(sd && sd<=today) return { date:sd, from:'the day the '+name+' activity was scheduled for' };
+    if(dd) return { date:dd, from:'the day the '+name+' activity was completed' };
   }
   return null;
 }
@@ -3360,7 +3385,7 @@ function verifyPlantingModal(){
       if(s&&s.selectedDate) d.sel=s;
       const el=document.getElementById('md-dob'), cur=el?el.value:d.dob, auto=d.vpAuto&&d.vpAuto.date;
       /* ONE default, from the server (PlantingSelection.gs). The local activity lookup above only fills the box until this answers, or if it fails. */
-      if(vd && (!cur || cur===auto)){ d.dob=(vd.date&&vd.date<=todayISO())?vd.date:''; d.vpAuto=d.dob?{ date:d.dob, from:vd.fromText||'the default for this cohort' }:null; }
+      if(vd && (!cur || cur===auto)){ d.dob=vd.date||''; d.vpAuto=d.dob?{ date:d.dob, from:vd.fromText||'the default for this cohort' }:null; }
       if(ui.modal==='verify-planting') render();
     }).catch(()=>{});
   }
