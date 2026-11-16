@@ -5421,8 +5421,8 @@ function bbMapSVG(){
         <rect class="bed ${bb.bedSel===id?'selected':''}" x="${bx}" y="${by}" width="${cw}" height="${ch}" rx="6" fill="${v.fill}"${cv&&cohortId?tileStroke(Object.assign({},cv,{cohortId:cohortId})):(phDone&&!cohortId?' stroke="#1F3A2E" stroke-width="2"':'')}></rect>
         <text x="${bx+6}" y="${by+11}" font-size="8" font-weight="700" fill="${tc}" opacity=".7">${esc(no)}</text>
         ${txt}
-        ${nSess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E"></circle>`:''}
-        ${exc?`<circle cx="${bx+cw-19}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
+        ${nSess?`<circle cx="${bx+cw-9}" cy="${by+9}" r="7" fill="#1F3A2E" stroke="#fff" stroke-width="1"></circle><text x="${bx+cw-9}" y="${by+11.8}" text-anchor="middle" font-size="8" font-weight="800" fill="#fff">${nSess}</text>`:''}
+        ${exc?`<circle cx="${bx+cw-(nSess?23:19)}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
         ${pvc[id]?`<circle cx="${bx+cw-8}" cy="${by+ch-8}" r="6" fill="#E0A53D" stroke="#fff" stroke-width="1"></circle><text x="${bx+cw-8}" y="${by+ch-5.2}" text-anchor="middle" font-size="8" font-weight="800" fill="#1B1B18">${pvc[id]}</text>`:''}
         ${cv?tileStickers(Object.assign({},cv,{cohortId:cohortId||cv.cohortId}),bx,by,cw,ch):''}
       </g>`;
@@ -5790,14 +5790,23 @@ function bbTasksPanel(){
     const head=`<tr><td colspan="6" style="background:var(--sand);font-weight:800;padding:8px;"><span>${esc(bed)}</span> <span class="qsub" style="font-weight:600;">${esc(tb.blockId||'')} \u00b7 ${esc(st.label)}${tb.cohortId?' \u00b7 '+esc(tb.cohortId):''}</span>
       ${mo?`<span class="chip chip-neutral" style="margin-left:6px;">${mo} override${mo===1?'':'s'}</span>`:''}
       <span style="float:right;"><button class="dc-mini" onclick="bbOverrideBed('${esc(bed)}')">Manager override\u2026</button></span></td></tr>`;
-    const body=l.map(s=>{
-      const stt=taskStatus(s), who=s.workerName||s.workerId||'Unassigned', asg=String(s.status||'').toUpperCase()==='ASSIGNED';
-      const re=s.reassignedFrom?`<span class="chip chip-warn">Reassigned</span> from ${esc(s.reassignedFromName||s.reassignedFrom)}${s.reassignedBy?' by '+esc(s.reassignedBy):''}${s.reassignedAt?' \u00b7 '+esc(fmtTs(s.reassignedAt)):''}${s.reassignNote?`<div class="qsub">Note: ${esc(s.reassignNote)}</div>`:''}`:'<span class="qsub">\u2014</span>';
-      return `<tr><td style="white-space:normal;min-width:230px;"><b>${esc(actLabel(s.activity,s))}</b><div class="qsub">${esc(sessDesc(s))}</div></td>
-        <td>${esc(who)}</td><td><span class="chip ${stt[1]}">${esc(stt[0])}</span></td>
-        <td style="white-space:nowrap;">${esc(fmtTs(s.assignedTime)||'\u2014')}${s.scheduledDate?`<div class="qsub">for ${esc(schedLabel(s))}</div>`:''}</td>
-        <td style="white-space:normal;min-width:190px;">${re}</td>
-        <td style="white-space:nowrap;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>${asg?` <button class="dc-mini" data-id="${esc(s.id)}" onclick="phaUnassignOne(this.dataset.id)">Clear</button>`:''}</td></tr>`; }).join('');
+    // Group this bed's open sessions by activity (ACT_007 dispatched to two workers, or three prep
+    // tasks running on the same bed, read as one activity row each with its workers listed under it)
+    // instead of one flat row per worker/activity pair - same grouping as this bed's own
+    // "Active dispatches on <bed> · By activity" panel (activeWorkSection()).
+    const byAct={}, actOrder=[]; l.forEach(s=>{ const k=s.activityId||s.activity; if(!byAct[k]){ byAct[k]=[]; actOrder.push(k); } byAct[k].push(s); });
+    const body=actOrder.map(k=>{
+      const grp=byAct[k], live=grp.some(s=>['ACTIVE','PAUSED','EXCEPTION'].includes(String(s.status||'').toUpperCase()));
+      const actHead=`<tr><td colspan="6" style="padding:8px 8px 2px;background:var(--paper);"><b>${esc(actLabel(grp[0].activity,grp[0]))}</b> <span class="chip ${live?'chip-ok':'chip-warn'}">${live?'In progress':'Assigned'}</span><div class="qsub">${esc(sessDesc(grp[0]))}</div></td></tr>`;
+      const workerRows=grp.map(s=>{
+        const stt=taskStatus(s), who=s.workerName||s.workerId||'Unassigned', asg=String(s.status||'').toUpperCase()==='ASSIGNED';
+        const re=s.reassignedFrom?`<span class="chip chip-warn">Reassigned</span> from ${esc(s.reassignedFromName||s.reassignedFrom)}${s.reassignedBy?' by '+esc(s.reassignedBy):''}${s.reassignedAt?' \u00b7 '+esc(fmtTs(s.reassignedAt)):''}${s.reassignNote?`<div class="qsub">Note: ${esc(s.reassignNote)}</div>`:''}`:'<span class="qsub">\u2014</span>';
+        return `<tr><td></td>
+          <td>${esc(who)}</td><td><span class="chip ${stt[1]}">${esc(stt[0])}</span></td>
+          <td style="white-space:nowrap;">${esc(fmtTs(s.assignedTime)||'\u2014')}${s.scheduledDate?`<div class="qsub">for ${esc(schedLabel(s))}</div>`:''}</td>
+          <td style="white-space:normal;min-width:190px;">${re}</td>
+          <td style="white-space:nowrap;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>${asg?` <button class="dc-mini" data-id="${esc(s.id)}" onclick="phaUnassignOne(this.dataset.id)">Clear</button>`:''}</td></tr>`; }).join('');
+      return actHead+workerRows; }).join('');
     return head+body; }).join('');
   const ovRows=ovs.map(o=>`<tr><td style="white-space:nowrap;">${esc(fmtTs(o.date)||'\u2014')}</td><td>${esc(o.bedId||'\u2014')}</td>
       <td style="white-space:normal;min-width:200px;"><b>${esc(o.activityId?o.activityId+': '+o.activity:o.activity)}</b><div class="qsub">${esc(sessDesc({activity:o.activity}))}</div></td>
@@ -6150,7 +6159,7 @@ function bbScreen(){
   const overview=`<h2 style="margin:0 0 4px;">Bed status board · ${esc(BLOCK_LABELS[bb.sel])}</h2>
     <div class="note" style="margin-top:0;">Live Bed_Status from BED_MASTER. A bed is Available only after a manager verifies it is physically ready (BED_STATUS_RULES R11, R13, R14, R15); planning never changes it. Pick a block on the left, click a bed to open its profile on the right. Not verified and Blocked beds can be verified ready from the bed profile.</div>
     <div style="margin:10px 0 6px;">${grid||`<div class="empty">${bb.busy?'Loading\u2026':'No beds loaded.'}</div>`}</div>
-    <div class="qsub" style="margin:0 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark dot means a task is assigned or running on that bed, a red dot an open exception. An amber number means that many things on the bed are waiting for your verification. The block you pick is also the one Start of operations works on.</div>`;
+    <div class="qsub" style="margin:0 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark circled number is how many activities are assigned or running on that bed right now, a red dot an open exception. An amber number means that many things on the bed are waiting for your verification. The block you pick is also the one Start of operations works on.</div>`;
   const nVerify=state.lastSync?(pvActivities().length+pvPlantings().length+pvReadyBeds().length):0;
   const nReview=(!IS_DEMO&&!rb.hide&&rb.data)?((rb.data.toCheck||[]).length+(rb.data.toVerify||[]).length):0;
   const nTasks=(state.sessions||[]).filter(x=>String(x.status||'').toUpperCase()!=='COMPLETED').length;
