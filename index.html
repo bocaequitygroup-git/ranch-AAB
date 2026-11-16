@@ -2146,14 +2146,23 @@ function gateModel(b){
   const unassigned=open.filter(r=>r.worker&&!r.waiting&&!r.sessions.length);
   const busy=open.filter(r=>r.sessions.length);
   const pending=rows.filter(r=>r.done&&!r.verified);   /* completed but not verified: a CHECK does not change this */
+  /* RULE R_D01: a DIRECT_SEED cohort's bed also needs ACT_060/061/062 completed and manager-verified before ACT_007. They are added to the DISPLAY counters
+   * (reqTotal / reqDone / reqVerified: 12 -> 15) only; m.total / m.done / m.verified stay the 12-step bed-release logic, which is unaffected. */
+  const dsOn=!!b.cohortId&&method==='DirectSeeding', dsE=dsOn?dsPreEntry(b.id):null, dsWaived=!!(dsE&&dsE.overrideOnFile&&!dsE.ready);
+  const dsItems=dsOn?DS_PREREQS.map(p=>{ const it=((dsE&&dsE.items)||[]).find(x=>x.id===p[0]||x.name===p[1])||{}, st=it.status||'', ok=st==='VERIFIED'||dsWaived;
+    return { id:p[0], name:p[1], status:st, verified:ok, done:ok||st==='AWAITING_VERIFICATION',
+      text:st==='VERIFIED'?'verified':dsWaived?'waived by manager override':(it.text||(dsE&&dsE.error?'status unavailable (the server still enforces it)':'checking…')) }; }):[];
+  const dsVer=dsItems.filter(i=>i.verified).length, dsDone=dsItems.filter(i=>i.done).length;
   return { rows, plant, prop:gatePropagationInfo(b), total, done, verified, open, unassigned, busy, pending, released, scope, st, cohortScope,
-           ready:released||(verified===total&&total>0), cleared:verified===total&&total>0 };
+           ready:released||(verified===total&&total>0), cleared:verified===total&&total>0,
+           ds:{ on:dsOn, items:dsItems, clear:!dsOn||dsVer===dsItems.length, waived:dsWaived }, reqTotal:total+dsItems.length, reqDone:done+dsDone, reqVerified:verified+dsVer };
 }
 function gateOverrideSteps(m){   /* the override modal lists these (PH_STEPS[scope].steps) */
   PH_STEPS[m.scope]={ steps:m.rows.filter(r=>!r.done).map(r=>({name:r.name,domain:r.domain||'Other',status:'OPEN'})) };
 }
 function gateRowLabel(r){ return (r.id?r.id+': ':'')+r.label; }
 function gateStateLine(m,b){
+  if(m.released&&m.ds.on&&!m.ds.clear) return 'The bed itself is released, but Direct Seeding (ACT_007) cannot be assigned or started until ACT_060, ACT_061 and ACT_062 are completed and manager-verified (or waived by an override at assignment). '+(m.reqTotal-m.reqVerified)+' of '+m.reqTotal+' required steps are not verified yet.';
   if(m.released) return b.plantingDate?'Cleared before planting. This bed is now in production.':'Bed verified ready. Planting can start once a cohort is assigned.';
   if(m.cleared) return 'All '+m.total+' required steps are verified. Release the bed to make it available.';
   if(!m.open.length) return 'All required steps are done, but '+m.pending.length+' still need'+(m.pending.length===1?'s':'')+' manager verification. Checking a step does not count; verify it.';
@@ -2161,6 +2170,7 @@ function gateStateLine(m,b){
   return m.open.length+' step'+(m.open.length===1?'':'s')+' still open and '+m.pending.length+' completed step'+(m.pending.length===1?'':'s')+' awaiting verification. Planting is blocked until all '+m.total+' are verified and the bed is released.';
 }
 function gateHeadChip(m,b){
+  if(m.released&&m.ds.on&&!m.ds.clear) return ['DIRECT-SEED PREP REQUIRED · '+m.reqVerified+' / '+m.reqTotal+' verified','chip-warn'];
   if(m.released) return b.plantingDate?['CLEARED · IN PRODUCTION','chip-ok']:['READY TO PLANT','chip-ok'];
   if(m.cleared) return ['READY TO RELEASE','chip-ok'];
   return ['NOT READY TO PLANT','chip-warn'];
@@ -2194,13 +2204,14 @@ function gateRelease(){ const b=dpBed(), m=gateModel(b); if(!m.cleared) return; 
 function gateAssignCohort(bedId){ closeModal(); if(bedId){ asg.q=bedId; asg.block=''; asg.focusBed=bedId; asg.focusPending=true; } goPlanning(); setPMode('assigncohort'); }
 function acClearFocus(){ asg.q=''; asg.focusBed=''; render(); }
 /* ---- pieces ---- */
-function gateProgress(m,kind){ const n=kind==='done'?m.done:m.verified;
-  return `<div class="gt-count"><b>${n} / ${m.total}</b> ${kind==='done'?'required done':'verified'}${kind==='done'&&m.verified!==m.done?` <span class="gt-sub" style="display:inline;">· ${m.verified} verified</span>`:''}</div><div class="dc-bar"><i style="width:${m.total?Math.round(n/m.total*100):0}%"></i></div>`; }
+function gateProgress(m,kind){ const n=kind==='done'?m.reqDone:m.reqVerified;
+  return `<div class="gt-count"><b>${n} / ${m.reqTotal}</b> ${kind==='done'?'required done':'verified'}${kind==='done'&&m.reqVerified!==m.reqDone?` <span class="gt-sub" style="display:inline;">· ${m.reqVerified} verified</span>`:''}</div><div class="dc-bar"><i style="width:${m.reqTotal?Math.round(n/m.reqTotal*100):0}%"></i></div>`; }
 function gateNext(m,b){
   const btn=(label,fn,cls)=>`<button class="btn ${cls||'btn-primary'}" style="width:auto;margin:6px 6px 0 0;" onclick="${fn}">${label}</button>`;
   let state_='', acts='';
   if(m.released){
-    if(b.cohortId){ state_='Crop work is open'; acts=btn('Open Activities',"setGateTab('crop')"); }
+    if(b.cohortId&&m.ds.on&&!m.ds.clear){ const need=m.ds.items.filter(i=>i.status==='NOT_ASSIGNED').map(i=>i.name); state_='Direct-seed preparation required (Rule R_D01)'; acts=(need.length?btn('Assign Prep Steps (ACT_060–062)','gateAssign('+esc(JSON.stringify(need))+')'):'')+btn('Open Activities',"setGateTab('crop')",'btn-outline'); }
+    else if(b.cohortId){ state_='Crop work is open'; acts=btn('Open Activities',"setGateTab('crop')"); }
     else { state_='✔ Bed is available'; acts=btn('Assign Cohort',"gateAssignCohort('"+esc(b.id)+"')"); }
   } else if(m.cleared){ state_='✔ Required activities are cleared'; acts=btn('Verify Bed Ready &amp; Release to Available','gateRelease()'); }
   else if(!m.open.length){ state_='Waiting for manager sign-off'; acts=btn('Review sign-offs',"setGateTab('verify')"); }
@@ -2226,12 +2237,16 @@ function gateOverviewTab(b,m){
       <div><b>${esc(gateRowLabel(r))}</b> ${gateChipTag(g)}</div><div class="gt-sub">${line}${gateOverrideLink(r,m)}</div></div></div>`;
   };
   const g1=GATE_GROUPS[0], g2=GATE_GROUPS[1], g3=GATE_GROUPS[2];
+  const dsRows=m.ds.items.map(i=>`<div class="gt-row ${i.verified?'is-done':''}"><span class="gt-box" aria-hidden="true">${i.verified?'☑':'☐'}</span><div class="gt-main">
+      <div><b>${esc(i.id+': '+i.name)}</b> <span class="chip chip-neutral gt-tag">Required</span></div><div class="gt-sub">${esc(i.text||'not started')}${i.status==='NOT_ASSIGNED'?' — <button class="gt-link" data-a="'+esc(i.name)+'" onclick="gateAssignOne(this)">assign</button>':''}</div></div></div>`).join('');
+  const dsBlock=`<div class="gt-grp"><div class="gt-grp-h">Step 3: Direct-Seeding Readiness (Rule R_D01)</div>
+      <div class="gt-sub" style="margin:0 0 6px;"><b>Mandatory before ACT_007 (DirectSeeding) can be assigned or started.</b> All 3 must be completed and manager-verified (or waived via override at assignment).</div>${dsRows}</div>`;
   const plantRows=m.prop.map(p=>`<div class="gt-row"><span class="gt-box" aria-hidden="true">ℹ</span><div class="gt-main">
       <div><b>${esc(p.label)}</b> ${p.chip?`<span class="chip ${p.chip.cls}">${esc(p.chip.text)}</span>`:gateChipTag(g3)}</div><div class="gt-sub">${esc(p.note)}</div></div></div>`).join('');
   return `<div class="gt-status"><span class="chip ${chip[1]} gt-big">${esc(chip[0])}</span>${gateProgress(m)}<div class="gt-lead">${esc(gateStateLine(m,b))}</div></div>
     <div class="gt-grp"><div class="gt-grp-h">${esc(g1.title)}</div>${m.rows.filter(r=>r.group==='base').map(r=>rowHTML(r,g1)).join('')||'<div class="gt-sub">No steps apply.</div>'}</div>
     <div class="gt-grp"><div class="gt-grp-h">${esc(g2.title)}</div>${m.rows.filter(r=>r.group==='infra').map(r=>rowHTML(r,g2)).join('')||'<div class="gt-sub">No steps apply to this bed.</div>'}</div>
-    <div class="gt-grp"><div class="gt-grp-h">${esc(g3.title)}</div>${plantRows}</div>
+    ${m.ds.on?dsBlock:`<div class="gt-grp"><div class="gt-grp-h">${esc(g3.title)}</div>${plantRows}</div>`}
     ${gateNext(m,b)}`;
 }
 /* ---- TAB 2 ---- */
@@ -2252,6 +2267,9 @@ function gateRequiredTab(b,m){
   return lead
     +sec('Unassigned / open steps',m.rows.filter(r=>!r.done&&!r.sessions.length).length,openRows)
     +sec('In progress',m.rows.filter(r=>!r.done&&r.sessions.length).length,prog)
+    +(m.ds.on?sec('Direct-seeding readiness · Rule R_D01',m.ds.items.filter(i=>!i.verified).length,
+      `<div class="gt-sub" style="margin:0 0 6px;"><b>Mandatory before ACT_007 (DirectSeeding) can be assigned or started.</b> All 3 must be completed and manager-verified (or waived via override at assignment).</div>`
+      +m.ds.items.map(i=>`<div class="gt-row ${i.verified?'is-done':''}"><div class="gt-main"><div><b>${esc(i.id+': '+i.name)}</b> ${i.status?dsPreChip(i.status):''}</div><div class="gt-sub">${esc(i.text||'not started')}</div></div>${i.status==='NOT_ASSIGNED'?`<button class="btn btn-outline gt-btn" data-a="${esc(i.name)}" onclick="gateAssignOne(this)">Assign to Worker(s)</button>`:''}</div>`).join('')):'')
     +sec('Completed',m.done,doneRows)
     +gateNext(m,b)
     +(sessB.length?activeWorkSection(b,sessB):'');
@@ -2342,9 +2360,11 @@ function gateActivitiesTab(b,m){
     ${sessB.length?activeWorkSection(b,sessB):''}`;
 }
 function dpInner(b,sess){
-  dpS(b); const g=gtS(b), m=gateModel(b); gateOverrideSteps(m);
+  dpS(b); const g=gtS(b);
+  if(b.cohortId&&plantingActivityFor(b)==='DirectSeeding'){ const e=dsPreEntry(b.id); if(!e||(!e.loading&&Date.now()-(e.at||0)>20000)) setTimeout(()=>dsPreFetch(b.id,true),0); }   /* live R_D01 status for the counters */
+  const m=gateModel(b); gateOverrideSteps(m);
   const locked=!!gateCropLock(b,m);
-  const tabs=[['overview','Overview'],['required','Required '+m.done+'/'+m.total],['verify','Verify & release'+(m.pending.length?' ('+m.pending.length+')':'')],['crop','Activities'+(locked?' 🔒':'')]];
+  const tabs=[['overview','Overview'],['required','Required '+m.reqDone+'/'+m.reqTotal],['verify','Verify & release'+(m.pending.length?' ('+m.pending.length+')':'')],['crop','Activities'+(locked?' 🔒':'')]];
   const body=g.tab==='required'?gateRequiredTab(b,m):g.tab==='verify'?gateVerifyTab(b,m):g.tab==='crop'?gateActivitiesTab(b,m):gateOverviewTab(b,m);
   return `<div class="gt-tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${g.tab===k}" class="${g.tab===k?'active':''}" onclick="setGateTab('${k}')">${esc(l)}</button>`).join('')}</div>${body}`;
 }
