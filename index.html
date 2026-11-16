@@ -927,8 +927,8 @@ function propVerifyBox(failed,kind){
 
 /* MANAGER OVERRIDE (rule 2): a planting rule that refuses a task (bed not released, wrong stage, planting not verified, ...) can be overridden with an
  * explanation in ANY wording. The server (start-sessions overrideReason) lets the gate pass and records who / when / why (MANAGER_OVERRIDE_LOG). */
-const MGR_OV_CODES=['BED_NOT_RELEASED','BED_NOT_PLANTABLE','BED_TURNOVER_INCOMPLETE','STAGE_NOT_ALLOWED','PLANTING_NOT_VERIFIED','WRONG_PLANTING_METHOD','PLANTING_METHOD_UNKNOWN'];
-const MGR_OV_LABEL={ BED_NOT_RELEASED:'The bed has not been released for planting.', BED_NOT_PLANTABLE:'The bed is not in a plantable status.', BED_TURNOVER_INCOMPLETE:'Reset work on the bed is unfinished or unverified.', STAGE_NOT_ALLOWED:'This activity is not allowed at the cohort\u2019s current stage.', PLANTING_NOT_VERIFIED:'The cohort\u2019s planting has not been verified yet.', WRONG_PLANTING_METHOD:'This is not the planting method set for the crop.', PLANTING_METHOD_UNKNOWN:'The crop has no planting method on file.' };
+const MGR_OV_CODES=['BED_NOT_RELEASED','BED_NOT_PLANTABLE','BED_TURNOVER_INCOMPLETE','STAGE_NOT_ALLOWED','PLANTING_NOT_VERIFIED','WRONG_PLANTING_METHOD','PLANTING_METHOD_UNKNOWN','DIRECT_SEED_NOT_READY'];
+const MGR_OV_LABEL={ BED_NOT_RELEASED:'The bed has not been released for planting.', BED_NOT_PLANTABLE:'The bed is not in a plantable status.', BED_TURNOVER_INCOMPLETE:'Reset work on the bed is unfinished or unverified.', STAGE_NOT_ALLOWED:'This activity is not allowed at the cohort\u2019s current stage.', PLANTING_NOT_VERIFIED:'The cohort\u2019s planting has not been verified yet.', WRONG_PLANTING_METHOD:'This is not the planting method set for the crop.', PLANTING_METHOD_UNKNOWN:'The crop has no planting method on file.', DIRECT_SEED_NOT_READY:'Pre-Seed Tillage, Bed Shaping & Crown Firming and Pre-Plant Moisture Check are not all completed and verified.' };
 function mgrOvSetReason(v){ ui.mgrOvReason=v; }
 function mgrOvBox(failed,kind){
   const seen={}, rows=(failed||[]).filter(f=>f&&MGR_OV_CODES.includes(f.errorCode)&&!seen[f.errorCode]&&(seen[f.errorCode]=1)); if(!rows.length) return '';
