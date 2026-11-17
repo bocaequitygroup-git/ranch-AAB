@@ -1981,7 +1981,8 @@ function avPortionLines(s){
     const chip = p.status==='CHECKED' ? '<span class="chip chip-ok">Complete and checked</span>'
                : p.status==='OPEN'    ? `<span class="chip">${esc(avOpenLabel(p.openStatus))}</span>`
                : '<span class="chip chip-warn">Complete, awaiting check</span>';
-    const by = p.status==='CHECKED' ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(p.checkedByName||p.checkedBy)} \u00b7 ${esc(avWhen(p.checkedAt))}</div>` : '';
+    const when = (p.status!=='OPEN'&&p.completedAt) ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">Completed ${esc(avWhen(p.completedAt))}${p.minutes?' \u00b7 '+esc(p.minutes)+' min':''}</div>` : '';
+    const by = when + (p.status==='CHECKED' ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(p.checkedByName||p.checkedBy)} \u00b7 ${esc(avWhen(p.checkedAt))}</div>` : '');
     const btn = p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}')">Check this portion</button>` : '';
     return `<div class="dp-row" style="align-items:center;"><div style="flex:1;min-width:0;"><b>${esc(p.name||p.workerId)}</b> ${chip}${by}</div>${btn}</div>`;
   }).join('');
@@ -3441,6 +3442,7 @@ const vpPendTxt=st=>st==='ASSIGNED'?'assigned, not started':String(st||'').toLow
    plantingOpenSessions above). Plain 'Complete' there reads as the whole job being done, which is exactly what confused the manager
    in the B4-22 case. Label it 'Portion complete' instead whenever a same bed+cohort crewmate is still open; otherwise it's just 'Complete'. */
 function recentCompletionChip(r,bedId){
+  if(r&&r.portionChecked&&!r._ov) return '<span class="chip chip-ok" title="The manager checked this worker\'s portion. Other workers on the task may still be open.">Completed and checked</span>';
   const act=String(r.taskType||r.activityName||r.activity||'').trim().toLowerCase();
   if(VP_CREW_ACTS.includes(act)){
     const others=plantingOpenSessions(bedId).filter(o=>!r.cohortId||!o.cohortId||o.cohortId===r.cohortId);
@@ -3452,7 +3454,7 @@ function plantingCrewBox(bedId,cohortId,srv){
   const v=plantingCrewView(bedId,cohortId,srv), n=v.done.length+v.pending.length;
   if(n<2) return '';   /* a single worker needs no breakdown */
   const rows=v.done.map(w=>{
-    const chip=w.checked?'<span class="chip chip-ok">Checked</span>':(v.checkable?'<span class="chip chip-warn">Finished, awaiting check</span>':'<span class="chip chip-ok">Finished</span>');
+    const chip=w.checked?'<span class="chip chip-ok">Completed and checked</span>':(v.checkable?'<span class="chip chip-warn">Finished, awaiting check</span>':'<span class="chip chip-ok">Finished</span>');
     const btn=(v.checkable&&!w.checked&&w.workerId)?`<button class="btn btn-outline" onclick="plantingPortionCheck('${esc(bedId)}','${esc(cohortId)}','${esc(w.workerId)}')">Check this portion</button>`:'';
     return `<div class="row"><span>✓ ${esc(w.name)}${w.date?' · '+esc(w.date):''}</span><span>${chip} ${btn}</span></div>`; })
     .concat(v.pending.map(w=>`<div class="row"><span>… ${esc(w.name)}</span><span><span class="chip chip-warn">${esc(vpPendTxt(w.status))}</span></span></div>`)).join('');
@@ -3477,8 +3479,9 @@ async function plantingPortionCheck(bedId,cohortId,workerId){
 function plantingVerifyUI(bedId,cohortId,cls){
   if(!plantingDone(bedId,cohortId)) return '';
   const open=plantingOpenSessions(bedId);
-  if(!open.length) return `<button class="btn ${cls||'btn-primary'}" onclick="openModal('verify-planting',{cohortId:'${esc(cohortId)}',bedId:'${esc(bedId)}'})">Verify planting</button>`;
-  return `<button class="btn ${cls||'btn-primary'}" disabled aria-disabled="true" title="Locked until every assigned worker has finished">Waiting for workers to finish</button>`
+  const crewBox=plantingCrewBox(bedId,cohortId,null);   /* who finished, who is checked, who is still open: same as the review board */
+  if(!open.length) return crewBox+`<button class="btn ${cls||'btn-primary'}" onclick="openModal('verify-planting',{cohortId:'${esc(cohortId)}',bedId:'${esc(bedId)}'})">Verify planting</button>`;
+  return crewBox+`<button class="btn ${cls||'btn-primary'}" disabled aria-disabled="true" title="Locked until every assigned worker has finished">Waiting for workers to finish</button>`
     +`<div class="note" style="margin:6px 0 0;">Waiting for completion sign-off from all assigned workers: ${esc(open.map(r=>(r.workerName||r.workerId)+' ('+vpPendTxt(String(r.status||'').toUpperCase())+')').join(', '))}. Verification stays locked until they finish, or you Clear / Reassign the open task.</div>`;
 }
 /* A planting activity has been COMPLETED on this bed for this cohort but the cohort is not verified yet (still PRE_PLANTING).
