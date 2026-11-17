@@ -1632,7 +1632,7 @@ function emptyBedBlock(b,sess){
 function cohortActionButtons(b){
   const cs=b.cohortStatus||'';
   const btns=[];
-  if(cs==='PRE_PLANTING'){ const vb=plantingVerifyUI(b.id,b.cohortId,'btn-primary'); if(vb) btns.push(vb); }
+  if(cs==='PRE_PLANTING'){ const vb=plantingVerifyUI(b.id,b.cohortId,'btn-primary'); if(vb) btns.push(plantingCrewBox(b.id,b.cohortId)+vb); }   /* crew summary once here; the Activities tab already draws its own */
   if(cs==='PRE_PLANTING' || cs==='ACTIVE'){
     btns.push(`<button class="btn btn-outline" onclick="openMoveModal('${esc(b.cohortId)}')">Move to another bed</button>`);
   }
@@ -1904,7 +1904,7 @@ function liveTaskBlock(b,sess){
 function verifyCloseBlock(b){
   const cs=String(b.cohortStatus||'').toUpperCase(), btns=[], notes=[];
   const hr=(state.harvestReady||[]).find(h=>h.bedId===b.id);
-  if(cs==='PRE_PLANTING'){ const vb=plantingVerifyUI(b.id,b.cohortId,'btn-primary'); if(vb) btns.push(vb); }
+  if(cs==='PRE_PLANTING'){ const vb=plantingVerifyUI(b.id,b.cohortId,'btn-primary'); if(vb) btns.push(plantingCrewBox(b.id,b.cohortId)+vb); }   /* crew summary once here; the Activities tab already draws its own */
   if(b.cohortId && hr) btns.push(`<button class="btn btn-primary" onclick="verifyHarvestReady('${esc(b.cohortId)}','${esc(b.id)}')">Verify harvest ready</button>`);
   if(b.postHarvest && b.postHarvest.readyToVerify){
     const scope=b.postHarvest.bedLevel?'BED:'+b.id:b.cohortId;
@@ -3479,9 +3479,8 @@ async function plantingPortionCheck(bedId,cohortId,workerId){
 function plantingVerifyUI(bedId,cohortId,cls){
   if(!plantingDone(bedId,cohortId)) return '';
   const open=plantingOpenSessions(bedId);
-  const crewBox=plantingCrewBox(bedId,cohortId,null);   /* who finished, who is checked, who is still open: same as the review board */
-  if(!open.length) return crewBox+`<button class="btn ${cls||'btn-primary'}" onclick="openModal('verify-planting',{cohortId:'${esc(cohortId)}',bedId:'${esc(bedId)}'})">Verify planting</button>`;
-  return crewBox+`<button class="btn ${cls||'btn-primary'}" disabled aria-disabled="true" title="Locked until every assigned worker has finished">Waiting for workers to finish</button>`
+  if(!open.length) return `<button class="btn ${cls||'btn-primary'}" onclick="openModal('verify-planting',{cohortId:'${esc(cohortId)}',bedId:'${esc(bedId)}'})">Verify planting</button>`;
+  return `<button class="btn ${cls||'btn-primary'}" disabled aria-disabled="true" title="Locked until every assigned worker has finished">Waiting for workers to finish</button>`
     +`<div class="note" style="margin:6px 0 0;">Waiting for completion sign-off from all assigned workers: ${esc(open.map(r=>(r.workerName||r.workerId)+' ('+vpPendTxt(String(r.status||'').toUpperCase())+')').join(', '))}. Verification stays locked until they finish, or you Clear / Reassign the open task.</div>`;
 }
 /* A planting activity has been COMPLETED on this bed for this cohort but the cohort is not verified yet (still PRE_PLANTING).
