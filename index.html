@@ -1982,7 +1982,7 @@ function avPortionLines(s){
                : p.status==='OPEN'    ? `<span class="chip">${esc(avOpenLabel(p.openStatus))}</span>`
                : '<span class="chip chip-warn">Complete, awaiting check</span>';
     const by = p.status==='CHECKED' ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(p.checkedByName||p.checkedBy)} \u00b7 ${esc(avWhen(p.checkedAt))}</div>` : '';
-    const btn = p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}')">Check this portion</button>` : '';
+    const btn = p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}')">Check this portion</button>` : '';
     return `<div class="dp-row" style="align-items:center;"><div style="flex:1;min-width:0;"><b>${esc(p.name||p.workerId)}</b> ${chip}${by}</div>${btn}</div>`;
   }).join('');
   const why = s.promoted ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">This activity is normally Checked only. More than one worker is assigned, so it needs verification once every worker is complete and checked.</div>` : '';
@@ -2029,9 +2029,9 @@ function avTog(name,on){ const d=ui.av; if(!d) return; if(on) d.sel[name]=true; 
 function avAll(on){ const b=dpBed(), d=avS(b); d.sel={}; if(on) avStepsOf(b,true).filter(s=>s.verifiable!==false).forEach(s=>{ d.sel[s.name]=true; }); dpRefresh(); }
 
 /* Check one worker's portion of a multi-worker activity. Does not verify and does not touch the single-worker check. */
-async function avPortionCheck(bedId, activity, workerId){
+async function avPortionCheck(bedId, activity, workerId, cohortId){
   try{
-    await apiCall('portion-check',{ items:[{ bedId, activity, workerId }] });
+    await apiCall('portion-check',{ items:[{ bedId, activity, workerId, cohortId:cohortId||'' }] });
     toast('Portion checked.');
   } catch(e){ toast((e&&e.message)||'Could not check this portion.',7000); }
   await loadToday(); rbLoad(true);
@@ -6075,16 +6075,18 @@ function rbRow(it,m){
 /* Activities done by more than one worker (CHECKED-class ones too): each worker's portion is checked when that worker completes, the others keep their own
  * status, and the activity is verified once every portion is complete and checked. Server: VerificationSnapshot.gs (rbData.crew). */
 /* Multi-worker activities come from the board snapshot the daily load already fetched (state.verification), so the review board request stays light. */
-function rbCrewList(d){ if(d&&d.crew&&d.crew.length) return d.crew; return ((state.verification&&state.verification.items)||[]).filter(i=>i.multiWorker); }
+function rbCrewList(d){ return ((d&&d.crew)||[]).concat(((state.verification&&state.verification.items)||[]).filter(i=>i.multiWorker)); }   /* planting crews (server) + other multi-worker activities (snapshot) */
 function rbCrewHTML(d){
   const list=rbCrewList(d); if(!list.length) return '';
   const rows=list.map(i=>{
-    const s={ name:i.activity, bedId:i.bedId, work:i.work, multiWorker:true, portions:i.portions||[], verifiable:i.verifiable!==false, promoted:!!i.promoted, blockReason:i.blockReason||'' };
+    const planting=i.kind==='PLANTING';
+    const s={ name:i.activity, bedId:i.bedId, cohortId:i.cohortId||'', work:i.work, multiWorker:true, portions:i.portions||[], verifiable:i.verifiable!==false, promoted:!!i.promoted, blockReason:i.blockReason||'' };
     const done=s.portions.filter(p=>p.status==='CHECKED').length;
-    const chip=s.verifiable?'<span class="chip chip-warn">Ready to verify</span>':`<span class="chip">${done} of ${s.portions.length} checked</span>`;
-    const btn=s.verifiable?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-b="${esc(i.bedId)}" data-a="${esc(i.activity)}" onclick="rbVerifyCrew(this)">Verify activity</button>`:'';
+    const chip=s.verifiable?'<span class="chip chip-warn">'+(planting?'Ready to verify planting':'Ready to verify')+'</span>':`<span class="chip">${done} of ${s.portions.length} checked</span>`;
+    const btn=s.verifiable?(planting?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" onclick="openModal('verify-planting',{cohortId:'${esc(i.cohortId)}',bedId:'${esc(i.bedId)}'})">Verify planting</button>`
+      :`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-b="${esc(i.bedId)}" data-a="${esc(i.activity)}" onclick="rbVerifyCrew(this)">Verify activity</button>`):'';
     return `<div style="padding:8px 0;border-top:1px solid var(--line,#e5e7eb);">
-      <div class="row"><span><b>${esc(actLabel(i.activity))}</b> <span class="qsub" style="display:inline;">Bed ${esc(i.bedId)}</span></span><span>${chip}</span></div>
+      <div class="row"><span><b>${esc(actLabel(i.activity))}</b> <span class="qsub" style="display:inline;">Bed ${esc(i.bedId)}${planting&&i.cohortId?' · '+esc(i.cohortId)+(i.crop?' · '+esc(i.crop):''):''}</span></span><span>${chip}</span></div>
       ${avLines(s)}${avPortionLines(s)}${btn}</div>`;
   }).join('');
   return `<h2 style="font-size:13px;margin:14px 0 6px;">Activities with more than one worker (${list.length})</h2>
