@@ -943,11 +943,19 @@ async function mgrOvRetry(kind){
 }
 async function propVerifyAndRetry(cohortId,kind){
   if(!confirm('Confirm that the propagated crop for '+cohortId+' is ready to transplant? Your confirmation is recorded under your name.')) return;
-  try{ await apiCall('verify-propagation',{ cohortId },60000); toast('Propagation confirmed for '+cohortId+'.'); }
-  catch(e){ toast(e.message); return; }
-  if(kind==='dp') return dpSubmit();
-  if(kind==='ma') return submitMultiAssign();
-  await loadToday();
+  if(propVerifyAndRetry._busy) return;   /* a second tap must not send a second confirmation */
+  propVerifyAndRetry._busy=true;
+  /* PROGRESS: this step used to be silent (the server call can take several seconds), so the screen looked frozen until the assign window came back.
+   * The progress pill now stays up from the confirmation through the retried assignment, and the buttons are locked meanwhile. */
+  busyShow('Step 1 of 3: recording propagation confirmation for '+cohortId+'… please wait'); busyLock(true);
+  try{ await apiCall('verify-propagation',{ cohortId },60000); }
+  catch(e){ busyHide(); busyLock(false); propVerifyAndRetry._busy=false; toast(e.message,6000); return; }
+  busyShow('Step 2 of 3: propagation confirmed for '+cohortId+' – retrying the assignment…');
+  try{
+    if(kind==='dp') await dpSubmit();        /* the retry shows its own progress ("Assigning…", "Assigned – refreshing…") and its own OK */
+    else if(kind==='ma') await submitMultiAssign();
+    else { busyShow('Step 3 of 3: refreshing…'); await loadToday(); }
+  } finally { busyHide(); busyLock(false); propVerifyAndRetry._busy=false; }
 }
 /* STEP 2: manager override of the nursery (R01) gate. Same route as confirm-and-retry ('verify-propagation') with overrideReason; any non-blank
  * explanation is accepted. The server records who / when / why / for which planting date, then the assignment is retried. */
@@ -1172,6 +1180,7 @@ function vpVdSync(){
   d.dob=a.value||d.dob||''; v.min=a.value||''; if(!d.vdateTouched) v.value=a.value||'';
 }
 /* MANAGER OVERRIDE inside Verify planting: a future planting date, or no finished planting activity, is refused unless the manager explains (any wording). */
+function vpConfirmReset(){ const d=ui.modalDraft; if(d) d.confirmed=false; const c=document.getElementById('md-confirm'); if(c) c.checked=false; }
 function vpOvSet(v){ const d=ui.modalDraft; if(d) d.ovReason=v; }
 function vpOvBox(d){
   if(!d||!d.ov) return '';
@@ -1180,6 +1189,7 @@ function vpOvBox(d){
 }
 async function doVerifyPlanting(cohortId, actualDob){
   if(!actualDob){ toast('Enter the actual planting date.'); return; }
+  if(!ui.modalDraft.confirmed){ toast('Confirm the actual planting date (tick the box) or enter the day the crop went in.'); return; }
   if(!/^\d{4}-\d{2}-\d{2}$/.test(actualDob)){ toast('That is not a valid planting date.'); return; }
   const ovReason=ui.modalDraft.ov?String(ui.modalDraft.ovReason||'').trim():'';
   if(ui.modalDraft.ov && !ovReason){ toast('Enter an explanation to override this rule.'); return; }
@@ -1759,9 +1769,16 @@ async function propOverrideFromPanel(cohortId){
 }
 async function propVerifyFromPanel(cohortId){
   if(!confirm('Confirm that the propagated crop for '+cohortId+' is ready to transplant on the selected date? Your confirmation is recorded under your name.')) return;
-  try{ await apiCall('verify-propagation',{ cohortId },60000); toast('Propagation confirmed for '+cohortId+'.'); }
-  catch(e){ toast(e.message); return; }
-  const d=maD(); if(d&&d.bedId) await pselLoadFor(d.bedId);
+  if(propVerifyFromPanel._busy) return;
+  propVerifyFromPanel._busy=true;
+  busyShow('Recording propagation confirmation for '+cohortId+'… please wait'); busyLock(true);
+  try{ await apiCall('verify-propagation',{ cohortId },60000); }
+  catch(e){ busyHide(); busyLock(false); propVerifyFromPanel._busy=false; toast(e.message,6000); return; }
+  try{
+    busyShow('Propagation confirmed – refreshing the date impact…');
+    const m=ui.dateImpact, b=m&&m.bedId||(maD()||{}).bedId; if(b) await pselLoadFor(b);
+  } finally { busyHide(); busyLock(false); propVerifyFromPanel._busy=false; }
+  assignDialog('Propagation confirmed',['Propagation for '+cohortId+' is confirmed under your name.']);
 }
 function pselBlock(b){
   if(!b||!b.cohortId) return '';
@@ -3258,7 +3275,7 @@ function rejectModal(){
  *   Verification date                the day of the sign-off: defaults to the actual date, any later date allowed */
 function vpDatesHTML(d, dob, vdate){
   const iso=x=>/^\d{4}-\d{2}-\d{2}$/.test(x||''), today=todayISO();
-  const planned=(pdPlannedFor(d.cohortId)||(d.sel&&d.sel.plannedDob)||''), sel=(d.sel&&d.sel.selectedDate)?d.sel:null;
+  const ref=d.ref||{}; const planned=(pdPlannedFor(d.cohortId)||(d.sel&&d.sel.plannedDob)||ref.plannedDob||''), sel=(d.sel&&d.sel.selectedDate)?d.sel:(ref.selectedDate?{selectedDate:ref.selectedDate,selectedByName:ref.selectedBy||''}:null);
   const rel=(ref,date,what)=>{ if(!iso(ref)||!iso(date)) return ''; const n=pdDays(ref,date), k=Math.abs(n); return n?k+' day'+(k===1?'':'s')+(n>0?' later':' earlier')+' than '+what:'same day as '+what; };
   const row=(k,v,sub,strong)=>'<div class="pw-r"><span'+(strong?' style="color:var(--ink);font-weight:800;"':'')+'>'+esc(k)+'</span><span><b>'+v+'</b>'+(sub?'<div class="qsub" style="margin:2px 0 0;font-weight:400;">'+sub+'</div>':'')+'</span></div>';
   let selSub='';
@@ -3372,7 +3389,7 @@ function verifyPlantingModal(){
   if(!d.dob && !d.vpAutoDone){
     d.vpAutoDone=true;
     const bd=(state.todayById||{})[d.bedId], rec=bd&&bd.plantingDate&&(!bd.cohortId||bd.cohortId===d.cohortId)?String(bd.plantingDate).slice(0,10):'';
-    const a=rec?{ date:rec, from:'the cohort’s recorded planting date (Actual DOB)' }:vpActivityDate(d.bedId,d.cohortId);   /* Actual DOB first, else the planting activity */
+    const a=rec?{ date:rec, from:'the cohort’s recorded planting date (Actual DOB)' }:null;   /* spec: the default is the manager-selected date (set in the server callback below), never an activity timestamp */
     if(a){ d.dob=a.date; d.vpAuto=a; }
   }
   /* The date the manager SELECTED when assigning the planting (server: PlantingSelection.gs, sent with check-planting). It replaces the default only if it has
@@ -3383,6 +3400,7 @@ function verifyPlantingModal(){
       const s=r&&(r.selection||(r.data&&r.data.selection)), vd=r&&(r.verificationDefault||(r.data&&r.data.verificationDefault));
       if(ui.modalDraft!==d) return;
       if(s&&s.selectedDate) d.sel=s;
+      d.ref=(r&&(r.reference||(r.data&&r.data.reference)))||null;
       const el=document.getElementById('md-dob'), cur=el?el.value:d.dob, auto=d.vpAuto&&d.vpAuto.date;
       /* ONE default, from the server (PlantingSelection.gs). The local activity lookup above only fills the box until this answers, or if it fails. */
       if(vd && (!cur || cur===auto)){ d.dob=vd.date||''; d.vpAuto=d.dob?{ date:d.dob, from:vd.fromText||'the default for this cohort' }:null; }
@@ -3397,7 +3415,7 @@ function verifyPlantingModal(){
   ${vpDatesLine(d)}
   ${pdAskBox(d.pd,d.cohortId)}
   ${vpOvBox(d)}
-  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" oninput="vpVdSync();vpSelUpdate()">${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
+  <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" oninput="vpVdSync();vpSelUpdate();vpConfirmReset()"><label style="display:flex;gap:8px;align-items:center;margin-top:6px;font-weight:600;"><input type="checkbox" id="md-confirm" ${d.confirmed?'checked':''} onchange="ui.modalDraft.confirmed=this.checked"> I confirm the crop went in on this date</label>${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
   ${vpVdField(d)}
   <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${d.ov?'Override and verify planting':(outside?'Accept date and verify planting':((d.pd)?'Record explanation and verify planting':'Verify planting'))}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
