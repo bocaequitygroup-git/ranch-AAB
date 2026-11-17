@@ -1966,24 +1966,28 @@ function avS(b){ if(!ui.av||ui.av.bedId!==b.id) ui.av={bedId:b.id,sel:{}}; retur
 function avStepsOf(b,pending){
   if(pending&&state.verification) return (state.verification.items||[]).filter(i=>String(i.bedId)===String(b.id)).map(i=>({
     name:i.activity, work:i.work, needsVerification:true, bedId:i.bedId,
-    multiWorker:!!i.multiWorker, portions:i.portions||[], verifiable:i.verifiable!==false, blockReason:i.blockReason||''
+    multiWorker:!!i.multiWorker, portions:i.portions||[], verifiable:i.verifiable!==false, blockReason:i.blockReason||'', promoted:!!i.promoted
   }));
   const p=b.postHarvest; return p?(p.steps||[]).filter(s=>s.work&&(pending?s.needsVerification:s.verified)):[]; }
 
+/* A worker who has not finished keeps showing the status of their own session (assigned, in progress, paused ...) until they complete. */
+function avOpenLabel(st){ const u=String(st||'').toUpperCase();
+  return u.indexOf('ASSIGNED')===0?'Assigned, not started':u.indexOf('ACTIVE')===0?'In progress':u.indexOf('PAUSED')===0?'Paused':u.indexOf('EXCEPTION')===0?'Exception open':'Still working'; }
 /* One line per worker portion on a multi-worker activity. Check writes Portion_Checked_* only. */
 function avPortionLines(s){
   if(!s.multiWorker) return '';
   const done=s.portions.filter(p=>p.status==='CHECKED').length;
   const rows=s.portions.map(p=>{
     const chip = p.status==='CHECKED' ? '<span class="chip chip-ok">Complete and checked</span>'
-               : p.status==='OPEN'    ? '<span class="chip">Still working</span>'
+               : p.status==='OPEN'    ? `<span class="chip">${esc(avOpenLabel(p.openStatus))}</span>`
                : '<span class="chip chip-warn">Complete, awaiting check</span>';
     const by = p.status==='CHECKED' ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(p.checkedByName||p.checkedBy)} \u00b7 ${esc(avWhen(p.checkedAt))}</div>` : '';
     const btn = p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}')">Check this portion</button>` : '';
     return `<div class="dp-row" style="align-items:center;"><div style="flex:1;min-width:0;"><b>${esc(p.name||p.workerId)}</b> ${chip}${by}</div>${btn}</div>`;
   }).join('');
+  const why = s.promoted ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">This activity is normally Checked only. More than one worker is assigned, so it needs verification once every worker is complete and checked.</div>` : '';
   const note = s.verifiable ? '' : `<div class="qsub" style="text-transform:none;letter-spacing:0;">Verify is available when every worker is complete and checked (${done} of ${s.portions.length} checked).</div>`;
-  return `<div style="margin-top:6px;">${rows}${note}</div>`;
+  return `<div style="margin-top:6px;">${rows}${why}${note}</div>`;
 }
 
 function avLines(s){
@@ -2030,7 +2034,7 @@ async function avPortionCheck(bedId, activity, workerId){
     await apiCall('portion-check',{ items:[{ bedId, activity, workerId }] });
     toast('Portion checked.');
   } catch(e){ toast((e&&e.message)||'Could not check this portion.',7000); }
-  await loadToday();
+  await loadToday(); rbLoad(true);
 }
 
 async function avVerifySelected(){
@@ -5771,7 +5775,7 @@ function bhHistory(b,d){
     const k=stOf(r), c=bhCat(r.taskType);
     if(r._ov) return bhRow({ id:r.activityId||c.id||'', name:r.taskType||'', desc:shortDesc(c.description||'',110), worker:'', done:bhDate(r.endTime),
       chips:'<span class="chip chip-warn">Overridden by manager</span>', note:`Overridden by ${esc(r.managerName||r.managerId||'a manager')}${r.reason?': '+esc(r.reason):''}` });
-    const chip=k==='VERIFIED'?'<span class="chip chip-ok">Verified</span>':k==='CHECKED'?'<span class="chip chip-neutral">Checked</span>'
+    const chip=k==='VERIFIED'?'<span class="chip chip-ok">Verified</span>':k==='CHECKED'?(r.portionChecked?'<span class="chip chip-ok">Completed and checked</span>':'<span class="chip chip-neutral">Checked</span>')
       :`<span class="chip chip-warn">Completed \u00b7 ${String(r.governance||'').toUpperCase()==='VERIFIED'?'awaiting verification':'awaiting check'}</span>`;
     const by=(isOvLog(r)?`Overridden by ${esc(ovLogBy(r))}. `:'')+(k==='VERIFIED'?`Verified${r.verifiedBy?' by '+esc(r.verifiedBy):''}${r.verifiedDate?' \u00b7 '+esc(bhDate(r.verifiedDate)):''}`
       :k==='CHECKED'?`Checked${r.checkedBy?' by '+esc(r.checkedBy):''}${r.checkedDate?' \u00b7 '+esc(bhDate(r.checkedDate)):''}`:'');
@@ -6068,11 +6072,38 @@ function rbRow(it,m){
     ${f?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(f.type)} · ${esc(f.brand)} · ${esc(f.quantity)} ${esc(f.unit)}</div>`:''}
     ${it.notes?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(it.notes)}</div>`:''}</div></label>`;
 }
+/* Activities done by more than one worker (CHECKED-class ones too): each worker's portion is checked when that worker completes, the others keep their own
+ * status, and the activity is verified once every portion is complete and checked. Server: VerificationSnapshot.gs (rbData.crew). */
+function rbCrewHTML(d){
+  const list=d.crew||[]; if(!list.length) return '';
+  const rows=list.map(i=>{
+    const s={ name:i.activity, bedId:i.bedId, work:i.work, multiWorker:true, portions:i.portions||[], verifiable:i.verifiable!==false, promoted:!!i.promoted, blockReason:i.blockReason||'' };
+    const done=s.portions.filter(p=>p.status==='CHECKED').length;
+    const chip=s.verifiable?'<span class="chip chip-warn">Ready to verify</span>':`<span class="chip">${done} of ${s.portions.length} checked</span>`;
+    const btn=s.verifiable?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-b="${esc(i.bedId)}" data-a="${esc(i.activity)}" onclick="rbVerifyCrew(this)">Verify activity</button>`:'';
+    return `<div style="padding:8px 0;border-top:1px solid var(--line,#e5e7eb);">
+      <div class="row"><span><b>${esc(actLabel(i.activity))}</b> <span class="qsub" style="display:inline;">Bed ${esc(i.bedId)}</span></span><span>${chip}</span></div>
+      ${avLines(s)}${avPortionLines(s)}${btn}</div>`;
+  }).join('');
+  return `<h2 style="font-size:13px;margin:14px 0 6px;">Activities with more than one worker (${list.length})</h2>
+    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:2px;">Check each worker's portion as they finish. Workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.</div>${rows}`;
+}
+async function rbVerifyCrew(el){
+  const bedId=el.dataset.b, activity=el.dataset.a; if(rb.busy) return;
+  if(!confirm('Verify '+activity+' on '+bedId+'?\n\nEvery worker is complete and checked. This is logged with your name and the time. It does not release the bed.')) return;
+  rb.busy=true;
+  try{
+    const res=await apiCall('verify-items',{ items:[{ bedId, activity }] });
+    const skipped=(res&&res.skipped)||[];
+    toast(skipped.length?skipped.map(x=>x.reason).join(' '):'Activity verified.',skipped.length?8000:4000);
+  } catch(e){ toast((e&&e.message)||'Could not verify this activity.',7000); }
+  rb.busy=false; await loadToday(); rbLoad(true);
+}
 function rbPanel(){
   if(IS_DEMO||rb.hide) return '';
   const d=rb.data;
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
-  const nC=Object.keys(rb.sel).length, nV=Object.keys(rb.selV).length, total=d.toCheck.length+d.toVerify.length;
+  const nC=Object.keys(rb.sel).length, nV=Object.keys(rb.selV).length, total=d.toCheck.length+d.toVerify.length+(d.crew||[]).length;
   const chk=d.toCheck.length?`<h2 style="font-size:13px;margin:10px 0 6px;">Checked activities to review (${d.toCheck.length}) <span class="chip chip-ok">non-blocking</span></h2>
     <div class="dp-tools"><button onclick="rbAll('check',true)">Select all</button><button onclick="rbAll('check',false)">Clear</button></div>
     <div class="ma-list" style="max-height:340px;">${d.toCheck.map(x=>rbRow(x,'check')).join('')}</div>
@@ -6086,7 +6117,7 @@ function rbPanel(){
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
       <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></span></div>
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
-    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${chk}${ver}${recent}</div>`;
+    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${rbCrewHTML(d)}${chk}${ver}${recent}</div>`;
 }
 /* ADD NEW ACTIVITY. The form follows the ACTIVITY_REFERENCE tab column by column (Activity_ID ... Is_Fertilizer) and the
  * "Row preview" at the bottom shows the row exactly as it will be appended. Saved through 'create-activity' {full:true}
@@ -6336,7 +6367,7 @@ function bbScreen(){
     <div style="margin:10px 0 6px;">${grid||`<div class="empty">${bb.busy?'Loading\u2026':'No beds loaded.'}</div>`}</div>
     <div class="qsub" style="margin:0 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark circled number is how many activities are assigned or running on that bed right now, a red dot an open exception. An amber number means that many things on the bed are waiting for your verification. The block you pick is also the one Start of operations works on.</div>`;
   const nVerify=state.lastSync?(pvActivities().length+pvPlantings().length+pvReadyBeds().length):0;
-  const nReview=(!IS_DEMO&&!rb.hide&&rb.data)?((rb.data.toCheck||[]).length+(rb.data.toVerify||[]).length):0;
+  const nReview=(!IS_DEMO&&!rb.hide&&rb.data)?((rb.data.toCheck||[]).length+(rb.data.toVerify||[]).length+(rb.data.crew||[]).length):0;
   const nTasks=(state.sessions||[]).filter(x=>String(x.status||'').toUpperCase()!=='COMPLETED').length;
   const SECS=[['overview','Block map',0,overview],['verify','Waiting for verification',nVerify,pvPanel()],['review','Manager review',nReview,rbPanel()],['tasks','Open tasks',nTasks,bbTasksPanel()],['release','Start of operations',0,relPanel]]
     .filter(x=>x[0]!=='review'||(!IS_DEMO&&!rb.hide));
