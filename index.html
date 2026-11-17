@@ -3426,9 +3426,9 @@ function plantingOpenSessions(bedId){
 /* srv = the server's crew list (check-planting -> plantingCrew), exact for this cohort. Without it, the board's own sessions and bed log are used. */
 function plantingCrewView(bedId,cohortId,srv){
   if(srv&&Array.isArray(srv.completed)&&Array.isArray(srv.pending))
-    return { done:srv.completed.map(c=>({ name:c.workerName||c.workerId, date:c.date||'' })), pending:srv.pending.map(c=>({ name:c.workerName||c.workerId, status:String(c.status||'ASSIGNED').toUpperCase() })) };
+    return { checkable:true, done:srv.completed.map(c=>({ name:c.workerName||c.workerId, date:c.date||'', workerId:c.workerId||'', checked:!!c.portionChecked, checkedName:c.portionCheckedName||'' })), pending:srv.pending.map(c=>({ name:c.workerName||c.workerId, status:String(c.status||'ASSIGNED').toUpperCase() })) };
   const logs=(((state.todayById||{})[bedId]||{}).activityLog||[]).filter(r=>VP_CREW_ACTS.includes(String(r.taskType||r.activityName||r.activity||'').trim().toLowerCase())&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
-  return { done:logs.map(r=>({ name:r.workerName||r.workerId||'', date:vpIsoDay(r.endTime)||'' })),
+  return { checkable:false, done:logs.map(r=>({ name:r.workerName||r.workerId||'', date:vpIsoDay(r.endTime)||'', workerId:'', checked:false, checkedName:'' })),
            pending:plantingOpenSessions(bedId).map(r=>({ name:r.workerName||r.workerId||'', status:String(r.status||'ASSIGNED').toUpperCase() })) };
 }
 const vpPendTxt=st=>st==='ASSIGNED'?'assigned, not started':String(st||'').toLowerCase().replace(/_/g,' ');
@@ -3447,10 +3447,26 @@ function recentCompletionChip(r,bedId){
 function plantingCrewBox(bedId,cohortId,srv){
   const v=plantingCrewView(bedId,cohortId,srv), n=v.done.length+v.pending.length;
   if(n<2) return '';   /* a single worker needs no breakdown */
-  const rows=v.done.map(w=>`<div class="row"><span>✓ ${esc(w.name)}${w.date?' · '+esc(w.date):''}</span><span><span class="chip chip-ok">Finished</span></span></div>`)
+  const rows=v.done.map(w=>{
+    const chip=w.checked?'<span class="chip chip-ok">Checked</span>':(v.checkable?'<span class="chip chip-warn">Finished, awaiting check</span>':'<span class="chip chip-ok">Finished</span>');
+    const btn=(v.checkable&&!w.checked&&w.workerId)?`<button class="btn btn-outline" onclick="plantingPortionCheck('${esc(bedId)}','${esc(cohortId)}','${esc(w.workerId)}')">Check this portion</button>`:'';
+    return `<div class="row"><span>✓ ${esc(w.name)}${w.date?' · '+esc(w.date):''}</span><span>${chip} ${btn}</span></div>`; })
     .concat(v.pending.map(w=>`<div class="row"><span>… ${esc(w.name)}</span><span><span class="chip chip-warn">${esc(vpPendTxt(w.status))}</span></span></div>`)).join('');
-  return `<div class="pw-box${v.pending.length?' warn':' ok'}" style="margin:8px 0;"><div class="pw-t">Planting crew · ${v.done.length} of ${n} finished</div>${rows}
-    ${v.pending.length?'<div class="pw-why">Waiting for completion sign-off from all assigned workers. Verification is locked: wait for them to finish, or Clear / Reassign the open one.</div>':'<div class="pw-why">Every assigned worker has finished. Verify once for the whole cohort.</div>'}</div>`;
+  const uncheckedN=v.done.filter(w=>!w.checked).length;
+  const needsAttn=!!(v.pending.length||(v.checkable&&uncheckedN));
+  let why;
+  if(v.pending.length) why='Waiting for completion sign-off from all assigned workers. Verification is locked: wait for them to finish, or Clear / Reassign the open one.';
+  else if(v.checkable&&uncheckedN) why='Check each finished portion. Verify planting unlocks once every assigned worker is checked.';
+  else why='Every assigned worker has finished'+(v.checkable?' and been checked':'')+'. Verify once for the whole cohort.';
+  return `<div class="pw-box${needsAttn?' warn':' ok'}" style="margin:8px 0;"><div class="pw-t">Planting crew · ${v.done.length} of ${n} finished${v.checkable?' · '+(v.done.length-uncheckedN)+' checked':''}</div>${rows}<div class="pw-why">${why}</div></div>`;
+}
+/* Check one worker's finished planting portion. Uses the same portion-check action as activities; verify stays a separate step. */
+async function plantingPortionCheck(bedId,cohortId,workerId){
+  try{
+    await apiCall('portion-check',{ items:[{ bedId, cohortId, activity:'Transplanting', workerId }] });   /* the planting crew gate covers Direct Seeding and Transplanting; the name only routes to the planting branch */
+    toast('Portion checked.');
+  } catch(e){ toast((e&&e.message)||'Could not check this portion.',7000); }
+  await loadToday();
 }
 /* The Verify planting control. Always available once a planting activity is done; while someone assigned is still open it carries a warning, and the modal then
    asks for a manager override explanation (never a hard lock). */
