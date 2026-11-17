@@ -1199,7 +1199,11 @@ async function doVerifyPlanting(cohortId, actualDob){
   if(verificationDate<actualDob){ toast('The verification date cannot be before the actual planting date ('+actualDob+').'); return; }
   /* Warn first: is the date the manager entered inside the crop's allowable planting window? */
   let reason='';
-  try{
+  /* The manager already selected AND accepted this exact date (outside the window) when assigning the planting: do not ask again. The server re-applies that
+     acceptance (psReinstateWindowAcceptance_) and records a reference to it. */
+  const sel0=ui.modalDraft.sel, preAccepted=!!(sel0&&sel0.selectedDate===actualDob&&sel0.windowState==='OUTSIDE_AUTHORIZED'&&sel0.exceptionAccepted);
+  if(preAccepted){ ui.modalDraft.pw=null; ui.modalDraft.pwDate=''; }
+  else try{
     const chk=await apiCall('check-planting-window',{ cohortId, date:actualDob });
     const pw=chk&&chk.plantingWindow;
     if(pw&&pw.state==='OUTSIDE_AUTH_REQUIRED'){
@@ -1228,7 +1232,7 @@ async function doVerifyPlanting(cohortId, actualDob){
     if(wasOv) assignDialog('Planting verified under manager override',[msg,'The rule was overridden under your name and your explanation is on record.']); else toast(msg);
   }catch(e){
     busyHide();
-    if(e&&(e.code==='FUTURE_ACTUAL_DOB'||e.code==='PLANTING_ACTIVITY_NOT_DONE')){
+    if(e&&(e.code==='FUTURE_ACTUAL_DOB'||e.code==='PLANTING_ACTIVITY_NOT_DONE'||e.code==='PLANTING_WORKERS_PENDING')){
       ui.modalDraft.ov={ code:e.code, message:e.message }; ui.modalDraft.dob=actualDob; render();
       toast('A rule blocked this. Enter an explanation to override it, then verify again.'); return;
     }
@@ -1627,9 +1631,7 @@ function emptyBedBlock(b,sess){
 function cohortActionButtons(b){
   const cs=b.cohortStatus||'';
   const btns=[];
-  if(cs==='PRE_PLANTING' && plantingDone(b.id,b.cohortId)){
-    btns.push(`<button class="btn btn-primary" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`);
-  }
+  if(cs==='PRE_PLANTING'){ const vb=plantingVerifyUI(b.id,b.cohortId,'btn-primary'); if(vb) btns.push(vb); }
   if(cs==='PRE_PLANTING' || cs==='ACTIVE'){
     btns.push(`<button class="btn btn-outline" onclick="openMoveModal('${esc(b.cohortId)}')">Move to another bed</button>`);
   }
@@ -1901,7 +1903,7 @@ function liveTaskBlock(b,sess){
 function verifyCloseBlock(b){
   const cs=String(b.cohortStatus||'').toUpperCase(), btns=[], notes=[];
   const hr=(state.harvestReady||[]).find(h=>h.bedId===b.id);
-  if(cs==='PRE_PLANTING' && plantingDone(b.id,b.cohortId)) btns.push(`<button class="btn btn-primary" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`);
+  if(cs==='PRE_PLANTING'){ const vb=plantingVerifyUI(b.id,b.cohortId,'btn-primary'); if(vb) btns.push(vb); }
   if(b.cohortId && hr) btns.push(`<button class="btn btn-primary" onclick="verifyHarvestReady('${esc(b.cohortId)}','${esc(b.id)}')">Verify harvest ready</button>`);
   if(b.postHarvest && b.postHarvest.readyToVerify){
     const scope=b.postHarvest.bedLevel?'BED:'+b.id:b.cohortId;
@@ -2260,7 +2262,8 @@ function gateOverviewTab(b,m){
     <div class="gt-grp"><div class="gt-grp-h">${esc(g1.title)}</div>${m.rows.filter(r=>r.group==='base').map(r=>rowHTML(r,g1)).join('')||'<div class="gt-sub">No steps apply.</div>'}</div>
     <div class="gt-grp"><div class="gt-grp-h">${esc(g2.title)}</div>${m.rows.filter(r=>r.group==='infra').map(r=>rowHTML(r,g2)).join('')||'<div class="gt-sub">No steps apply to this bed.</div>'}</div>
     ${m.ds.on?dsBlock:`<div class="gt-grp"><div class="gt-grp-h">${esc(g3.title)}</div>${plantRows}</div>`}
-    ${gateNext(m,b)}`;
+    ${gateNext(m,b)}
+    ${activeWorkSection(b,bedSessions(b.id))}`;   /* every assigned / in-progress task on this bed, whatever tab is open (was only on Required / Activities) */
 }
 /* ---- TAB 2 ---- */
 function gateRequiredTab(b,m){
@@ -2326,7 +2329,7 @@ function gateCropLock(b,m){
 function gateActivitiesTab(b,m){
   const why=gateCropLock(b,m);
   if(why) return `<div class="dp-box"><div class="t"><span>Activities · crop domain</span><span>🔒</span></div><div class="note" style="margin:0;">${esc(why)}</div>
-    ${m.released&&!b.cohortId?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="gateAssignCohort('${esc(b.id)}')">Assign Cohort</button>`:''}</div>`;
+    ${m.released&&!b.cohortId?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="gateAssignCohort('${esc(b.id)}')">Assign Cohort</button>`:''}</div>${activeWorkSection(b,bedSessions(b.id))}`;
   const r=startableActivities(b.id,true), list=r.list, sessB=bedSessions(b.id);
   const statusOf=n=>{ const q=sessB.filter(s=>s.activity===n); return !q.length?'':q.some(gateLive)?'<span class="chip chip-ok">In progress</span>':'<span class="chip chip-warn">Assigned</span>'; };
   const row=a=>`<div class="gt-row"><div class="gt-main"><div><b>${esc((a.id?a.id+': ':'')+(GATE_LABEL[a.name]||a.name))}</b> ${statusOf(a.name)}</div>${a.description?`<div class="gt-sub">${esc(shortDesc(a.description,100))}</div>`:''}</div>
@@ -2361,7 +2364,7 @@ function gateActivitiesTab(b,m){
   const prepBlock=dsApplies?`<div class="ma-grp">Direct-seed preparation · required before ACT_007</div>
       <div class="pw-box${dsHeld?' warn':''}" style="margin:4px 0 6px;"><div class="pw-why" style="margin:0;"><b>Required before ACT_007 (DirectSeeding) can be assigned or started: all 3 must be completed and verified by a manager.</b>${dsE&&!dsE.loading&&!dsE.error?` Status: <b>${dsVer}/${dsTot} verified</b>.`:''}${dsE&&dsE.error?' (Status could not be loaded; the server still enforces this.)':''}</div></div>${prepRows}
       <div class="ma-grp">Planting</div>`:'';
-  const verifyBtn=(String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING' && plantingDone(b.id,b.cohortId))?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button>`:'';
+  const verifyBtn=(String(b.cohortStatus||'').toUpperCase()==='PRE_PLANTING')?plantingCrewBox(b.id,b.cohortId)+`<div style="margin:8px 0 0;">${plantingVerifyUI(b.id,b.cohortId,'btn-primary')}</div>`:'';
   const rank=k=>{ const i=ACTIVITY_GROUP_ORDER.indexOf(k); return i<0?99:i; };
   const g={}; care.forEach(a=>{ const k=a.plantingRole==='recovery'?'Recovery':(a.domain||'Other'); (g[k]=g[k]||[]).push(a); });
   const careHTML=Object.keys(g).sort((x,y)=>rank(x)-rank(y)).map(k=>`<div class="ma-grp">${esc(k)}</div>`+g[k].map(row).join('')).join('');
@@ -3245,7 +3248,7 @@ function assignedList(){
   if(!list.length) return `<div class="empty">No approved cohorts are waiting to be planted.</div>`;
   return list.map(p=>`<div class="card"><div class="qtop"><div><b>${esc(p.cropName)}</b><div class="qsub">Wave ${esc(p.waveNumber)} · ${esc(p.cohortId)}</div></div><div class="qdates">Planned DOB<br>${esc(p.plannedDob)}</div></div>
     <div class="qrec"><span>Planting ready in</span><b>${esc(p.locationId)}</b></div>
-    <div class="qbtns"><button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(p.locationId)}',hasCohort:true})">New Activity</button>${plantingDone(p.locationId,p.cohortId)?`<button class="btn btn-outline" onclick="openModal('verify-planting',{cohortId:'${esc(p.cohortId)}',bedId:'${esc(p.locationId)}'})">Verify planting</button>`:''}</div></div>`).join('');
+    <div class="qbtns"><button class="btn btn-primary" onclick="openModal('dispatch',{bedId:'${esc(p.locationId)}',hasCohort:true})">New Activity</button>${plantingVerifyUI(p.locationId,p.cohortId,'btn-outline')}</div></div>`).join('');
 }
 function changeLocModal(){
   const d=ui.modalDraft, r=state.candidates||{locations:[]}, locs=r.locations||[];
@@ -3363,6 +3366,39 @@ function vpActivityDate(bedId,cohortId){
 }
 /* Verify planting is only offered once a planting activity (DirectSeeding / Transplanting / Replanting) for this bed and cohort is COMPLETED. */
 function plantingDone(bedId,cohortId){ return !!vpActivityDate(bedId,cohortId); }
+/* TEAM PLANTING: one planting task can be assigned to several workers (one session each). Verify planting stays locked until EVERY assigned worker has
+ * finished; the manager then verifies the cohort once. The server enforces it (verifyPlanting -> PLANTING_WORKERS_PENDING); these helpers show it on the board. */
+const VP_CREW_ACTS=['directseeding','transplanting'];
+function plantingOpenSessions(bedId){
+  return (state.sessions||[]).filter(r=>r.bedId===bedId&&VP_CREW_ACTS.includes(String(r.activity||'').trim().toLowerCase())
+    &&!/^(COMPLETED|CANCELLED|CANCELED)/.test(String(r.status||'').toUpperCase()));
+}
+/* srv = the server's crew list (check-planting -> plantingCrew), exact for this cohort. Without it, the board's own sessions and bed log are used. */
+function plantingCrewView(bedId,cohortId,srv){
+  if(srv&&Array.isArray(srv.completed)&&Array.isArray(srv.pending))
+    return { done:srv.completed.map(c=>({ name:c.workerName||c.workerId, date:c.date||'' })), pending:srv.pending.map(c=>({ name:c.workerName||c.workerId, status:String(c.status||'ASSIGNED').toUpperCase() })) };
+  const logs=(((state.todayById||{})[bedId]||{}).activityLog||[]).filter(r=>VP_CREW_ACTS.includes(String(r.taskType||r.activityName||r.activity||'').trim().toLowerCase())&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
+  return { done:logs.map(r=>({ name:r.workerName||r.workerId||'', date:vpIsoDay(r.endTime)||'' })),
+           pending:plantingOpenSessions(bedId).map(r=>({ name:r.workerName||r.workerId||'', status:String(r.status||'ASSIGNED').toUpperCase() })) };
+}
+const vpPendTxt=st=>st==='ASSIGNED'?'assigned, not started':String(st||'').toLowerCase().replace(/_/g,' ');
+function plantingCrewBox(bedId,cohortId,srv){
+  const v=plantingCrewView(bedId,cohortId,srv), n=v.done.length+v.pending.length;
+  if(n<2) return '';   /* a single worker needs no breakdown */
+  const rows=v.done.map(w=>`<div class="row"><span>✓ ${esc(w.name)}${w.date?' · '+esc(w.date):''}</span><span><span class="chip chip-ok">Finished</span></span></div>`)
+    .concat(v.pending.map(w=>`<div class="row"><span>… ${esc(w.name)}</span><span><span class="chip chip-warn">${esc(vpPendTxt(w.status))}</span></span></div>`)).join('');
+  return `<div class="pw-box${v.pending.length?' warn':' ok'}" style="margin:8px 0;"><div class="pw-t">Planting crew · ${v.done.length} of ${n} finished</div>${rows}
+    ${v.pending.length?'<div class="pw-why">Waiting for completion sign-off from all assigned workers. Wait for them to finish, Clear / Reassign the open one, or verify now with a manager override and an explanation.</div>':'<div class="pw-why">Every assigned worker has finished. Verify once for the whole cohort.</div>'}</div>`;
+}
+/* The Verify planting control. Always available once a planting activity is done; while someone assigned is still open it carries a warning, and the modal then
+   asks for a manager override explanation (never a hard lock). */
+function plantingVerifyUI(bedId,cohortId,cls){
+  if(!plantingDone(bedId,cohortId)) return '';
+  const open=plantingOpenSessions(bedId);
+  if(!open.length) return `<button class="btn ${cls||'btn-primary'}" onclick="openModal('verify-planting',{cohortId:'${esc(cohortId)}',bedId:'${esc(bedId)}'})">Verify planting</button>`;
+  return `<button class="btn ${cls||'btn-primary'}" onclick="openModal('verify-planting',{cohortId:'${esc(cohortId)}',bedId:'${esc(bedId)}'})">Verify planting</button>`
+    +`<div class="note" style="margin:6px 0 0;">Waiting for completion sign-off from all assigned workers: ${esc(open.map(r=>(r.workerName||r.workerId)+' ('+vpPendTxt(String(r.status||'').toUpperCase())+')').join(', '))}. You can still verify with a manager override and an explanation.</div>`;
+}
 /* A planting activity has been COMPLETED on this bed for this cohort but the cohort is not verified yet (still PRE_PLANTING).
    Checks both the live sessions/today data and the bed's own activity log, so a planting logged in either place counts. */
 function plantingPending(b){
@@ -3400,6 +3436,7 @@ function verifyPlantingModal(){
       const s=r&&(r.selection||(r.data&&r.data.selection)), vd=r&&(r.verificationDefault||(r.data&&r.data.verificationDefault));
       if(ui.modalDraft!==d) return;
       if(s&&s.selectedDate) d.sel=s;
+      d.crew=(r&&(r.plantingCrew||(r.data&&r.data.plantingCrew)))||null;   /* team planting: who finished, who is still open (server, exact for this cohort) */
       d.ref=(r&&(r.reference||(r.data&&r.data.reference)))||null;
       const el=document.getElementById('md-dob'), cur=el?el.value:d.dob, auto=d.vpAuto&&d.vpAuto.date;
       /* ONE default, from the server (PlantingSelection.gs). The local activity lookup above only fills the box until this answers, or if it fails. */
@@ -3409,8 +3446,13 @@ function verifyPlantingModal(){
   }
   const today=todayISO();   /* local date: toISOString() is UTC and offered tomorrow's date in the evening */
   const pw=d.pw, outside=!!pw&&pw.state==='OUTSIDE_AUTH_REQUIRED';
+  const crewV=plantingCrewView(d.bedId,d.cohortId,d.crew), crewWait=crewV.pending.length>0;
+  /* Unfinished crew: the manager may still verify, but must write an override explanation (recorded under their name, naming who had not finished). */
+  if(crewWait&&!d.ov) d.ov={ code:'PLANTING_WORKERS_PENDING', message:'Waiting for completion sign-off from all assigned workers: '+crewV.pending.map(w=>w.name+' ('+vpPendTxt(w.status)+')').join(', ')+'.' };
+  else if(!crewWait&&d.ov&&d.ov.code==='PLANTING_WORKERS_PENDING') d.ov=null;
   return `<h2 style="font-size:15px;">Verify planting</h2>
   <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock. The planned DOB is not changed; if the actual date differs, the harvest window follows the actual planting date.</p>
+  ${plantingCrewBox(d.bedId,d.cohortId,d.crew)}
   ${pwBox(pw,{ reason:true })}
   ${vpDatesLine(d)}
   ${pdAskBox(d.pd,d.cohortId)}
