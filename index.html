@@ -3428,7 +3428,7 @@ function plantingCrewView(bedId,cohortId,srv){
   if(srv&&Array.isArray(srv.completed)&&Array.isArray(srv.pending))
     return { checkable:true, done:srv.completed.map(c=>({ name:c.workerName||c.workerId, date:c.date||'', workerId:c.workerId||'', checked:!!c.portionChecked, checkedName:c.portionCheckedName||'' })), pending:srv.pending.map(c=>({ name:c.workerName||c.workerId, status:String(c.status||'ASSIGNED').toUpperCase() })) };
   const logs=(((state.todayById||{})[bedId]||{}).activityLog||[]).filter(r=>VP_CREW_ACTS.includes(String(r.taskType||r.activityName||r.activity||'').trim().toLowerCase())&&(!r.cohortId||!cohortId||r.cohortId===cohortId));
-  return { checkable:false, done:logs.map(r=>({ name:r.workerName||r.workerId||'', date:vpIsoDay(r.endTime)||'', workerId:'', checked:false, checkedName:'' })),
+  return { checkable:true, done:logs.map(r=>({ name:r.workerName||r.workerId||'', date:vpIsoDay(r.endTime)||'', workerId:r.workerId||'', checked:!!r.portionChecked, checkedName:r.portionCheckedName||'' })),
            pending:plantingOpenSessions(bedId).map(r=>({ name:r.workerName||r.workerId||'', status:String(r.status||'ASSIGNED').toUpperCase() })) };
 }
 const vpPendTxt=st=>st==='ASSIGNED'?'assigned, not started':String(st||'').toLowerCase().replace(/_/g,' ');
