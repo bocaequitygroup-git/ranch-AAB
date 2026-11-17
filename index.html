@@ -1895,7 +1895,7 @@ function liveTaskBlock(b,sess){
       <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button>
       <button class="btn btn-outline" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button></div>`;
   }).join('');
-  const done=recent.map(r=>`<div class="row"><span>${esc(actLabel(r.taskType||r.activityName||''))} · ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
+  const done=recent.map(r=>`<div class="row"><span>${esc(actLabel(r.taskType||r.activityName||''))} · ${esc(r.workerName||r.workerId||'')}</span><span>${recentCompletionChip(r,b&&b.id)} ${esc(fmtTs(r.endTime))}</span></div>`).join('');
   return `<h2 style="font-size:13px;margin:14px 0 6px;">Live tasks</h2>
     ${cards||`<div class="empty" style="padding:10px 0;">No task is assigned or running on this bed.</div>`}
     ${done?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${done}`:''}`;
@@ -2438,7 +2438,7 @@ function activeWorkSection(b,sess){
       return `<div class="dc-act"><div class="h"><span>${esc(maWName(id))}</span><span class="qsub">${all.length} open task${all.length===1?'':'s'}</span></div>
         ${all.map(q=>`<div class="dc-w"><span>${q.bedId===b.id?'<b>':''}${esc(q.bedId)} ${esc(q.activity)}${q.bedId===b.id?'</b>':''}</span>${sessStatusChip(q)}</div>`).join('')}</div>`; }).join('');
   }
-  const recent=((b&&b.activityLog)||[]).slice(0,3).map(r=>`<div class="row" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')"><span>${esc(actLabel(r.taskType||r.activityName||''))} · ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
+  const recent=((b&&b.activityLog)||[]).slice(0,3).map(r=>`<div class="row" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')"><span>${esc(actLabel(r.taskType||r.activityName||''))} · ${esc(r.workerName||r.workerId||'')}</span><span>${recentCompletionChip(r,b&&b.id)} ${esc(fmtTs(r.endTime))}</span></div>`).join('');
   return `<div class="dp-box"><div class="t"><span>Active dispatches on ${esc(b.id)}</span></div>${sess.length?seg:''}${body}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}</div>`;
 }
 function actionsPanel(b,sess){
@@ -3383,6 +3383,18 @@ function plantingCrewView(bedId,cohortId,srv){
            pending:plantingOpenSessions(bedId).map(r=>({ name:r.workerName||r.workerId||'', status:String(r.status||'ASSIGNED').toUpperCase() })) };
 }
 const vpPendTxt=st=>st==='ASSIGNED'?'assigned, not started':String(st||'').toLowerCase().replace(/_/g,' ');
+/* A 'Recently completed' row for a crew planting activity (DirectSeeding/Transplanting) only means THIS worker finished their own
+   session - on a multi-worker task the bed/cohort as a whole isn't done until everyone assigned finishes (see plantingCrewBox /
+   plantingOpenSessions above). Plain 'Complete' there reads as the whole job being done, which is exactly what confused the manager
+   in the B4-22 case. Label it 'Portion complete' instead whenever a same bed+cohort crewmate is still open; otherwise it's just 'Complete'. */
+function recentCompletionChip(r,bedId){
+  const act=String(r.taskType||r.activityName||r.activity||'').trim().toLowerCase();
+  if(VP_CREW_ACTS.includes(act)){
+    const others=plantingOpenSessions(bedId).filter(o=>!r.cohortId||!o.cohortId||o.cohortId===r.cohortId);
+    if(others.length) return '<span class="chip chip-neutral" title="Other workers assigned to this planting task are still open">Portion complete</span>';
+  }
+  return '<span class="chip chip-neutral">Complete</span>';
+}
 function plantingCrewBox(bedId,cohortId,srv){
   const v=plantingCrewView(bedId,cohortId,srv), n=v.done.length+v.pending.length;
   if(n<2) return '';   /* a single worker needs no breakdown */
@@ -5575,7 +5587,7 @@ function bedTasksBlock(bedId,opts){
       <div class="row"><span>${pending?'Dispatched':'Started'}</span><span>${pending?esc(fmtTs(t.dispatched)||'\u2014')+' \u00b7 waiting for worker to start':esc(fmtTs(t.started)||'\u2014')}</span></div>
       ${re}
       ${opts.buttons?`<div style="margin-top:6px;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button> ${String(s.status||'').toUpperCase()==='ASSIGNED'?`<button class="dc-mini" onclick="clearAssigned('${esc(s.id)}')">Clear</button>`:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button>`}</div>`:''}</div>`; }).join('');
-  const recent=(((state.todayById||{})[bedId]||{}).activityLog||[]).slice(0,3).map(r=>`<div class="row" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(bedId)}')"><span>${esc(actLabel(r.taskType||r.activityName||''))} \u00b7 ${esc(r.workerName||r.workerId||'')}</span><span><span class="chip chip-neutral">Complete</span> ${esc(fmtTs(r.endTime))}</span></div>`).join('');
+  const recent=(((state.todayById||{})[bedId]||{}).activityLog||[]).slice(0,3).map(r=>`<div class="row" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(bedId)}')"><span>${esc(actLabel(r.taskType||r.activityName||''))} \u00b7 ${esc(r.workerName||r.workerId||'')}</span><span>${recentCompletionChip(r,bedId)} ${esc(fmtTs(r.endTime))}</span></div>`).join('');
   const body=`${sum?`<div class="qsub" style="margin:0 0 6px;">${esc(sum)}</div>`:''}${cards||`<div class="empty" style="padding:8px 0;">No task is assigned or running on this bed.</div>`}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}`;
   return `<div id="bed-tasks"><h2 style="font-size:13px;margin:12px 0 6px;">Assigned &amp; active tasks${list.length?' ('+list.length+')':''}</h2>${body}</div>`;
 }
