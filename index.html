@@ -1961,9 +1961,31 @@ function dpStChip(st){ const k={'DONE':'chip-ok','OVERRIDDEN':'chip-neutral','IN
 function avHM(h){ const m=Math.max(0,Math.round(Number(h||0)*60)); return Math.floor(m/60)+':'+String(m%60).padStart(2,'0'); }
 function avWhen(v){ if(!v) return ''; const d=new Date(v); return isNaN(d.getTime())?'':d.toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
 function avS(b){ if(!ui.av||ui.av.bedId!==b.id) ui.av={bedId:b.id,sel:{}}; return ui.av; }
+
+/* Pending items come from the server snapshot (VerificationSnapshot.gs). Multi-worker items carry portions and verifiable. */
 function avStepsOf(b,pending){
-  if(pending&&state.verification) return (state.verification.items||[]).filter(i=>String(i.bedId)===String(b.id)).map(i=>({name:i.activity, work:i.work, needsVerification:true}));
+  if(pending&&state.verification) return (state.verification.items||[]).filter(i=>String(i.bedId)===String(b.id)).map(i=>({
+    name:i.activity, work:i.work, needsVerification:true, bedId:i.bedId,
+    multiWorker:!!i.multiWorker, portions:i.portions||[], verifiable:i.verifiable!==false, blockReason:i.blockReason||''
+  }));
   const p=b.postHarvest; return p?(p.steps||[]).filter(s=>s.work&&(pending?s.needsVerification:s.verified)):[]; }
+
+/* One line per worker portion on a multi-worker activity. Check writes Portion_Checked_* only. */
+function avPortionLines(s){
+  if(!s.multiWorker) return '';
+  const done=s.portions.filter(p=>p.status==='CHECKED').length;
+  const rows=s.portions.map(p=>{
+    const chip = p.status==='CHECKED' ? '<span class="chip chip-ok">Complete and checked</span>'
+               : p.status==='OPEN'    ? '<span class="chip">Still working</span>'
+               : '<span class="chip chip-warn">Complete, awaiting check</span>';
+    const by = p.status==='CHECKED' ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(p.checkedByName||p.checkedBy)} \u00b7 ${esc(avWhen(p.checkedAt))}</div>` : '';
+    const btn = p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}')">Check this portion</button>` : '';
+    return `<div class="dp-row" style="align-items:center;"><div style="flex:1;min-width:0;"><b>${esc(p.name||p.workerId)}</b> ${chip}${by}</div>${btn}</div>`;
+  }).join('');
+  const note = s.verifiable ? '' : `<div class="qsub" style="text-transform:none;letter-spacing:0;">Verify is available when every worker is complete and checked (${done} of ${s.portions.length} checked).</div>`;
+  return `<div style="margin-top:6px;">${rows}${note}</div>`;
+}
+
 function avLines(s){
   const w=s.work, many=w.completedBy.length>1;
   const who=w.completedBy.map(x=>esc(x.name)+(many?' ('+avHM(x.hours)+')':'')).join(', ');
@@ -1973,29 +1995,56 @@ function avLines(s){
   else hrs=`Time taken <b>${avHM(w.actualHours)}</b> \u00b7 budget unavailable${w.budgetReason?' ('+esc(w.budgetReason)+')':''}`;
   return `<div class="qsub" style="text-transform:none;letter-spacing:0;">Completed by <b>${who}</b> \u00b7 ${esc(avWhen(w.completedAt))}${w.sessions>1?' \u00b7 '+w.sessions+' sessions':''}</div>
     <div class="qsub" style="text-transform:none;letter-spacing:0;">${hrs}${w.budgetRule?' <span style="opacity:.7">('+esc(w.budgetRule)+')</span>':''}</div>`
-    +(w.checked&&!w.verified?`<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(w.checkedByName||w.checkedBy)} \u00b7 ${esc(avWhen(w.checkedAt))} \u00b7 not verified yet</div>`:'')
+    /* The single-check line is for single-worker work only. Multi-worker activities show portion status instead. */
+    +(!s.multiWorker&&w.checked&&!w.verified?`<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(w.checkedByName||w.checkedBy)} \u00b7 ${esc(avWhen(w.checkedAt))} \u00b7 not verified yet</div>`:'')
     +(w.verified?`<div class="qsub" style="text-transform:none;letter-spacing:0;">Verified by ${esc(w.verifiedByName||w.verifiedBy)} \u00b7 ${esc(avWhen(w.verifiedAt))}</div>`:'');
 }
+
 function avBlock(b){
   const pend=avStepsOf(b,true), ver=avStepsOf(b,false); if(!pend.length&&!ver.length) return '';
-  const d=avS(b), n=pend.filter(s=>d.sel[s.name]).length;
-  const rows=pend.map(s=>`<label class="dp-row on" style="align-items:flex-start;"><input type="checkbox" ${d.sel[s.name]?'checked':''} data-v="${esc(s.name)}" onchange="avTog(this.dataset.v,this.checked)">
-    <div style="flex:1;min-width:0;"><b>${esc(actLabel(s.name))}</b> <span class="chip chip-warn">Waiting for your verification</span><div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(sessDesc({activity:s.name}))}</div>${avLines(s)}</div></label>`).join('');
+  const d=avS(b), n=pend.filter(s=>s.verifiable!==false&&d.sel[s.name]).length;
+  const rows=pend.map(s=>{
+    const blocked=s.verifiable===false;
+    const chip=blocked?'<span class="chip">Waiting for portion checks</span>':'<span class="chip chip-warn">Waiting for your verification</span>';
+    return `<div style="padding:4px 0;">
+      <label class="dp-row on" style="align-items:flex-start;">
+        <input type="checkbox" ${d.sel[s.name]?'checked':''} ${blocked?'disabled':''} data-v="${esc(s.name)}" onchange="avTog(this.dataset.v,this.checked)">
+        <div style="flex:1;min-width:0;"><b>${esc(actLabel(s.name))}</b> ${chip}<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(sessDesc({activity:s.name}))}</div>${avLines(s)}</div>
+      </label>
+      ${avPortionLines(s)}
+    </div>`;
+  }).join('');
   const done=ver.length?`<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:12px;">Verified activities (${ver.length})</summary>${ver.map(s=>`<div class="dp-row"><div style="flex:1;min-width:0;"><b>${esc(actLabel(s.name))}</b> <span class="chip chip-ok">Verified</span><div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(sessDesc({activity:s.name}))}</div>${avLines(s)}</div></div>`).join('')}</details>`:'';
   return `<div class="dp-box"><div class="t"><span>Completed \u00b7 waiting for your verification (${pend.length})</span></div>
     ${pend.length?`<div class="dp-tools"><button onclick="avAll(true)">Select all</button><button onclick="avAll(false)">Clear</button></div>${rows}
       <button class="btn btn-primary" ${n?'':'disabled'} onclick="avVerifySelected()">${n?'Verify selected ('+n+')':'Verify selected'}</button>`
       :'<div class="note" style="margin:0;">Every completed activity is verified.</div>'}${done}</div>`;
 }
+
 function avTog(name,on){ const d=ui.av; if(!d) return; if(on) d.sel[name]=true; else delete d.sel[name]; dpRefresh(); }
-function avAll(on){ const b=dpBed(), d=avS(b); d.sel={}; if(on) avStepsOf(b,true).forEach(s=>{ d.sel[s.name]=true; }); dpRefresh(); }
+function avAll(on){ const b=dpBed(), d=avS(b); d.sel={}; if(on) avStepsOf(b,true).filter(s=>s.verifiable!==false).forEach(s=>{ d.sel[s.name]=true; }); dpRefresh(); }
+
+/* Check one worker's portion of a multi-worker activity. Does not verify and does not touch the single-worker check. */
+async function avPortionCheck(bedId, activity, workerId){
+  try{
+    await apiCall('portion-check',{ items:[{ bedId, activity, workerId }] });
+    toast('Portion checked.');
+  } catch(e){ toast((e&&e.message)||'Could not check this portion.',7000); }
+  await loadToday();
+}
+
 async function avVerifySelected(){
-  const b=dpBed(), d=avS(b), names=avStepsOf(b,true).map(s=>s.name).filter(n=>d.sel[n]); if(!names.length) return;
+  const b=dpBed(), d=avS(b), names=avStepsOf(b,true).filter(s=>s.verifiable!==false&&d.sel[s.name]).map(s=>s.name);
+  if(!names.length) return;
   if(!confirm('Verify '+names.length+' completed '+(names.length===1?'activity':'activities')+' on '+b.id+'?\n\n'+names.join('\n')+'\n\nThis is logged with your name and the time. It does not release the bed.')) return;
   try{
-    await apiCall('verify-items',{ items:names.map(n=>({bedId:b.id, activity:n})) });
-    toast(names.length===1?'Activity verified.':names.length+' activities verified.'); ui.av={bedId:b.id,sel:{}}; await loadToday(); }
-  catch(e){ toast(e.message); }
+    const res=await apiCall('verify-items',{ items:names.map(n=>({bedId:b.id, activity:n})) });
+    const skipped=(res&&res.skipped)||[];
+    const okN=(res&&res.verified)?res.verified.length:names.length-skipped.length;
+    toast(okN===1?'Activity verified.':okN+' activities verified.');
+    if(skipped.length) toast(skipped.map(x=>x.reason).join(' '),8000);
+    ui.av={bedId:b.id,sel:{}}; await loadToday();
+  } catch(e){ toast((e&&e.message)||'Could not verify those activities.',7000); }
 }
 /* Replaced by the four-tab readiness gate (dpInner, below). Kept for reference only; nothing calls it. */
 function dpInnerLegacy(b,sess){
