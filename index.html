@@ -1232,7 +1232,8 @@ async function doVerifyPlanting(cohortId, actualDob){
     if(wasOv) assignDialog('Planting verified under manager override',[msg,'The rule was overridden under your name and your explanation is on record.']); else toast(msg);
   }catch(e){
     busyHide();
-    if(e&&(e.code==='FUTURE_ACTUAL_DOB'||e.code==='PLANTING_ACTIVITY_NOT_DONE'||e.code==='PLANTING_WORKERS_PENDING')){
+    if(e&&e.code==='PLANTING_WORKERS_PENDING'){ toast(e.message||'Not every assigned worker has finished. Verification is locked until they do.'); try{ await loadToday(); }catch(_){} render(); return; }
+    if(e&&(e.code==='FUTURE_ACTUAL_DOB'||e.code==='PLANTING_ACTIVITY_NOT_DONE')){
       ui.modalDraft.ov={ code:e.code, message:e.message }; ui.modalDraft.dob=actualDob; render();
       toast('A rule blocked this. Enter an explanation to override it, then verify again.'); return;
     }
@@ -3388,7 +3389,7 @@ function plantingCrewBox(bedId,cohortId,srv){
   const rows=v.done.map(w=>`<div class="row"><span>✓ ${esc(w.name)}${w.date?' · '+esc(w.date):''}</span><span><span class="chip chip-ok">Finished</span></span></div>`)
     .concat(v.pending.map(w=>`<div class="row"><span>… ${esc(w.name)}</span><span><span class="chip chip-warn">${esc(vpPendTxt(w.status))}</span></span></div>`)).join('');
   return `<div class="pw-box${v.pending.length?' warn':' ok'}" style="margin:8px 0;"><div class="pw-t">Planting crew · ${v.done.length} of ${n} finished</div>${rows}
-    ${v.pending.length?'<div class="pw-why">Waiting for completion sign-off from all assigned workers. Wait for them to finish, Clear / Reassign the open one, or verify now with a manager override and an explanation.</div>':'<div class="pw-why">Every assigned worker has finished. Verify once for the whole cohort.</div>'}</div>`;
+    ${v.pending.length?'<div class="pw-why">Waiting for completion sign-off from all assigned workers. Verification is locked: wait for them to finish, or Clear / Reassign the open one.</div>':'<div class="pw-why">Every assigned worker has finished. Verify once for the whole cohort.</div>'}</div>`;
 }
 /* The Verify planting control. Always available once a planting activity is done; while someone assigned is still open it carries a warning, and the modal then
    asks for a manager override explanation (never a hard lock). */
@@ -3396,8 +3397,8 @@ function plantingVerifyUI(bedId,cohortId,cls){
   if(!plantingDone(bedId,cohortId)) return '';
   const open=plantingOpenSessions(bedId);
   if(!open.length) return `<button class="btn ${cls||'btn-primary'}" onclick="openModal('verify-planting',{cohortId:'${esc(cohortId)}',bedId:'${esc(bedId)}'})">Verify planting</button>`;
-  return `<button class="btn ${cls||'btn-primary'}" onclick="openModal('verify-planting',{cohortId:'${esc(cohortId)}',bedId:'${esc(bedId)}'})">Verify planting</button>`
-    +`<div class="note" style="margin:6px 0 0;">Waiting for completion sign-off from all assigned workers: ${esc(open.map(r=>(r.workerName||r.workerId)+' ('+vpPendTxt(String(r.status||'').toUpperCase())+')').join(', '))}. You can still verify with a manager override and an explanation.</div>`;
+  return `<button class="btn ${cls||'btn-primary'}" disabled aria-disabled="true" title="Locked until every assigned worker has finished">Waiting for workers to finish</button>`
+    +`<div class="note" style="margin:6px 0 0;">Waiting for completion sign-off from all assigned workers: ${esc(open.map(r=>(r.workerName||r.workerId)+' ('+vpPendTxt(String(r.status||'').toUpperCase())+')').join(', '))}. Verification stays locked until they finish, or you Clear / Reassign the open task.</div>`;
 }
 /* A planting activity has been COMPLETED on this bed for this cohort but the cohort is not verified yet (still PRE_PLANTING).
    Checks both the live sessions/today data and the bed's own activity log, so a planting logged in either place counts. */
@@ -3448,8 +3449,7 @@ function verifyPlantingModal(){
   const pw=d.pw, outside=!!pw&&pw.state==='OUTSIDE_AUTH_REQUIRED';
   const crewV=plantingCrewView(d.bedId,d.cohortId,d.crew), crewWait=crewV.pending.length>0;
   /* Unfinished crew: the manager may still verify, but must write an override explanation (recorded under their name, naming who had not finished). */
-  if(crewWait&&!d.ov) d.ov={ code:'PLANTING_WORKERS_PENDING', message:'Waiting for completion sign-off from all assigned workers: '+crewV.pending.map(w=>w.name+' ('+vpPendTxt(w.status)+')').join(', ')+'.' };
-  else if(!crewWait&&d.ov&&d.ov.code==='PLANTING_WORKERS_PENDING') d.ov=null;
+  if(d.ov&&d.ov.code==='PLANTING_WORKERS_PENDING') d.ov=null;   /* the crew gate has no override: it is shown as a locked button below */
   return `<h2 style="font-size:15px;">Verify planting</h2>
   <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Cohort ${esc(d.cohortId)} · confirms it is physically in the ground. Sets Cohort_Status to ACTIVE and hands the cohort to ActivityEngine's biology clock. The planned DOB is not changed; if the actual date differs, the harvest window follows the actual planting date.</p>
   ${plantingCrewBox(d.bedId,d.cohortId,d.crew)}
@@ -3459,7 +3459,7 @@ function verifyPlantingModal(){
   ${vpOvBox(d)}
   <div class="field"><label>Actual planting date</label><input id="md-dob" type="date" value="${esc(d.dob||'')}" oninput="vpVdSync();vpSelUpdate();vpConfirmReset()"><label style="display:flex;gap:8px;align-items:center;margin-top:6px;font-weight:600;"><input type="checkbox" id="md-confirm" ${d.confirmed?'checked':''} onchange="ui.modalDraft.confirmed=this.checked"> I confirm the crop went in on this date</label>${d.vpAuto&&d.dob===d.vpAuto.date?`<div class="qsub">Filled from the activity: ${esc(d.vpAuto.from)}. Change it only if the crop went in on another day.</div>`:(d.vpAutoDone&&!d.vpAuto&&!d.pw?'<div class="qsub">No finished planting activity was found for this bed, so today is filled in. Enter the real date.</div>':'')}</div>
   ${vpVdField(d)}
-  <button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${d.ov?'Override and verify planting':(outside?'Accept date and verify planting':((d.pd)?'Record explanation and verify planting':'Verify planting'))}</button>
+  ${crewWait?`<button class="btn btn-primary" disabled aria-disabled="true">Locked: waiting for workers to finish</button>`:`<button class="btn btn-primary" onclick="doVerifyPlanting('${esc(d.cohortId)}', document.getElementById('md-dob').value)">${d.ov?'Override and verify planting':(outside?'Accept date and verify planting':((d.pd)?'Record explanation and verify planting':'Verify planting'))}</button>`}
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function moveModal(){
