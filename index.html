@@ -5807,7 +5807,7 @@ function bbBlockTabs(){
   }).join('')}</div>`;
 }
 function bbSec(k){ bb.sec=k; render(); }
-function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; render(); }
+function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; if(bb.sec==='review'){ rb.fBlock=b; rbResetView(); } render(); }   /* on Manager review the left-hand block list filters the review board */
 function bbForget(){ Object.keys(state.pp).forEach(k=>delete state.pp[k]); }
 /* Click a bed on the Bed Status Board -> Bed profile side panel (same layout as the Daily board's bed panel). */
 async function bbBedClick(bedId){
@@ -6192,11 +6192,13 @@ function bbTasksPanel(){
  * CHECKED = routine work. Tapping Check records your oversight (Checked_By / Checked_Date) and does nothing else: no bed, cohort, calendar or dispatch change.
  * VERIFIED custom activities get a Verify stamp here. Planting, post-harvest and bed-release verification keep their own panel above. */
 const rb={ data:null, busy:false, err:'', hide:false, sel:{}, selV:{}, last:0, loadedDays:0,
-  tab:'multi', fBlock:'', fDomain:'', fWorker:'', q:'', sortK:'', sortDir:1, page:{multi:0,single:0,history:0}, open:{} };
-const RB_PAGE=25, RB_ACTIVE_DAYS=7, RB_HISTORY_DAYS=30;   /* active tabs: last 7 days; the History tab asks the server for 30 only when it is opened */
+  tab:'multi', fBlock:'', fDomain:'', fWorker:'', q:'', dFrom:'', dTo:'', sortK:'', sortDir:1, page:{multi:0,single:0,history:0}, open:{} };
+const RB_PAGE=25, RB_ACTIVE_DAYS=7, RB_HISTORY_DAYS=30;
+/* How many days the server is asked for: 7 normally; 30 on the History tab or when a date filter reaches back past 7 days. */
+function rbWantDays(){ if(rb.tab==='history') return RB_HISTORY_DAYS; return (rb.dFrom&&rb.dFrom<owIso(-RB_ACTIVE_DAYS))?RB_HISTORY_DAYS:RB_ACTIVE_DAYS; }   /* active tabs: last 7 days; the History tab asks the server for 30 only when it is opened */
 async function rbLoad(force){
   if(IS_DEMO||rb.busy||rb.hide) return;
-  const days=rb.tab==='history'?RB_HISTORY_DAYS:RB_ACTIVE_DAYS;
+  const days=rbWantDays();
   if(!force&&rb.data&&rb.loadedDays>=days&&Date.now()-rb.last<20000) return;
   rb.busy=true;
   try{ rb.data=await apiCall('get-review-board',{days:days},60000); rb.loadedDays=days; rb.err=''; rb.last=Date.now(); }
@@ -6266,7 +6268,7 @@ function rbRows(d){
   const rows=[], cut=Date.now()-RB_ACTIVE_DAYS*86400000; _rbItems={};
   const mk=o=>{ o.block=pvBlockOf(o.bedId||''); o.domain=rbDomain(o.activity); o.cohortId=o.cohortId||'';
     o.workers=(o.workers||[]).map(w=>String(w||'').trim()).filter(Boolean);
-    o.text=[o.activity,actLabel(o.activity),o.bedId,o.cohortId,o.domain].concat(o.workers).join(' ').toLowerCase(); rows.push(o); };
+    o.whenMs=rbTms(o.when); o.text=[o.activity,actLabel(o.activity),o.bedId,o.cohortId,o.domain].concat(o.workers).join(' ').toLowerCase(); rows.push(o); };
   rbCrewList(d).forEach(i=>{ const ps=i.portions||[];
     mk({ key:'c|'+i.bedId+'|'+i.activity, tab:'multi', pending:true, state:i.verifiable!==false?'ready':'waiting', crew:i, planting:i.kind==='PLANTING',
       activity:i.activity, bedId:i.bedId, cohortId:i.cohortId, workers:ps.map(p=>p.name||p.workerName||p.workerId), when:(i.work&&i.work.completedAt)||'',
@@ -6278,12 +6280,14 @@ function rbRows(d){
   list.forEach(x=>{ (who[unit(x)]=who[unit(x)]||new Set()).add(String(x.workerName||x.workerId||'')); });
   list.forEach(x=>{ if(x.logId) _rbItems[x.logId]=x;
     const t=rbTms(x.checkedDate), multi=who[unit(x)].size>1;
-    mk({ key:x.logId, tab:(t&&t<cut)?'history':(multi?'multi':'single'), pending:false, state:x.verified?'verified':'checked', item:x, multi,
+    mk({ key:x.logId, tab:multi?'multi':'single', old:!!(t&&t<cut), pending:false, state:x.verified?'verified':'checked', item:x, multi,
       activity:x.activity, bedId:x.bedId, cohortId:x.cohortId, workers:[x.workerName||x.workerId], when:x.checkedDate }); });
   return rows;
 }
 function rbFilter(rows){ const q=rb.q.trim().toLowerCase();
-  return rows.filter(r=>(!rb.fBlock||r.block===rb.fBlock)&&(!rb.fDomain||r.domain===rb.fDomain)&&(!rb.fWorker||r.workers.indexOf(rb.fWorker)>=0)&&(!q||r.text.indexOf(q)>=0)); }
+  const f=rb.dFrom?new Date(rb.dFrom+'T00:00:00').getTime():0, t=rb.dTo?new Date(rb.dTo+'T23:59:59.999').getTime():0;
+  const inDate=r=>(!f&&!t)||(r.pending&&!r.whenMs)||(r.whenMs&&(!f||r.whenMs>=f)&&(!t||r.whenMs<=t));   /* waiting items with no finish time are never hidden by a date filter */
+  return rows.filter(r=>(!rb.fBlock||r.block===rb.fBlock)&&(!rb.fDomain||r.domain===rb.fDomain)&&(!rb.fWorker||r.workers.indexOf(rb.fWorker)>=0)&&(!q||r.text.indexOf(q)>=0)&&inDate(r)); }
 function rbSortRows(list){
   const k=rb.sortK, dir=rb.sortDir;
   const val=r=>k==='activity'?actLabel(r.activity).toLowerCase():k==='bed'?String(r.bedId):k==='cohort'?String(r.cohortId):k==='worker'?(r.workers[0]||'').toLowerCase():k==='status'?r.state:rbTms(r.when);
@@ -6292,14 +6296,19 @@ function rbSortRows(list){
     const x=val(a), y=val(b); return (x<y?-1:x>y?1:0)*dir; });
 }
 function rbView(tab,rows){
-  const all=rows.filter(r=>r.tab===tab), f=rbSortRows(rbFilter(all)), pages=Math.max(1,Math.ceil(f.length/RB_PAGE)), p=Math.min(rb.page[tab]||0,pages-1);
+  /* History = every checked or verified item loaded. Multi-worker / Single-worker = what is waiting plus work checked in the last 7 days, unless a date filter is set. */
+  const dated=!!(rb.dFrom||rb.dTo);
+  const all=tab==='history'?rows.filter(r=>!r.pending):rows.filter(r=>r.tab===tab&&(r.pending||dated||!r.old)), f=rbSortRows(rbFilter(all)), pages=Math.max(1,Math.ceil(f.length/RB_PAGE)), p=Math.min(rb.page[tab]||0,pages-1);
   return { all, f, pages, p, rows:f.slice(p*RB_PAGE,(p+1)*RB_PAGE) };
 }
 function rbResetView(){ rb.page={multi:0,single:0,history:0}; rb.sel={}; rb.selV={}; }
 function rbTab(t){ rb.tab=t; rbResetView(); render(); rbLoad(false); }
-function rbSetF(k,v,set){ rb[k]=set?v:(rb[k]===v?'':v); rbResetView(); render(); }
+function rbSyncBlock(k){ if(k&&PLAN_BLOCKS.includes(k)&&bb.sel!==k){ bb.sel=k; bb.dry=null; bb.res=null; bb.confirm=false; } }
+function rbSetF(k,v,set){ rb[k]=set?v:(rb[k]===v?'':v); if(k==='fBlock') rbSyncBlock(rb.fBlock); rbResetView(); render(); }
+function rbSetDate(k,v){ rb[k]=v||''; rbResetView(); render(); rbLoad(false); }
+function rbPreset(n){ if(n==null){ rb.dFrom=rb.dTo=''; } else if(n===0){ rb.dFrom=rb.dTo=owIso(0); } else { rb.dFrom=owIso(-n); rb.dTo=''; } rbResetView(); render(); rbLoad(false); }
 function rbSearch(v){ rb.q=v; rbResetView(); render(); keepFocus('rb-search'); }
-function rbClearF(){ rb.fBlock=rb.fDomain=rb.fWorker=rb.q=''; rbResetView(); render(); }
+function rbClearF(){ rb.fBlock=rb.fDomain=rb.fWorker=rb.q=rb.dFrom=rb.dTo=''; rbResetView(); render(); rbLoad(false); }
 function rbSortBy(k){ if(rb.sortK===k) rb.sortDir=-rb.sortDir; else{ rb.sortK=k; rb.sortDir=1; } rb.page={multi:0,single:0,history:0}; render(); }
 function rbPage(tab,dlt){ rb.page[tab]=Math.max(0,(rb.page[tab]||0)+dlt); render(); }
 function rbToggle(k){ if(rb.open[k]) delete rb.open[k]; else rb.open[k]=true; render(); }
@@ -6353,12 +6362,17 @@ function rbFilterBar(all){
   const doms=[...new Set(all.map(r=>r.domain).filter(Boolean))].sort(), wk=[...new Set([].concat(...all.map(r=>r.workers)))].sort();
   const chip=(k,v,label)=>`<button class="rb-fc ${rb[k]===v?'on':''}" data-v="${esc(v)}" onclick="rbSetF('${k}',this.dataset.v)">${esc(label)}</button>`;
   const allChip=k=>`<button class="rb-fc ${rb[k]?'':'on'}" onclick="rbSetF('${k}','',true)">All</button>`;
-  const any=rb.fBlock||rb.fDomain||rb.fWorker||rb.q;
+  const any=rb.fBlock||rb.fDomain||rb.fWorker||rb.q||rb.dFrom||rb.dTo;
+  const pre=(n,label,on)=>`<button class="rb-fc ${on?'on':''}" onclick="rbPreset(${n})">${label}</button>`;
+  const nodate=!rb.dFrom&&!rb.dTo;
   return `<div class="rb-filters">
     <div class="rb-frow"><input id="rb-search" class="rb-in" type="search" placeholder="Search activity, bed, cohort or worker\u2026" value="${esc(rb.q)}" oninput="rbSearch(this.value)" aria-label="Search the review board">
       <select class="rb-in" style="min-width:150px;" aria-label="Filter by worker" onchange="rbSetF('fWorker',this.value,true)"><option value="">All workers</option>${wk.map(w=>`<option value="${esc(w)}" ${rb.fWorker===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
       ${any?'<button class="dc-mini" onclick="rbClearF()">Clear filters</button>':''}</div>
     <div class="rb-frow"><span class="rb-fl">Block</span>${allChip('fBlock')}${PLAN_BLOCKS.map(b=>chip('fBlock',b,BLOCK_LABELS[b]||b)).join('')}</div>
+    <div class="rb-frow"><span class="rb-fl">Date</span>${pre('null','Any date',nodate)}${pre(0,'Today',rb.dFrom===owIso(0)&&rb.dTo===owIso(0))}${pre(7,'Last 7 days',rb.dFrom===owIso(-7)&&!rb.dTo)}${pre(30,'Last 30 days',rb.dFrom===owIso(-30)&&!rb.dTo)}
+      <label class="qsub" style="margin:0 0 0 6px;text-transform:none;letter-spacing:0;">From <input type="date" class="rb-in" style="min-width:0;padding:4px 6px;" value="${esc(rb.dFrom)}" onchange="rbSetDate('dFrom',this.value)"></label>
+      <label class="qsub" style="margin:0;text-transform:none;letter-spacing:0;">To <input type="date" class="rb-in" style="min-width:0;padding:4px 6px;" value="${esc(rb.dTo)}" onchange="rbSetDate('dTo',this.value)"></label></div>
     ${doms.length?`<div class="rb-frow"><span class="rb-fl">Activity group</span>${allChip('fDomain')}${doms.map(g=>chip('fDomain',g,g)).join('')}</div>`:''}
   </div>`;
 }
@@ -6390,15 +6404,17 @@ function rbPanel(){
   if(IS_DEMO||rb.hide) return '';
   const d=rb.data;
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
-  const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>r.tab==='history').length, total=pend('multi')+pend('single');
+  const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>!r.pending).length, total=pend('multi')+pend('single');
   const v=rbView(rb.tab,rows);
   const tabs=[['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['history','History & audit',nHist,'chip-neutral']];
   const blurb={ multi:"Each worker's finished portion is checked as they finish; workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.",
-    single:'Routine work done by one worker. Checking only logs your review; it never changes a bed, cohort, schedule or assignment. Checked and verified work from the last '+RB_ACTIVE_DAYS+' days stays listed.',
-    history:'Checked and verified work older than '+RB_ACTIVE_DAYS+' days, up to '+RB_HISTORY_DAYS+' days back. It is loaded only while this tab is open.' }[rb.tab];
-  const histWait=rb.tab==='history'&&rb.loadedDays<RB_HISTORY_DAYS;
+    single:'Routine work done by one worker. Checking only logs your review; it never changes a bed, cohort, schedule or assignment.',
+    history:'Every checked and verified item, up to '+RB_HISTORY_DAYS+' days back (the most recent '+200+' are loaded). Loaded only while this tab is open.' }[rb.tab]
+    +(rb.tab==='history'?'':(rb.dFrom||rb.dTo?' Showing the dates you picked.':' Showing what is waiting plus work checked in the last '+RB_ACTIVE_DAYS+' days; pick a date range to look further back.'))
+    +(rb.fBlock?' Block filter: '+(BLOCK_LABELS[rb.fBlock]||rb.fBlock)+' (change it with the block list on the left).':'');
+  const histWait=rbWantDays()>rb.loadedDays;
   const empty=histWait?'Loading history\u2026':v.all.length?'No items match the filters. <button class="dc-mini" onclick="rbClearF()">Clear filters</button>'
-    :({ multi:'No multi-worker activities need review.', single:'Nothing to review. Completed Checked activities from the last '+RB_ACTIVE_DAYS+' days appear here.', history:'No checked or verified work older than '+RB_ACTIVE_DAYS+' days.' })[rb.tab];
+    :({ multi:'No multi-worker activities need review.', single:'Nothing to review. Completed Checked activities from the last '+RB_ACTIVE_DAYS+' days appear here.', history:'No checked or verified work in the last '+RB_HISTORY_DAYS+' days.' })[rb.tab];
   const table=v.f.length?`<div class="rb-wrap"><table class="bb-t rb-tbl"><thead><tr><th class="c"></th>${rbTh('status','Status')}${rbTh('activity','Activity')}${rbTh('bed','Bed')}${rbTh('cohort','Cohort')}${rbTh('worker','Worker(s)')}${rbTh('when',rb.tab==='history'?'Manager action \u00b7 time':'Manager action \u00b7 time')}</tr></thead>
     <tbody>${v.rows.map(rbTRow).join('')}</tbody></table></div>${rbPager(rb.tab,v)}`:`<div class="empty" style="padding:10px 0;">${empty}</div>`;
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
@@ -6663,13 +6679,14 @@ function bbScreen(){
   if(!SECS.some(x=>x[0]===bb.sec)) bb.sec='overview';
   const navBtns=SECS.map(x=>`<button class="${x[0]===bb.sec?'on':''}" aria-current="${x[0]===bb.sec?'page':'false'}" onclick="bbSec('${x[0]}')"><span>${esc(x[1])}</span>${x[2]?`<span class="chip chip-warn">${x[2]}</span>`:''}</button>`).join('');
   /* left list = one card per block (like the crop cards on Bed layout); the map in the middle shows ONE block at a time */
+  const rvc={}; if(bb.sec==='review'&&rb.data) rbRows(rb.data).forEach(r=>{ if(r.pending&&r.block) rvc[r.block]=(rvc[r.block]||0)+1; });
   const blockCards=PLAN_BLOCKS.map(b=>{
     const d=bb.data[b];
     if(!d) return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span class="chip chip-neutral">${bb.busy?'Loading\u2026':'Not loaded'}</span></div></div>`;
     if(d.error) return `<div class="card qwarn" onclick="bbSelect('${b}')" style="cursor:pointer;"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span></div><div class="note" style="color:var(--danger);">${esc(d.error)}</div></div>`;
     const cnt={}; d.beds.forEach(x=>{ const k=bbStatusOf(x); cnt[k]=(cnt[k]||0)+1; });
     const lines=BB_STATUS.filter(st=>cnt[st[0]]).map(st=>`<div class="row"><span><i class="sw" style="display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;background:${st[2]};border:1px solid var(--line);"></i>${esc(BB_SHORT[st[0]]||st[1])}</span><span>${cnt[st[0]]}</span></div>`).join('');
-    return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;${b===bb.sel?'outline:2px solid var(--forest);':''}"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span>${d.beds.length} beds${pvc[b]?` <span class="chip chip-warn" title="Waiting for your verification">${pvc[b]}</span>`:''}</span></div>${lines}</div>`;
+    return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;${(bb.sec==='review'?rb.fBlock===b:b===bb.sel)?'outline:2px solid var(--forest);':''}"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span>${d.beds.length} beds${(bb.sec==='review'&&rvc[b])?` <span class="chip chip-warn" title="Waiting for your review">${rvc[b]} to review</span>`:''}${pvc[b]?` <span class="chip chip-warn" title="Waiting for your verification">${pvc[b]}</span>`:''}</span></div>${lines}</div>`;
   }).join('');
   const secHtml=(SECS.find(x=>x[0]===bb.sec)||SECS[0])[3];
   return `<div class="leftpanel"><nav class="bb-nav" aria-label="Bed status board sections" style="position:static;margin-bottom:12px;">${navBtns}</nav>${blockCards}</div>
