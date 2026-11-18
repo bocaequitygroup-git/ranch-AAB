@@ -326,6 +326,19 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .dp-tools{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;} .dp-tools button{border:1.5px solid var(--line);background:var(--paper);color:var(--forest);font-family:inherit;font-size:11.5px;font-weight:700;border-radius:8px;padding:5px 9px;cursor:pointer;}
 .dp-row{display:flex;gap:8px;align-items:flex-start;padding:7px 4px;border-bottom:1px solid var(--line);font-size:12.5px;line-height:1.35;} .dp-row:last-child{border-bottom:none;}
 .dp-row input{margin-top:2px;width:16px;height:16px;accent-color:var(--forest);flex:none;} .dp-row.off{opacity:.55;} .dp-row.on{background:#E4F1E5;border-radius:6px;}
+.pc-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;background:var(--paper,#fff);}
+.pc-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;justify-content:space-between;}
+.pc-title{font-weight:800;font-size:13px;min-width:0;} .pc-sub{font-size:11.5px;color:var(--ink-soft);}
+.pc-prog{display:flex;align-items:center;gap:8px;margin:8px 0 2px;font-size:11.5px;font-weight:700;color:var(--ink-soft);}
+.pc-bar{flex:1;height:6px;border-radius:99px;background:var(--line);overflow:hidden;} .pc-bar i{display:block;height:100%;background:var(--ok);border-radius:99px;}
+.pc-list{margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+.pc-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-left:4px solid var(--line);background:#fff;} .pc-row+.pc-row{border-top:1px solid var(--line);}
+.pc-row.checked{border-left-color:var(--ok);} .pc-row.await{border-left-color:var(--warn);background:#FFF8EE;} .pc-row.open{border-left-color:var(--line);color:var(--ink-soft);}
+.pc-main{flex:1;min-width:0;} .pc-name{font-weight:700;font-size:13px;} .pc-top{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;}
+.pc-meta{font-size:11.5px;color:var(--ink-soft);margin-top:2px;line-height:1.35;}
+.pc-row .btn{width:auto;margin:0;padding:6px 12px;font-size:12px;flex:none;white-space:nowrap;}
+.pc-note{font-size:11.5px;color:var(--ink-soft);margin-top:8px;line-height:1.4;}
+@media (max-width:520px){ .pc-row{flex-wrap:wrap;} .pc-row .btn{width:100%;} }
 .dp-row .d{display:block;font-size:11px;color:var(--ink-soft);} .dp-row .st{margin-left:auto;flex:none;}
 .dp-crewline{font-size:11px;margin:3px 0 0;color:var(--ink-soft);} .dp-crewline button{border:none;background:none;color:var(--forest);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;padding:0 3px;}
 .dp-foot{position:sticky;bottom:-14px;background:var(--paper);padding:10px 0 4px;border-top:1px solid var(--line);margin-top:6px;z-index:2;}
@@ -1976,19 +1989,22 @@ function avOpenLabel(st){ const u=String(st||'').toUpperCase();
 /* One line per worker portion on a multi-worker activity. Check writes Portion_Checked_* only. */
 function avPortionLines(s){
   if(!s.multiWorker) return '';
-  const done=s.portions.filter(p=>p.status==='CHECKED').length;
+  const total=s.portions.length, done=s.portions.filter(p=>p.status==='CHECKED').length;
   const rows=s.portions.map(p=>{
-    const chip = p.status==='CHECKED' ? '<span class="chip chip-ok">Complete and checked</span>'
-               : p.status==='OPEN'    ? `<span class="chip">${esc(avOpenLabel(p.openStatus))}</span>`
-               : '<span class="chip chip-warn">Complete, awaiting check</span>';
-    const when = (p.status!=='OPEN'&&p.completedAt) ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">Completed ${esc(avWhen(p.completedAt))}${p.minutes?' \u00b7 '+esc(p.minutes)+' min':''}</div>` : '';
-    const by = when + (p.status==='CHECKED' ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(p.checkedByName||p.checkedBy)} \u00b7 ${esc(avWhen(p.checkedAt))}</div>` : '');
-    const btn = p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}')">Check this portion</button>` : '';
-    return `<div class="dp-row" style="align-items:center;"><div style="flex:1;min-width:0;"><b>${esc(p.name||p.workerId)}</b> ${chip}${by}</div>${btn}</div>`;
+    const cls = p.status==='CHECKED' ? 'checked' : p.status==='OPEN' ? 'open' : 'await';
+    const chip = p.status==='CHECKED' ? '<span class="chip chip-ok">Checked</span>'
+               : p.status==='OPEN'    ? `<span class="chip chip-neutral">${esc(avOpenLabel(p.openStatus))}</span>`
+               : '<span class="chip chip-warn">Needs your check</span>';
+    const bits=[];
+    if(p.status!=='OPEN'&&p.completedAt) bits.push('Done '+esc(avWhen(p.completedAt))+(p.minutes?' \u00b7 '+esc(p.minutes)+' min':''));
+    if(p.status==='CHECKED') bits.push('Checked by '+esc(p.checkedByName||p.checkedBy)+' \u00b7 '+esc(avWhen(p.checkedAt)));
+    const btn = p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}')">Check</button>` : '';
+    return `<div class="pc-row ${cls}"><div class="pc-main"><div class="pc-top"><span class="pc-name">${esc(p.name||p.workerId)}</span>${chip}</div>${bits.length?`<div class="pc-meta">${bits.join('<br>')}</div>`:''}</div>${btn}</div>`;
   }).join('');
-  const why = s.promoted ? `<div class="qsub" style="text-transform:none;letter-spacing:0;">This activity is normally Checked only. More than one worker is assigned, so it needs verification once every worker is complete and checked.</div>` : '';
-  const note = s.verifiable ? '' : `<div class="qsub" style="text-transform:none;letter-spacing:0;">Verify is available when every worker is complete and checked (${done} of ${s.portions.length} checked).</div>`;
-  return `<div style="margin-top:6px;">${rows}${why}${note}</div>`;
+  const why = s.promoted ? `<div class="pc-note">Normally this activity is only checked. More than one worker is assigned, so it also needs verification once every portion is checked.</div>` : '';
+  const note = s.verifiable ? '' : `<div class="pc-note">Verify unlocks when every worker is done and checked.</div>`;
+  const prog = `<div class="pc-prog"><span>${done} of ${total} checked</span><div class="pc-bar"><i style="width:${total?Math.round(done*100/total):0}%"></i></div></div>`;
+  return `${prog}<div class="pc-list">${rows}</div>${why}${note}`;
 }
 
 function avLines(s){
@@ -6084,11 +6100,11 @@ function rbCrewHTML(d){
     const planting=i.kind==='PLANTING';
     const s={ name:i.activity, bedId:i.bedId, cohortId:i.cohortId||'', work:i.work, multiWorker:true, portions:i.portions||[], verifiable:i.verifiable!==false, promoted:!!i.promoted, blockReason:i.blockReason||'' };
     const done=s.portions.filter(p=>p.status==='CHECKED').length;
-    const chip=s.verifiable?'<span class="chip chip-warn">'+(planting?'Ready to verify planting':'Ready to verify')+'</span>':`<span class="chip">${done} of ${s.portions.length} checked</span>`;
+    const chip=s.verifiable?'<span class="chip chip-warn">'+(planting?'Ready to verify planting':'Ready to verify')+'</span>':'<span class="chip chip-neutral">Waiting for checks</span>';
     const btn=s.verifiable?(planting?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" onclick="openModal('verify-planting',{cohortId:'${esc(i.cohortId)}',bedId:'${esc(i.bedId)}'})">Verify planting</button>`
       :`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-b="${esc(i.bedId)}" data-a="${esc(i.activity)}" onclick="rbVerifyCrew(this)">Verify activity</button>`):'';
-    return `<div style="padding:8px 0;border-top:1px solid var(--line,#e5e7eb);">
-      <div class="row"><span><b>${esc(actLabel(i.activity))}</b> <span class="qsub" style="display:inline;">Bed ${esc(i.bedId)}${planting&&i.cohortId?' · '+esc(i.cohortId)+(i.crop?' · '+esc(i.crop):''):''}</span></span><span>${chip}</span></div>
+    return `<div class="pc-card">
+      <div class="pc-head"><div><div class="pc-title">${esc(actLabel(i.activity))}</div><div class="pc-sub">Bed ${esc(i.bedId)}${planting&&i.cohortId?' \u00b7 '+esc(i.cohortId)+(i.crop?' \u00b7 '+esc(i.crop):''):''}</div></div>${chip}</div>
       ${avLines(s)}${avPortionLines(s)}${btn}</div>`;
   }).join('');
   return `<h2 style="font-size:13px;margin:14px 0 6px;">Activities with more than one worker (${list.length})</h2>
