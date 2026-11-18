@@ -1585,7 +1585,6 @@ function panelHTML(){
   return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${b.cohortId?`${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}`:`${esc(b.blockId)} · ${esc(String(b.locationType||'field').toLowerCase())} bed · ${b.proposals.length?'Proposed':bedPanelStatus(b)}`}</div></div><button onclick="closePanel()">✕</button></div>
   <div class="dp-stickers" style="display:flex;flex-wrap:wrap;gap:6px;padding:6px 12px;">${bedStickers(b,b.cohortId)}</div>
   ${bedCompare(b)}
-  ${bedMethodRow(b)}
   <div class="tabs">
     <button class="${ui.tab==='overview'?'active':''}" onclick="setTab('overview')">Overview</button>
     ${b.cohortId?`<button class="${ui.tab==='activity'?'active':''}" onclick="setTab('activity')">Activity</button>`:''}
@@ -1610,6 +1609,7 @@ function overviewTab(b,sess){
     <div class="row"><span>Planted</span><span>${esc(b.plantingDate||'—')}</span></div>
     ${b.plannedDob?`<div class="row"><span>DOB (planned)</span><span>${esc(b.plannedDob)}</span></div>`:''}
     <div class="row"><span>Harvest window</span><span>${esc(b.harvestWindow||'—')}</span></div>
+    ${bedMethodRow(b)}
   </div>`:''}
   ${b.cohortId?pwBox(b.plantingWindow,{shortfall:b.shortfall}):''}
   ${b.cohortId?pdSummaryBox(b.plantingDeviation,{shortfall:b.shortfall,plannedDob:b.plannedDob,actualDob:b.plantingDate}):''}
@@ -2701,11 +2701,7 @@ function bedMethodOf(b){
 function bedMethodRow(b){
   const act=bedMethodOf(b);
   const label=act==='DirectSeeding'?'Direct seeding':act==='Transplanting'?'Transplant':'';
-  return `<div class="dp-stickers" style="padding:6px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-    <span class="qsub" style="text-transform:uppercase;letter-spacing:.04em;">Planting method</span>
-    ${label?`<span class="chip chip-neutral">${label}</span>`:'<span class="chip chip-warn">Not set for this crop</span>'}
-    <button class="btn btn-outline" style="width:auto;margin:0;padding:4px 10px;font-size:12px;" onclick="openModal('planting-method',{bed:'${esc(b.id)}',method:'${act}'})">What does this mean?</button>
-  </div>`;
+  return `<div class="row"><span>Planting method</span><span>${label?`<span class="chip chip-neutral">${label}</span>`:'<span class="chip chip-warn">Not set for this crop</span>'} <button class="dc-mini" onclick="openModal('planting-method',{bed:'${esc(b.id)}',method:'${act}'})">What does this mean?</button></span></div>`;
 }
 function plantingActivityFor(b){
   if(!b) return '';
@@ -6112,17 +6108,31 @@ async function rbReview(m){
 const RB_PAL=['#2f7d4f','#2b6cb0','#b7791f','#9b2c8a','#c05621','#0f766e','#a23b3b','#5b4bb7'];
 function rbColor(name){ const c=(state.activityCatalog||[]).find(x=>x.name===name); const key=String((c&&(c.domain||c.group))||name||''); let h=0; for(let i=0;i<key.length;i++) h=(h*31+key.charCodeAt(i))>>>0; return RB_PAL[h%RB_PAL.length]; }
 let _rbItems={};
-function rbRecentHTML(d){
-  const list=(d.recentlyChecked||[]); if(!list.length) return '';
-  _rbItems={}; list.forEach(x=>{ if(x.logId) _rbItems[x.logId]=x; });
-  return `<h2 style="font-size:13px;margin:14px 0 6px;">Recently checked (${list.length})</h2>
-    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:4px;">Tap an activity, bed or cohort to open it in the panel on the right.</div>
-    <div class="rb-recent">${list.map(x=>{ const c=rbColor(x.activity), k=esc(x.logId||'');
-      return `<div class="rb-row" style="--rbc:${c};">
+function rbRecentRow(x){
+  const c=rbColor(x.activity), k=esc(x.logId||'');
+  return `<div class="rb-row" style="--rbc:${c};">
         <button class="rb-act" onclick="rbOpenActivity('${k}')" title="Open activity profile">${esc(actLabel(x.activity))}</button>
         <button class="dc-mini" onclick="rbGoBed('${esc(x.bedId)}','history')" title="Open bed">Bed ${esc(x.bedId)}</button>
         ${x.cohortId?`<button class="dc-mini" onclick="rbGoBed('${esc(x.bedId)}','overview')" title="Open cohort on its bed">${esc(x.cohortId)}</button>`:''}
-        <span class="qsub" style="text-transform:none;letter-spacing:0;">${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</span>${x.verified?` <span class="chip chip-ok">Verified${x.verifiedBy?' by '+esc(x.verifiedBy):''}${x.verifiedDate?' \u00b7 '+esc(rbWhen(x.verifiedDate)):''}</span>`:''}</div>`; }).join('')}</div>`;
+        <span class="qsub" style="text-transform:none;letter-spacing:0;">${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</span>${x.verified?` <span class="chip chip-ok">Verified${x.verifiedBy?' by '+esc(x.verifiedBy):''}${x.verifiedDate?' \u00b7 '+esc(rbWhen(x.verifiedDate)):''}</span>`:''}</div>`;
+}
+function rbRecentHTML(d){
+  const list=(d.recentlyChecked||[]); if(!list.length) return '';
+  _rbItems={}; list.forEach(x=>{ if(x.logId) _rbItems[x.logId]=x; });
+  // Verification is per bed + activity (verify-items), so the grouping uses the same unit: more than one worker on that bed + activity
+  // means the work is shared (each portion checked, then verified once).
+  const unit=x=>String(x.bedId||'')+'|'+String(x.activity||'');
+  const who={}; list.forEach(x=>{ (who[unit(x)]=who[unit(x)]||new Set()).add(String(x.workerName||x.workerId||'')); });
+  const shared=x=>who[unit(x)].size>1;
+  const groups=[
+    {t:'More than one worker: check each portion, then verify', items:list.filter(shared)},
+    {t:'One worker: verified', items:list.filter(x=>!shared(x)&&x.verified)},
+    {t:'One worker: check only, no verification needed', items:list.filter(x=>!shared(x)&&!x.verified)}
+  ].filter(g=>g.items.length);
+  return `<h2 style="font-size:13px;margin:14px 0 6px;">Recently checked (${list.length})</h2>
+    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:4px;">Tap an activity, bed or cohort to open it in the panel on the right.</div>
+    ${groups.map(g=>`<div class="qsub" style="text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px;">${esc(g.t)} (${g.items.length})</div>
+      <div class="rb-recent">${g.items.map(rbRecentRow).join('')}</div>`).join('')}`;
 }
 function bbSyncBlock(bedId){ const blk=pvBlockOf(bedId); if(blk&&PLAN_BLOCKS.includes(blk)&&bb.sel!==blk){ bb.sel=blk; bb.dry=null; bb.res=null; bb.confirm=false; } }
 function rbGoBed(bedId,tab){ bb.act=null; bbBedClick(bedId); if(tab) bb.tab=tab; }
