@@ -337,6 +337,8 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .pc-main{flex:1;min-width:0;} .pc-name{font-weight:700;font-size:13px;} .pc-top{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;}
 .pc-meta{font-size:11.5px;color:var(--ink-soft);margin-top:2px;line-height:1.35;}
 .pc-row .btn{width:auto;margin:0;padding:6px 12px;font-size:12px;flex:none;white-space:nowrap;}
+.pc-spin{display:inline-block;width:11px;height:11px;margin-right:6px;vertical-align:-1px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:pcspin .7s linear infinite;} @keyframes pcspin{to{transform:rotate(360deg)}}
+.pc-row.saving{border-left-color:var(--warn);background:#FFF8EE;} .pc-row .btn:disabled{opacity:.7;cursor:progress;}
 .pc-note{font-size:11.5px;color:var(--ink-soft);margin-top:8px;line-height:1.4;}
 @media (max-width:520px){ .pc-row{flex-wrap:wrap;} .pc-row .btn{width:100%;} }
 .dp-row .d{display:block;font-size:11px;color:var(--ink-soft);} .dp-row .st{margin-left:auto;flex:none;}
@@ -561,6 +563,8 @@ async function apiCall(action, payload={}, timeoutMs){
   }catch(err){
     setConn(navigator.onLine===false?'offline':'error');
     if(err && err.isApiError) throw err;
+    if(err && err.name==='AbortError') throw apiError('The server took too long to answer. The action may still have gone through, so the board is refreshing to check.','TIMEOUT');
+    if(err instanceof SyntaxError) throw apiError('The server sent a reply the board could not read. It may have hit an error or a quota. Check the Apps Script execution log.','BADREPLY');
     throw apiError('Could not reach the server.','NETWORK');
   }
   setConn(IS_DEMO?'demo':'online');
@@ -1986,19 +1990,26 @@ function avStepsOf(b,pending){
 /* A worker who has not finished keeps showing the status of their own session (assigned, in progress, paused ...) until they complete. */
 function avOpenLabel(st){ const u=String(st||'').toUpperCase();
   return u.indexOf('ASSIGNED')===0?'Assigned, not started':u.indexOf('ACTIVE')===0?'In progress':u.indexOf('PAUSED')===0?'Paused':u.indexOf('EXCEPTION')===0?'Exception open':'Still working'; }
+/* Portion checks in flight, keyed bed|activity|worker: the row shows a spinner until the server answers and the board has reloaded. */
+const pcBusy={};
+const pcKey=(bedId,act,wid)=>[bedId,act,wid].join('|');
 /* One line per worker portion on a multi-worker activity. Check writes Portion_Checked_* only. */
 function avPortionLines(s){
   if(!s.multiWorker) return '';
   const total=s.portions.length, done=s.portions.filter(p=>p.status==='CHECKED').length;
   const rows=s.portions.map(p=>{
-    const cls = p.status==='CHECKED' ? 'checked' : p.status==='OPEN' ? 'open' : 'await';
-    const chip = p.status==='CHECKED' ? '<span class="chip chip-ok">Checked</span>'
+    const saving = !!pcBusy[pcKey(s.bedId,s.name,p.workerId)];
+    const cls = saving ? 'saving' : p.status==='CHECKED' ? 'checked' : p.status==='OPEN' ? 'open' : 'await';
+    const chip = saving ? '<span class="chip chip-warn"><span class="pc-spin"></span>Saving\u2026</span>'
+               : p.status==='CHECKED' ? '<span class="chip chip-ok">Checked</span>'
                : p.status==='OPEN'    ? `<span class="chip chip-neutral">${esc(avOpenLabel(p.openStatus))}</span>`
                : '<span class="chip chip-warn">Needs your check</span>';
     const bits=[];
     if(p.status!=='OPEN'&&p.completedAt) bits.push('Done '+esc(avWhen(p.completedAt))+(p.minutes?' \u00b7 '+esc(p.minutes)+' min':''));
     if(p.status==='CHECKED') bits.push('Checked by '+esc(p.checkedByName||p.checkedBy)+' \u00b7 '+esc(avWhen(p.checkedAt)));
-    const btn = p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}')">Check</button>` : '';
+    if(saving) bits.push('Saving to the sheet. This can take several seconds.');
+    const btn = saving ? '<button class="btn btn-outline" disabled><span class="pc-spin"></span>Checking\u2026</button>'
+      : p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}')">Check</button>` : '';
     return `<div class="pc-row ${cls}"><div class="pc-main"><div class="pc-top"><span class="pc-name">${esc(p.name||p.workerId)}</span>${chip}</div>${bits.length?`<div class="pc-meta">${bits.join('<br>')}</div>`:''}</div>${btn}</div>`;
   }).join('');
   const why = s.promoted ? `<div class="pc-note">Normally this activity is only checked. More than one worker is assigned, so it also needs verification once every portion is checked.</div>` : '';
@@ -2047,11 +2058,17 @@ function avAll(on){ const b=dpBed(), d=avS(b); d.sel={}; if(on) avStepsOf(b,true
 
 /* Check one worker's portion of a multi-worker activity. Does not verify and does not touch the single-worker check. */
 async function avPortionCheck(bedId, activity, workerId, cohortId){
+  const k=pcKey(bedId,activity,workerId); if(pcBusy[k]) return;
+  pcBusy[k]=true; render();
+  const slowTimer=setTimeout(()=>{ if(pcBusy[k]) toast('Still saving. The sheet is busy, please wait.',6000); },8000);
   try{
-    await apiCall('portion-check',{ items:[{ bedId, activity, workerId, cohortId:cohortId||'' }] });
+    await apiCall('portion-check',{ items:[{ bedId, activity, workerId, cohortId:cohortId||'' }] },60000);
     toast('Portion checked.');
-  } catch(e){ toast((e&&e.message)||'Could not check this portion.',7000); }
-  await loadToday(); rbLoad(true);
+  } catch(e){ toast((e&&e.message)||'Could not check this portion.',9000); }
+  clearTimeout(slowTimer);
+  /* Reload whatever happened: after a timeout the check may still have been saved. The spinner stays until the fresh data is in. */
+  try{ await loadToday(); await rbLoad(true); } catch(e2){ /* the next refresh will catch up */ }
+  delete pcBusy[k]; render();
 }
 
 async function avVerifySelected(){
