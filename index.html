@@ -3108,6 +3108,21 @@ function owBlocks(d){
   return keys.map(k=>({ k, label:BLOCK_LABELS[k]||k, n:el.filter(b=>owBlockOf(b)===k).length, sel:d.beds.filter(id=>owBlockOf(owBed(id))===k).length }));
 }
 function owCurBlock(d){ const bl=owBlocks(d); const cur=bl.find(x=>x.k===d.block); if(cur) return cur.k; const first=bl.find(x=>x.n>0); return (first||bl[0]||{k:''}).k; }
+/* Cadence flag for scouting-type activities (Scouting, PestScouting, DiseaseScouting, CropInspection): same rule as the dashboard's Crop Watchguard
+ * (server: scoutCadenceFor_ in Code_main.gs, field `scoutCadence` on every bed). Other activities have no cadence rule, so nothing is shown for them. */
+function owIsScoutAct(act){ return /scout|inspect/i.test(String(act||'')); }
+function owCad(v,act){ return owIsScoutAct(act)&&v&&v.scoutCadence?v.scoutCadence:null; }
+function owCadChip(v,act){
+  const c=owCad(v,act); if(!c) return '';
+  const d=c.days+' day'+(c.days===1?'':'s');
+  if(c.overdue) return ` <span class="chip chip-danger" title="${c.never?'Never scouted; '+d+' since planting':'Last scouted '+d+' ago'} (due every ${c.cadenceDays} days)">Overdue \u00b7 ${c.never?'never scouted':d}</span>`;
+  return ` <span class="chip chip-ok" title="Due again after ${c.cadenceDays} days">${c.never?'Planted '+d+' ago':'Scouted '+d+' ago'}</span>`;
+}
+function owOverdueFirst(list,act){
+  if(!owIsScoutAct(act)) return list;
+  const dv=b=>{ const c=owCad(owViewOf(b.id),act); return c&&c.overdue?c.days:-1; };
+  return list.map((b,i)=>({b,i,k:dv(b)})).sort((x,y)=>(y.k-x.k)||(x.i-y.i)).map(x=>x.b);
+}
 function owStatus(v){   /* [label, chip class] */
   if(v.cohortId){
     const cs=String(v.cohortStatus||'').toUpperCase(), sk=stageKey(v.currentStage);
@@ -3129,10 +3144,12 @@ function owPrereq(v){   /* what is still pending on this bed, in plain words */
   if(tasks) out.push(tasks+' open task'+(tasks===1?'':'s')+' already on this bed');
   return out;
 }
+function owCadLine(v,act){ const c=owCad(v,act); if(!c) return ''; return c.overdue?`Scouting: <b style="color:var(--danger);">OVERDUE</b> \u00b7 ${c.never?'never scouted, '+c.days+' days since planting':'last round '+c.days+' days ago'}`:`Scouting: ${c.never?'planted '+c.days+' days ago, not yet due':'last round '+c.days+' days ago, not yet due'}`; }
 function owTipHTML(v){
+  const act=(ui.modalDraft&&ui.modalDraft.activity)||'', cl=owCadLine(v,act);
   const [lab]=owStatus(v), pre=owPrereq(v), row=(k,x)=>x?`<div>${esc(k)}: <b>${esc(x)}</b></div>`:'';
   const dob=v.cohortId?`<div>DOB: planned <b>${esc(v.plannedDob?diFmt(v.plannedDob):'\u2014')}</b> \u00b7 actual <b>${esc(v.plantingDate?diFmt(v.plantingDate):'not planted')}</b></div>`:'';
-  return `<div><b>${esc(v.id)}</b> \u00b7 ${esc(lab)}</div>${row('Crop',(v.cropName||'')+(v.shortfall?' (Shortfall)':''))}${row('Cohort',v.cohortId)}${dob}${row('Harvest window',v.harvestWindow)}${pre.length?`<div style="margin-top:3px;">\u26A0 ${pre.map(esc).join('<br>\u26A0 ')}</div>`:''}<div style="opacity:.7;margin-top:3px;">Tap Preview for full detail</div>`;
+  return `<div><b>${esc(v.id)}</b> \u00b7 ${esc(lab)}</div>${row('Crop',(v.cropName||'')+(v.shortfall?' (Shortfall)':''))}${row('Cohort',v.cohortId)}${dob}${row('Harvest window',v.harvestWindow)}${cl?`<div>${cl}</div>`:''}${pre.length?`<div style="margin-top:3px;">\u26A0 ${pre.map(esc).join('<br>\u26A0 ')}</div>`:''}<div style="opacity:.7;margin-top:3px;">Tap Preview for full detail</div>`;
 }
 function owTip(el,on){
   const t=document.getElementById('ow-tip'); if(!t) return;
@@ -3147,10 +3164,10 @@ function owBedsHTML(d){
   const inBlock=owElig(d).filter(b=>owBlockOf(b)===blk);
   const ok=inBlock.filter(b=>{ if(!q) return true; const v=owViewOf(b.id); return (b.id+' '+(v.cropName||'')+' '+(v.cohortId||'')).toLowerCase().includes(q); });
   if(!ok.length) return `<div class="empty">${q?'No bed in this block matches the search.':'No bed in '+esc(BLOCK_LABELS[blk]||blk)+' can take this activity right now.'}</div>`;
-  return ok.map(b=>{
+  return owOverdueFirst(ok,d.activity).map(b=>{
     const v=owViewOf(b.id), on=d.beds.includes(b.id), [lab,cls]=owStatus(v);
     return `<label class="ma-row ow-row ${on?'on':''}" data-id="${esc(b.id)}" onmouseenter="owTip(this,true)" onmouseleave="owTip(this,false)"><input type="checkbox" ${on?'checked':''} data-v="${esc(b.id)}" onchange="owToggleBed(this.dataset.v,this.checked)">
-      <span class="ow-main"><b style="font-weight:700;">${esc(b.id)}</b>${v.cropName?` <span class="d" style="display:inline;">\u00b7 ${esc(v.cropName)}</span>`:''}${v.shortfall?' <span class="chip chip-warn">Shortfall</span>':''}${v.cohortId?` <span class="chip chip-neutral ow-code">${esc(v.cohortId)}</span>`:''}</span>
+      <span class="ow-main"><b style="font-weight:700;">${esc(b.id)}</b>${v.cropName?` <span class="d" style="display:inline;">\u00b7 ${esc(v.cropName)}</span>`:''}${v.shortfall?' <span class="chip chip-warn">Shortfall</span>':''}${v.cohortId?` <span class="chip chip-neutral ow-code">${esc(v.cohortId)}</span>`:''}${owCadChip(v,d.activity)}</span>
       <span class="ow-end"><span class="chip ${cls}">${esc(lab)}</span><button type="button" class="ow-pvb" data-v="${esc(b.id)}" onclick="event.preventDefault();event.stopPropagation();owPreview(this.dataset.v)">Preview \uD83D\uDD0D</button></span></label>`;
   }).join('');
 }
@@ -3164,7 +3181,9 @@ function owBlockHeadHTML(d){
   const ids=owElig(d).filter(b=>owBlockOf(b)===blk).filter(b=>{ if(!q) return true; const v=owViewOf(b.id); return (b.id+' '+(v.cropName||'')+' '+(v.cohortId||'')).toLowerCase().includes(q); }).map(b=>b.id);
   if(!ids.length) return '';
   const all=ids.every(i=>d.beds.includes(i));
-  return `<div class="ma-grp" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;"><span>${esc(BLOCK_LABELS[blk]||blk)} \u00b7 ${ids.length} bed${ids.length===1?'':'s'}${q?' shown':''}</span><button class="gt-link" data-ids="${esc(ids.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!all})">${all?'Clear shown':'Select all shown'}</button></div>`;
+  const od=ids.filter(i=>{ const c=owCad(owViewOf(i),d.activity); return c&&c.overdue; }), odAll=od.length&&od.every(i=>d.beds.includes(i));
+  const odBtn=od.length?`<button class="gt-link" data-ids="${esc(od.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!odAll})">${odAll?'Clear overdue':'Select overdue ('+od.length+')'}</button>`:'';
+  return `<div class="ma-grp" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;"><span>${esc(BLOCK_LABELS[blk]||blk)} \u00b7 ${ids.length} bed${ids.length===1?'':'s'}${q?' shown':''}${od.length?` \u00b7 <b style="color:var(--danger);">${od.length} overdue</b>`:''}</span><span style="display:flex;gap:12px;">${odBtn}<button class="gt-link" data-ids="${esc(ids.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!all})">${all?'Clear shown':'Select all shown'}</button></span></div>`;
 }
 function owToggleBed(id,on){ const d=owD(), i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); d.result=null; if(!d.dateTouched) d.date=owDobDate(d); owRefresh(); }
 function owToggleBlock(csv,on){ const d=owD(); csv.split(',').forEach(id=>{ const i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); }); d.result=null; if(!d.dateTouched) d.date=owDobDate(d); owRefresh(); }
@@ -3186,6 +3205,7 @@ function owPvHTML(d){
     <div class="card">${r('Block',BLOCK_LABELS[owBlockOf(v)]||owBlockOf(v))}${r('Crop',v.cropName)}${r('Cohort',v.cohortId)}${v.cohortId?r('Cohort status',COHORT_STATUS_LABEL[v.cohortStatus]||v.cohortStatus):''}${v.cohortId?r('Crop stage',String(v.currentStage||'').replace(/_/g,' ')):''}
       ${v.cohortId?r('DOB (planned)',v.plannedDob?diFmt(v.plannedDob):'')+r('DOB (actual)',v.plantingDate?diFmt(v.plantingDate):'not planted yet')+r('Harvest window',v.harvestWindow):''}</div>
     ${v.cohortId?pwBox(v.plantingWindow,{shortfall:v.shortfall})+pdSummaryBox(v.plantingDeviation,{shortfall:v.shortfall,plannedDob:v.plannedDob,actualDob:v.plantingDate}):''}
+    ${owCadLine(v,d.activity)?`<div class="note" style="font-weight:600;">${owCadLine(v,d.activity)}</div>`:''}
     ${pre.length?`<div class="note" style="color:var(--warn);font-weight:600;">${pre.map(esc).join('<br>')}</div>`:''}
     ${tasks?`<div class="qsub" style="margin:8px 0 2px;">Open tasks on this bed</div>${tasks}`:''}
     <div class="qbtns" style="margin-top:12px;"><button class="btn ${on?'btn-outline':'btn-primary'}" onclick="owToggleBed('${esc(v.id)}',${!on});owPvPaint()">${on?'Remove from selection':'Add to selection'}</button></div>
