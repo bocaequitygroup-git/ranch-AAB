@@ -496,7 +496,7 @@ const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw0dOXaMs3iykTuhv3h
 const APP_NAME = 'ranch_aab';
 const IS_DEMO = !WEB_APP_URL;
 const REQUEST_TIMEOUT_MS = 45000;   /* was 20 s: slow sheet reads were being cut off as timeouts */
-const HEAVY_READ_RE = /^get-(manager-today-view|cohort-board|assignment-queue|review-board)$/;   /* the big board reads */
+const HEAVY_READ_RE = /^get-(manager-today-view|cohort-board|assignment-queue|review-board|production-calendar|open-field-validation|cohort-production-status|planning-context|physical-beds|rotation|planting-plan|assignment-reconciliation|labor-audit|labor-budget)$/;   /* the big board and planning reads */   /* the big board reads */
 const N_BLOCKS = 6, BEDS_PER_ROW = 8;   // 6 blocks laid out as grids; ~231 beds total (last block trimmed)
 const TOTAL_BEDS = 231;
 const CROPS = [['Lettuce','LET'],['Kale','KAL'],['Arugula','ARU'],['Radish','RAD'],['Mesclun Mix','MCH'],['Spinach','SPN']];
