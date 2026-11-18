@@ -495,7 +495,8 @@ button.vp-busy-btn:disabled{opacity:.82;}
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw0dOXaMs3iykTuhv3heOMyQck0i8dJYjO_To60lIOtsYGuL1Lshmxju8Gopt3SWKNy/exec';              // set to your Apps Script /exec URL to go live
 const APP_NAME = 'ranch_aab';
 const IS_DEMO = !WEB_APP_URL;
-const REQUEST_TIMEOUT_MS = 20000;
+const REQUEST_TIMEOUT_MS = 45000;   /* was 20 s: slow sheet reads were being cut off as timeouts */
+const HEAVY_READ_RE = /^get-(manager-today-view|cohort-board|assignment-queue|review-board)$/;   /* the big board reads */
 const N_BLOCKS = 6, BEDS_PER_ROW = 8;   // 6 blocks laid out as grids; ~231 beds total (last block trimmed)
 const TOTAL_BEDS = 231;
 const CROPS = [['Lettuce','LET'],['Kale','KAL'],['Arugula','ARU'],['Radish','RAD'],['Mesclun Mix','MCH'],['Spinach','SPN']];
@@ -532,7 +533,17 @@ function toast(msg,ms){ ui.toast=msg; render(); clearTimeout(toast._t); toast._t
 
 /* ============================== API ============================== */
 function apiError(message, code){ const e=new Error(message); e.code=code; e.isApiError=true; return e; }
-async function apiCall(action, payload={}, timeoutMs){
+const apiInflight_ = {};
+/* Read-only calls with the same action and payload share one in-flight request. Writes are never shared. */
+function apiCall(action, payload={}, timeoutMs){
+  if(!/^(get|list|check|preview|validate)-/.test(action)) return apiCallRaw_(action, payload, timeoutMs);
+  const key = action + '|' + JSON.stringify(payload) + '|' + (state.token || '');
+  if(apiInflight_[key]) return apiInflight_[key];
+  const p = apiCallRaw_(action, payload, timeoutMs).finally(() => { delete apiInflight_[key]; });
+  apiInflight_[key] = p;
+  return p;
+}
+async function apiCallRaw_(action, payload={}, timeoutMs){
   const body=Object.assign({}, payload);
   if(state.token && body.token===undefined) body.token=state.token;
   let json;
@@ -543,7 +554,7 @@ async function apiCall(action, payload={}, timeoutMs){
       // redirect, or a dropped connection) is retried up to twice. Writes are never retried.
       const tries = /^get-/.test(action) ? 3 : 1;
       for(let attempt=1; ; attempt++){
-        const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), timeoutMs||REQUEST_TIMEOUT_MS);
+        const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), timeoutMs||(HEAVY_READ_RE.test(action)?60000:REQUEST_TIMEOUT_MS));
         try{
           const resp=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({action},body)),redirect:'follow',signal:ctrl.signal});
           if(!resp.ok){
@@ -8322,7 +8333,8 @@ async function mockBackend(action, p){
     polling=true; lastPoll=Date.now(); tick++;
     const e0=epoch, year0=ui.year, wantQ=(ui.screen!=='labor')&&(tick%2===0||state.aq.loaded===false);
     try{
-      const res=await Promise.allSettled([ fetchTodayView(), fetchBoard(year0), wantQ?apiCall('get-assignment-queue',{year:year0}):Promise.resolve(null) ]);
+      const wantB=(tick%6===1)||state.board.loaded===false;   /* the cohort board changes rarely: read it about once a minute */
+      const res=await Promise.allSettled([ fetchTodayView(), wantB?fetchBoard(year0):Promise.resolve(null), wantQ?apiCall('get-assignment-queue',{year:year0}):Promise.resolve(null) ]);
       if(!state.token||epoch!==e0||_loadRun||active>0||ui.loading) return;   /* the user acted meanwhile: this result may be older than theirs */
       let changed=false;
       if(res[0].status==='fulfilled'){
@@ -8330,9 +8342,9 @@ async function mockBackend(action, p){
         if(sg!==lastSig.t){ d.workers=d.workers||state.workers; d.activityCatalog=d.activityCatalog||state.activityCatalog; applyTodayView(d); lastSig.t=sg; changed=true; }
         else state.lastSync=new Date();
       }
-      if(res[1].status==='fulfilled'&&ui.year===year0){ const bd=res[1].value; if(bd._sig!==lastSig.b){ state.board=bd; lastSig.b=bd._sig; changed=true; } }
+      if(res[1].status==='fulfilled'&&res[1].value&&ui.year===year0){ const bd=res[1].value; if(bd._sig!==lastSig.b){ state.board=bd; lastSig.b=bd._sig; changed=true; } }
       if(res[2].status==='fulfilled'&&res[2].value&&ui.year===year0){ const sg=sigOf(res[2].value); if(sg!==lastSig.q){ state.aq=Object.assign({ loaded:true, error:'' }, res[2].value, { recon:state.aq&&state.aq.recon }); lastSig.q=sg; changed=true; } }
-      failStreak=(res[0].status==='rejected'&&res[1].status==='rejected')?failStreak+1:0;
+      failStreak=((res[0].status==='rejected'&&res[1].status==='rejected')||Date.now()-lastPoll>15000)?failStreak+1:0;
       state.fromCache=false;
       if(changed) paint();
       refreshVisible(false);
