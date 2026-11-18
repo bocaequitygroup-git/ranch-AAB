@@ -91,6 +91,25 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .rb-recent{display:flex;flex-direction:column;gap:5px;}
 .rb-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;border-left:4px solid var(--rbc);background:color-mix(in srgb,var(--rbc) 11%,var(--paper));border-radius:8px;padding:6px 10px;}
 .rb-act{border:0;border-radius:999px;padding:3px 11px;font:inherit;font-size:12px;font-weight:700;color:#fff;background:var(--rbc);cursor:pointer;}
+.mlink{border:0;background:none;padding:0;font:inherit;font-weight:700;color:#1D4ED8;text-decoration:underline;text-underline-offset:2px;cursor:pointer;} .mlink:hover{color:#1E3A8A;} .mlink.warn{color:#B45309;}
+.chip-info{background:#E3EDF9;color:#2b6cb0;}
+.rb-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:10px 0 8px;}
+.rb-tabs button{border:0;background:none;font:inherit;font-size:12.5px;font-weight:700;color:var(--ink-soft);padding:8px 12px;border-bottom:3px solid transparent;cursor:pointer;display:flex;gap:6px;align-items:center;}
+.rb-tabs button.on{color:var(--forest);border-bottom-color:var(--forest);}
+.rb-filters{display:flex;flex-direction:column;gap:6px;margin:6px 0 10px;}
+.rb-frow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;} .rb-fl{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);min-width:78px;}
+.rb-fc{border:1px solid var(--line);background:var(--paper);border-radius:99px;font:inherit;font-size:11.5px;font-weight:700;padding:4px 11px;cursor:pointer;color:var(--ink-soft);}
+.rb-fc.on{background:var(--forest);border-color:var(--forest);color:#fff;}
+.rb-in{font:inherit;font-size:12.5px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);min-width:200px;max-width:100%;}
+.rb-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;}
+.rb-tbl th.sortable{cursor:pointer;user-select:none;} .rb-tbl td.wrap{white-space:normal;min-width:170px;} .rb-tbl td.c,.rb-tbl th.c{width:28px;text-align:center;}
+.rb-tbl tr.rb-r td:first-child{border-left:4px solid var(--rbc);}
+.rb-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--rbc);margin-right:6px;}
+.rb-actl{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--ink);text-decoration:underline dotted;text-underline-offset:2px;cursor:pointer;text-align:left;}
+.rb-detail td{white-space:normal !important;background:var(--sand);}
+.rb-bulk{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0;}
+.btn.rb-mini{width:auto;margin:0;padding:6px 12px;font-size:12px;} .rb-btns{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;}
+.rb-pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;font-size:12px;color:var(--ink-soft);margin:8px 0 0;}
 .pha-t td{white-space:normal;}
 .pha-t td:nth-child(4){min-width:150px;}
 .pha-t td:nth-child(6){white-space:nowrap;}
@@ -2701,7 +2720,8 @@ function bedMethodOf(b){
 function bedMethodRow(b){
   const act=bedMethodOf(b);
   const label=act==='DirectSeeding'?'Direct seeding':act==='Transplanting'?'Transplant':'';
-  return `<div class="row"><span>Planting method</span><span>${label?`<span class="chip chip-neutral">${label}</span>`:'<span class="chip chip-warn">Not set for this crop</span>'} <button class="dc-mini" onclick="openModal('planting-method',{bed:'${esc(b.id)}',method:'${act}'})">What does this mean?</button></span></div>`;
+  /* The method name itself is the link (blue, underlined) so it reads as tappable; it opens the "what this means / what it requires" panel. */
+  return `<div class="row"><span>Planting method</span><span><button class="mlink${label?'':' warn'}" title="Tap to see what this means and what it requires" onclick="openModal('planting-method',{bed:'${esc(b.id)}',method:'${act}'})">${label||'Not set for this crop'} <span aria-hidden="true">\u24D8</span></button></span></div>`;
 }
 function plantingActivityFor(b){
   if(!b) return '';
@@ -6077,19 +6097,26 @@ function bbTasksPanel(){
 /* ---- Manager Review Board (GovernanceEngine.gs) ----
  * CHECKED = routine work. Tapping Check records your oversight (Checked_By / Checked_Date) and does nothing else: no bed, cohort, calendar or dispatch change.
  * VERIFIED custom activities get a Verify stamp here. Planting, post-harvest and bed-release verification keep their own panel above. */
-const rb={ data:null, busy:false, err:'', hide:false, sel:{}, selV:{}, last:0 };
+const rb={ data:null, busy:false, err:'', hide:false, sel:{}, selV:{}, last:0, loadedDays:0,
+  tab:'multi', fBlock:'', fDomain:'', fWorker:'', q:'', sortK:'', sortDir:1, page:{multi:0,single:0,history:0}, open:{} };
+const RB_PAGE=25, RB_ACTIVE_DAYS=7, RB_HISTORY_DAYS=30;   /* active tabs: last 7 days; the History tab asks the server for 30 only when it is opened */
 async function rbLoad(force){
   if(IS_DEMO||rb.busy||rb.hide) return;
-  if(!force&&rb.data&&Date.now()-rb.last<20000) return;
+  const days=rb.tab==='history'?RB_HISTORY_DAYS:RB_ACTIVE_DAYS;
+  if(!force&&rb.data&&rb.loadedDays>=days&&Date.now()-rb.last<20000) return;
   rb.busy=true;
-  try{ rb.data=await apiCall('get-review-board',{},60000); rb.err=''; rb.last=Date.now(); }
+  try{ rb.data=await apiCall('get-review-board',{days:days},60000); rb.loadedDays=days; rb.err=''; rb.last=Date.now(); }
   catch(e){ if(e&&e.code==='FORBIDDEN') rb.hide=true; else if(!rb.data) rb.err=e.message; /* a failed background refresh keeps the last good board instead of showing an error over it */ }
   rb.busy=false; render();
 }
 function rbWhen(iso){ const d=new Date(iso); return isNaN(d)?'':d.toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
 function rbTog(k,m,on){ const s=m==='check'?rb.sel:rb.selV; if(on) s[k]=true; else delete s[k]; rbSync(); }
-function rbAll(m,on){ const list=(m==='check'?rb.data.toCheck:rb.data.toVerify)||[], s=m==='check'?rb.sel:rb.selV;
-  Object.keys(s).forEach(k=>delete s[k]); if(on) list.forEach(x=>{ s[x.logId]=true; }); render(); }
+function rbAll(m,on){   /* selects the rows on the CURRENT page that match the filters (a page is at most 25, under the server's per-call review cap) */
+  const s=m==='check'?rb.sel:rb.selV, want=m==='check'?'tocheck':'toverify';
+  Object.keys(s).forEach(k=>delete s[k]);
+  if(on&&rb.data) rbView(rb.tab,rbRows(rb.data)).rows.filter(r=>r.state===want).forEach(r=>{ s[r.item.logId]=true; });
+  render();
+}
 function rbSync(){ document.querySelectorAll('[data-rbgo]').forEach(b=>{ const m=b.dataset.rbgo, n=Object.keys(m==='check'?rb.sel:rb.selV).length;
   b.disabled=!n||rb.busy; b.textContent=(m==='check'?'Mark checked':'Verify selected')+(n?' ('+n+')':''); }); }
 async function rbReview(m){
@@ -6108,32 +6135,6 @@ async function rbReview(m){
 const RB_PAL=['#2f7d4f','#2b6cb0','#b7791f','#9b2c8a','#c05621','#0f766e','#a23b3b','#5b4bb7'];
 function rbColor(name){ const c=(state.activityCatalog||[]).find(x=>x.name===name); const key=String((c&&(c.domain||c.group))||name||''); let h=0; for(let i=0;i<key.length;i++) h=(h*31+key.charCodeAt(i))>>>0; return RB_PAL[h%RB_PAL.length]; }
 let _rbItems={};
-function rbRecentRow(x){
-  const c=rbColor(x.activity), k=esc(x.logId||'');
-  return `<div class="rb-row" style="--rbc:${c};">
-        <button class="rb-act" onclick="rbOpenActivity('${k}')" title="Open activity profile">${esc(actLabel(x.activity))}</button>
-        <button class="dc-mini" onclick="rbGoBed('${esc(x.bedId)}','history')" title="Open bed">Bed ${esc(x.bedId)}</button>
-        ${x.cohortId?`<button class="dc-mini" onclick="rbGoBed('${esc(x.bedId)}','overview')" title="Open cohort on its bed">${esc(x.cohortId)}</button>`:''}
-        <span class="qsub" style="text-transform:none;letter-spacing:0;">${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</span>${x.verified?` <span class="chip chip-ok">Verified${x.verifiedBy?' by '+esc(x.verifiedBy):''}${x.verifiedDate?' \u00b7 '+esc(rbWhen(x.verifiedDate)):''}</span>`:''}</div>`;
-}
-function rbRecentHTML(d){
-  const list=(d.recentlyChecked||[]); if(!list.length) return '';
-  _rbItems={}; list.forEach(x=>{ if(x.logId) _rbItems[x.logId]=x; });
-  // Verification is per bed + activity (verify-items), so the grouping uses the same unit: more than one worker on that bed + activity
-  // means the work is shared (each portion checked, then verified once).
-  const unit=x=>String(x.bedId||'')+'|'+String(x.activity||'');
-  const who={}; list.forEach(x=>{ (who[unit(x)]=who[unit(x)]||new Set()).add(String(x.workerName||x.workerId||'')); });
-  const shared=x=>who[unit(x)].size>1;
-  const groups=[
-    {t:'More than one worker: check each portion, then verify', items:list.filter(shared)},
-    {t:'One worker: verified', items:list.filter(x=>!shared(x)&&x.verified)},
-    {t:'One worker: check only, no verification needed', items:list.filter(x=>!shared(x)&&!x.verified)}
-  ].filter(g=>g.items.length);
-  return `<h2 style="font-size:13px;margin:14px 0 6px;">Recently checked (${list.length})</h2>
-    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:4px;">Tap an activity, bed or cohort to open it in the panel on the right.</div>
-    ${groups.map(g=>`<div class="qsub" style="text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px;">${esc(g.t)} (${g.items.length})</div>
-      <div class="rb-recent">${g.items.map(rbRecentRow).join('')}</div>`).join('')}`;
-}
 function bbSyncBlock(bedId){ const blk=pvBlockOf(bedId); if(blk&&PLAN_BLOCKS.includes(blk)&&bb.sel!==blk){ bb.sel=blk; bb.dry=null; bb.res=null; bb.confirm=false; } }
 function rbGoBed(bedId,tab){ bb.act=null; bbBedClick(bedId); if(tab) bb.tab=tab; }
 function rbOpenActivity(logId){
@@ -6155,33 +6156,130 @@ function bbActBody(){
   try{ ui.modalDraft=a; html=activityProfileModal(); }catch(e){ html='<div class="empty">Could not show this activity.</div>'; } finally{ ui.modalDraft=saved; }
   return back+html.replace(/onclick="closeModal\(\)"/g,'onclick="bbActClose()"');
 }
-function rbRow(it,m){
-  const f=it.fertilizer, sel=m==='check'?rb.sel:rb.selV, qty=(it.quantity!==''&&it.quantity!=null)?' · '+esc(it.quantity)+' '+esc(it.unit||''):'';
-  return `<label class="dp-row on" style="align-items:flex-start;"><input type="checkbox" ${sel[it.logId]?'checked':''} data-k="${esc(it.logId)}" data-m="${m}" onchange="rbTog(this.dataset.k,this.dataset.m,this.checked)">
-    <div style="flex:1;min-width:0;"><b>${esc(actLabel(it.activity))}</b> <span class="qsub" style="display:inline;">Bed ${esc(it.bedId)}${it.cohortId?' · '+esc(it.cohortId):''}</span>
-    <div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(it.workerName)} · ${esc(rbWhen(it.endTime))}${it.minutes?' · '+esc(it.minutes)+' min':''}${qty}</div>
-    ${f?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(f.type)} · ${esc(f.brand)} · ${esc(f.quantity)} ${esc(f.unit)}</div>`:''}
-    ${it.notes?`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(it.notes)}</div>`:''}</div></label>`;
-}
 /* Activities done by more than one worker (CHECKED-class ones too): each worker's portion is checked when that worker completes, the others keep their own
  * status, and the activity is verified once every portion is complete and checked. Server: VerificationSnapshot.gs (rbData.crew). */
 /* Multi-worker activities come from the board snapshot the daily load already fetched (state.verification), so the review board request stays light. */
 function rbCrewList(d){ return ((d&&d.crew)||[]).concat(((state.verification&&state.verification.items)||[]).filter(i=>i.multiWorker)); }   /* planting crews (server) + other multi-worker activities (snapshot) */
-function rbCrewHTML(d){
-  const list=rbCrewList(d); if(!list.length) return '';
-  const rows=list.map(i=>{
-    const planting=i.kind==='PLANTING';
-    const s={ name:i.activity, bedId:i.bedId, cohortId:i.cohortId||'', work:i.work, multiWorker:true, portions:i.portions||[], verifiable:i.verifiable!==false, promoted:!!i.promoted, blockReason:i.blockReason||'' };
-    const done=s.portions.filter(p=>p.status==='CHECKED').length;
-    const chip=s.verifiable?'<span class="chip chip-warn">'+(planting?'Ready to verify planting':'Ready to verify')+'</span>':'<span class="chip chip-neutral">Waiting for checks</span>';
-    const btn=s.verifiable?(planting?`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" onclick="openModal('verify-planting',{cohortId:'${esc(i.cohortId)}',bedId:'${esc(i.bedId)}'})">Verify planting</button>`
-      :`<button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-b="${esc(i.bedId)}" data-a="${esc(i.activity)}" onclick="rbVerifyCrew(this)">Verify activity</button>`):'';
-    return `<div class="pc-card">
-      <div class="pc-head"><div><div class="pc-title">${esc(actLabel(i.activity))}</div><div class="pc-sub">Bed ${esc(i.bedId)}${planting&&i.cohortId?' \u00b7 '+esc(i.cohortId)+(i.crop?' \u00b7 '+esc(i.crop):''):''}</div></div>${chip}</div>
-      ${avLines(s)}${avPortionLines(s)}${btn}</div>`;
-  }).join('');
-  return `<h2 style="font-size:13px;margin:14px 0 6px;">More than one worker: check each portion, then verify (${list.length})</h2>
-    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:2px;">Check each worker's portion as they finish. Workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.</div>${rows}`;
+/* ---- Manager review board: tabs + compact table + filters + paging ----
+ * Tab 1 Multi-worker approvals: shared activities (check each portion, then verify once) + shared work checked in the last 7 days.
+ * Tab 2 Single-worker & maintenance: one-worker work to check/verify + checked/verified in the last 7 days.
+ * Tab 3 History & audit: checked/verified work older than 7 days (the server sends it only when this tab is open).
+ * Filters (block, activity group, worker, search), column sort and 25-row pages are all client side over the rows the board already loaded. */
+function rbTms(w){ const t=new Date(w).getTime(); return isFinite(t)?t:0; }
+function rbDomain(name){ const c=(state.activityCatalog||[]).find(x=>x.name===name); return String((c&&(c.domain||c.group))||'').trim(); }
+function rbCrewS(i){ return { name:i.activity, bedId:i.bedId, cohortId:i.cohortId||'', work:i.work, multiWorker:true, portions:i.portions||[], verifiable:i.verifiable!==false, promoted:!!i.promoted, blockReason:i.blockReason||'' }; }
+function rbRows(d){
+  const rows=[], cut=Date.now()-RB_ACTIVE_DAYS*86400000; _rbItems={};
+  const mk=o=>{ o.block=pvBlockOf(o.bedId||''); o.domain=rbDomain(o.activity); o.cohortId=o.cohortId||'';
+    o.workers=(o.workers||[]).map(w=>String(w||'').trim()).filter(Boolean);
+    o.text=[o.activity,actLabel(o.activity),o.bedId,o.cohortId,o.domain].concat(o.workers).join(' ').toLowerCase(); rows.push(o); };
+  rbCrewList(d).forEach(i=>{ const ps=i.portions||[];
+    mk({ key:'c|'+i.bedId+'|'+i.activity, tab:'multi', pending:true, state:i.verifiable!==false?'ready':'waiting', crew:i, planting:i.kind==='PLANTING',
+      activity:i.activity, bedId:i.bedId, cohortId:i.cohortId, workers:ps.map(p=>p.name||p.workerName||p.workerId), when:(i.work&&i.work.completedAt)||'',
+      done:ps.filter(p=>p.status==='CHECKED').length, need:ps.filter(p=>p.status==='AWAITING_CHECK').length, total:ps.length }); });
+  (d.toCheck||[]).forEach(x=>mk({ key:x.logId, tab:'single', pending:true, state:'tocheck', item:x, activity:x.activity, bedId:x.bedId, cohortId:x.cohortId, workers:[x.workerName], when:x.endTime }));
+  (d.toVerify||[]).forEach(x=>mk({ key:x.logId, tab:'single', pending:true, state:'toverify', item:x, activity:x.activity, bedId:x.bedId, cohortId:x.cohortId, workers:[x.workerName], when:x.endTime }));
+  // Verification is per bed + activity: more than one worker on that bed + activity means the work is shared.
+  const list=d.recentlyChecked||[], who={}, unit=x=>String(x.bedId||'')+'|'+String(x.activity||'');
+  list.forEach(x=>{ (who[unit(x)]=who[unit(x)]||new Set()).add(String(x.workerName||x.workerId||'')); });
+  list.forEach(x=>{ if(x.logId) _rbItems[x.logId]=x;
+    const t=rbTms(x.checkedDate), multi=who[unit(x)].size>1;
+    mk({ key:x.logId, tab:(t&&t<cut)?'history':(multi?'multi':'single'), pending:false, state:x.verified?'verified':'checked', item:x, multi,
+      activity:x.activity, bedId:x.bedId, cohortId:x.cohortId, workers:[x.workerName||x.workerId], when:x.checkedDate }); });
+  return rows;
+}
+function rbFilter(rows){ const q=rb.q.trim().toLowerCase();
+  return rows.filter(r=>(!rb.fBlock||r.block===rb.fBlock)&&(!rb.fDomain||r.domain===rb.fDomain)&&(!rb.fWorker||r.workers.indexOf(rb.fWorker)>=0)&&(!q||r.text.indexOf(q)>=0)); }
+function rbSortRows(list){
+  const k=rb.sortK, dir=rb.sortDir;
+  const val=r=>k==='activity'?actLabel(r.activity).toLowerCase():k==='bed'?String(r.bedId):k==='cohort'?String(r.cohortId):k==='worker'?(r.workers[0]||'').toLowerCase():k==='status'?r.state:rbTms(r.when);
+  return list.slice().sort((a,b)=>{
+    if(!k){ if(a.pending!==b.pending) return a.pending?-1:1; return rbTms(b.when)-rbTms(a.when); }   /* default: waiting on you first, then newest */
+    const x=val(a), y=val(b); return (x<y?-1:x>y?1:0)*dir; });
+}
+function rbView(tab,rows){
+  const all=rows.filter(r=>r.tab===tab), f=rbSortRows(rbFilter(all)), pages=Math.max(1,Math.ceil(f.length/RB_PAGE)), p=Math.min(rb.page[tab]||0,pages-1);
+  return { all, f, pages, p, rows:f.slice(p*RB_PAGE,(p+1)*RB_PAGE) };
+}
+function rbResetView(){ rb.page={multi:0,single:0,history:0}; rb.sel={}; rb.selV={}; }
+function rbTab(t){ rb.tab=t; rbResetView(); render(); rbLoad(false); }
+function rbSetF(k,v,set){ rb[k]=set?v:(rb[k]===v?'':v); rbResetView(); render(); }
+function rbSearch(v){ rb.q=v; rbResetView(); render(); keepFocus('rb-search'); }
+function rbClearF(){ rb.fBlock=rb.fDomain=rb.fWorker=rb.q=''; rbResetView(); render(); }
+function rbSortBy(k){ if(rb.sortK===k) rb.sortDir=-rb.sortDir; else{ rb.sortK=k; rb.sortDir=1; } rb.page={multi:0,single:0,history:0}; render(); }
+function rbPage(tab,dlt){ rb.page[tab]=Math.max(0,(rb.page[tab]||0)+dlt); render(); }
+function rbToggle(k){ if(rb.open[k]) delete rb.open[k]; else rb.open[k]=true; render(); }
+
+function rbStatusChip(r){
+  return ({ ready:`<span class="chip chip-warn">${r.planting?'Ready to verify planting':'Ready to verify'}</span>`, waiting:'<span class="chip chip-neutral">Waiting for checks</span>',
+    tocheck:'<span class="chip chip-warn">To check</span>', toverify:'<span class="chip chip-warn">To verify</span>',
+    checked:'<span class="chip chip-info">Checked \u26A1</span>', verified:'<span class="chip chip-ok">Verified \u2713</span>' })[r.state]||'';
+}
+function rbSub(r){   /* quantity, time, fertilizer and notes: what the manager needs to see before checking */
+  const x=r.item; if(!x) return ''; const bits=[];
+  if(x.minutes) bits.push(x.minutes+' min');
+  if(x.quantity!==''&&x.quantity!=null) bits.push(x.quantity+' '+(x.unit||''));
+  if(x.fertilizer) bits.push([x.fertilizer.type,x.fertilizer.brand,(x.fertilizer.quantity+' '+x.fertilizer.unit)].join(' \u00b7 '));
+  if(x.notes) bits.push(x.notes);
+  return bits.length?`<div class="qsub" style="text-transform:none;letter-spacing:0;white-space:normal;">${bits.map(esc).join(' \u00b7 ')}</div>`:'';
+}
+function rbActCell(r){
+  const x=r.item||{}, w=v=>esc(rbWhen(v));
+  if(r.crew){
+    const i=r.crew, ready=r.state==='ready';
+    const prog=`${r.done} of ${r.total} checked${r.need?` \u00b7 <b>${r.need} need${r.need===1?'s':''} your check</b>`:''}`;
+    const btn=ready?(r.planting?`<button class="btn btn-primary rb-mini" onclick="openModal('verify-planting',{cohortId:'${esc(i.cohortId)}',bedId:'${esc(i.bedId)}'})">Verify planting</button>`
+      :`<button class="btn btn-primary rb-mini" data-b="${esc(i.bedId)}" data-a="${esc(i.activity)}" onclick="rbVerifyCrew(this)">Verify activity</button>`):'';
+    return `<div>${prog}</div><div class="rb-btns">${btn}<button class="dc-mini" data-k="${esc(r.key)}" onclick="rbToggle(this.dataset.k)">${rb.open[r.key]?'Hide portions \u25B4':'Check portions \u25BE'}</button></div>`;
+  }
+  if(r.state==='tocheck'||r.state==='toverify') return `Finished ${w(x.endTime)||'\u2014'}`;
+  if(r.state==='verified'){
+    const same=!x.checkedBy||!x.verifiedBy||x.checkedBy===x.verifiedBy;
+    return same?`Checked &amp; verified by ${esc(x.verifiedBy||x.checkedBy)} (${w(x.verifiedDate||x.checkedDate)})`
+      :`Verified by ${esc(x.verifiedBy)} (${w(x.verifiedDate)})<div class="qsub" style="text-transform:none;letter-spacing:0;">Checked by ${esc(x.checkedBy)} (${w(x.checkedDate)})</div>`;
+  }
+  return `Checked by ${esc(x.checkedBy)} (${w(x.checkedDate)})`;
+}
+function rbTRow(r){
+  const x=r.item||{}, c=rbColor(r.activity), m=r.state==='tocheck'?'check':r.state==='toverify'?'verify':'';
+  const sel=m?`<input type="checkbox" ${(m==='check'?rb.sel:rb.selV)[x.logId]?'checked':''} data-k="${esc(x.logId)}" data-m="${m}" aria-label="Select" onchange="rbTog(this.dataset.k,this.dataset.m,this.checked)">`:'';
+  const name=(x.logId&&!r.pending)?`<button class="rb-actl" data-k="${esc(x.logId)}" title="Open activity profile" onclick="rbOpenActivity(this.dataset.k)">${esc(actLabel(r.activity))}</button>`:`<b>${esc(actLabel(r.activity))}</b>`;
+  let detail='';
+  if(r.crew&&rb.open[r.key]){ let h=''; try{ const s=rbCrewS(r.crew); h=avLines(s)+avPortionLines(s); }catch(e){ h='<div class="empty">Could not show the portions.</div>'; }
+    detail=`<tr class="rb-detail" style="--rbc:${c};"><td colspan="7">${h}</td></tr>`; }
+  return `<tr class="rb-r" style="--rbc:${c};"><td class="c">${sel}</td><td>${rbStatusChip(r)}</td>
+    <td class="wrap"><span class="rb-dot"></span>${name}${rbSub(r)}</td>
+    <td><button class="dc-mini" data-b="${esc(r.bedId)}" title="Open bed" onclick="rbGoBed(this.dataset.b,'history')">${esc(r.bedId)}</button></td>
+    <td>${r.cohortId?`<button class="dc-mini" data-b="${esc(r.bedId)}" title="Open cohort on its bed" onclick="rbGoBed(this.dataset.b,'overview')">${esc(r.cohortId)}</button>`:'\u2014'}</td>
+    <td class="wrap">${esc(r.workers.join(', '))||'\u2014'}${r.multi?' <span class="chip chip-neutral">shared</span>':''}</td>
+    <td class="wrap">${rbActCell(r)}</td></tr>${detail}`;
+}
+function rbTh(k,label){ const on=rb.sortK===k; return `<th class="sortable" onclick="rbSortBy('${k}')" title="Sort">${label}${on?(rb.sortDir>0?' \u25B2':' \u25BC'):''}</th>`; }
+function rbFilterBar(all){
+  const doms=[...new Set(all.map(r=>r.domain).filter(Boolean))].sort(), wk=[...new Set([].concat(...all.map(r=>r.workers)))].sort();
+  const chip=(k,v,label)=>`<button class="rb-fc ${rb[k]===v?'on':''}" data-v="${esc(v)}" onclick="rbSetF('${k}',this.dataset.v)">${esc(label)}</button>`;
+  const allChip=k=>`<button class="rb-fc ${rb[k]?'':'on'}" onclick="rbSetF('${k}','',true)">All</button>`;
+  const any=rb.fBlock||rb.fDomain||rb.fWorker||rb.q;
+  return `<div class="rb-filters">
+    <div class="rb-frow"><input id="rb-search" class="rb-in" type="search" placeholder="Search activity, bed, cohort or worker\u2026" value="${esc(rb.q)}" oninput="rbSearch(this.value)" aria-label="Search the review board">
+      <select class="rb-in" style="min-width:150px;" aria-label="Filter by worker" onchange="rbSetF('fWorker',this.value,true)"><option value="">All workers</option>${wk.map(w=>`<option value="${esc(w)}" ${rb.fWorker===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
+      ${any?'<button class="dc-mini" onclick="rbClearF()">Clear filters</button>':''}</div>
+    <div class="rb-frow"><span class="rb-fl">Block</span>${allChip('fBlock')}${PLAN_BLOCKS.map(b=>chip('fBlock',b,BLOCK_LABELS[b]||b)).join('')}</div>
+    ${doms.length?`<div class="rb-frow"><span class="rb-fl">Activity group</span>${allChip('fDomain')}${doms.map(g=>chip('fDomain',g,g)).join('')}</div>`:''}
+  </div>`;
+}
+function rbBulk(v){
+  const chk=v.f.filter(r=>r.state==='tocheck').length, ver=v.f.filter(r=>r.state==='toverify').length; if(!chk&&!ver) return '';
+  const nC=Object.keys(rb.sel).length, nV=Object.keys(rb.selV).length;
+  const bar=(m,n,title,btn,count)=>`<div class="rb-bulk"><span class="qsub" style="margin:0;">${title} (${count})</span><button class="dc-mini" onclick="rbAll('${m}',true)">Select this page</button><button class="dc-mini" onclick="rbAll('${m}',false)">Clear</button>
+    <button class="btn btn-primary rb-mini" data-rbgo="${m}" ${n?'':'disabled'} onclick="rbReview('${m}')">${btn}${n?' ('+n+')':''}</button></div>`;
+  return (chk?bar('check',nC,'To check \u00b7 non-blocking','Mark checked',chk)+'<div class="qsub" style="text-transform:none;letter-spacing:0;">Checking only logs your review. It does not change any bed, cohort, schedule or assignment.</div>':'')
+    +(ver?bar('verify',nV,'To verify','Verify selected',ver):'');
+}
+function rbPager(tab,v){
+  if(v.f.length<=RB_PAGE) return `<div class="rb-pager"><span>${v.f.length} item${v.f.length===1?'':'s'}</span></div>`;
+  const a=v.p*RB_PAGE+1, b=Math.min(v.f.length,(v.p+1)*RB_PAGE);
+  return `<div class="rb-pager"><span>${a}\u2013${b} of ${v.f.length}</span><button class="dc-mini" ${v.p?'':'disabled'} onclick="rbPage('${tab}',-1)">\u2039 Prev</button><span>Page ${v.p+1} of ${v.pages}</span><button class="dc-mini" ${v.p<v.pages-1?'':'disabled'} onclick="rbPage('${tab}',1)">Next \u203A</button></div>`;
 }
 async function rbVerifyCrew(el){
   const bedId=el.dataset.b, activity=el.dataset.a; if(rb.busy) return;
@@ -6198,21 +6296,23 @@ function rbPanel(){
   if(IS_DEMO||rb.hide) return '';
   const d=rb.data;
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
-  const nC=Object.keys(rb.sel).length, nV=Object.keys(rb.selV).length, total=d.toCheck.length+d.toVerify.length+rbCrewList(d).length;
-  const chk=d.toCheck.length?`<h2 style="font-size:13px;margin:14px 0 6px;">One worker: check only, no verification needed (${d.toCheck.length}) <span class="chip chip-ok">non-blocking</span></h2>
-    <div class="dp-tools"><button onclick="rbAll('check',true)">Select all</button><button onclick="rbAll('check',false)">Clear</button></div>
-    <div class="ma-list" style="max-height:340px;">${d.toCheck.map(x=>rbRow(x,'check')).join('')}</div>
-    <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="check" ${nC?'':'disabled'} onclick="rbReview('check')">Mark checked${nC?' ('+nC+')':''}</button>
-    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:4px;">Checking only logs your review. It does not change any bed, cohort, schedule or assignment.</div>`:'';
-  const ver=d.toVerify.length?`<h2 style="font-size:13px;margin:14px 0 6px;">One worker: verification required (${d.toVerify.length})</h2>
-    <div class="dp-tools"><button onclick="rbAll('verify',true)">Select all</button><button onclick="rbAll('verify',false)">Clear</button></div>
-    <div class="ma-list" style="max-height:300px;">${d.toVerify.map(x=>rbRow(x,'verify')).join('')}</div>
-    <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="verify" ${nV?'':'disabled'} onclick="rbReview('verify')">Verify selected${nV?' ('+nV+')':''}</button>`:'';
-  const recent=rbRecentHTML(d);
+  const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>r.tab==='history').length, total=pend('multi')+pend('single');
+  const v=rbView(rb.tab,rows);
+  const tabs=[['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['history','History & audit',nHist,'chip-neutral']];
+  const blurb={ multi:"Each worker's finished portion is checked as they finish; workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.",
+    single:'Routine work done by one worker. Checking only logs your review; it never changes a bed, cohort, schedule or assignment. Checked and verified work from the last '+RB_ACTIVE_DAYS+' days stays listed.',
+    history:'Checked and verified work older than '+RB_ACTIVE_DAYS+' days, up to '+RB_HISTORY_DAYS+' days back. It is loaded only while this tab is open.' }[rb.tab];
+  const histWait=rb.tab==='history'&&rb.loadedDays<RB_HISTORY_DAYS;
+  const empty=histWait?'Loading history\u2026':v.all.length?'No items match the filters. <button class="dc-mini" onclick="rbClearF()">Clear filters</button>'
+    :({ multi:'No multi-worker activities need review.', single:'Nothing to review. Completed Checked activities from the last '+RB_ACTIVE_DAYS+' days appear here.', history:'No checked or verified work older than '+RB_ACTIVE_DAYS+' days.' })[rb.tab];
+  const table=v.f.length?`<div class="rb-wrap"><table class="bb-t rb-tbl"><thead><tr><th class="c"></th>${rbTh('status','Status')}${rbTh('activity','Activity')}${rbTh('bed','Bed')}${rbTh('cohort','Cohort')}${rbTh('worker','Worker(s)')}${rbTh('when',rb.tab==='history'?'Manager action \u00b7 time':'Manager action \u00b7 time')}</tr></thead>
+    <tbody>${v.rows.map(rbTRow).join('')}</tbody></table></div>${rbPager(rb.tab,v)}`:`<div class="empty" style="padding:10px 0;">${empty}</div>`;
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
       <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></span></div>
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
-    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${rbCrewHTML(d)}${ver}${chk}${recent}</div>`;
+    <div class="rb-tabs" role="tablist">${tabs.map(t=>`<button role="tab" aria-selected="${rb.tab===t[0]}" class="${rb.tab===t[0]?'on':''}" onclick="rbTab('${t[0]}')">${esc(t[1])}${t[2]?`<span class="chip ${t[3]}">${t[2]}</span>`:''}</button>`).join('')}</div>
+    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:6px;">${esc(blurb)}</div>
+    ${rbFilterBar(rows)}${rbBulk(v)}${table}</div>`;
 }
 /* ADD NEW ACTIVITY. The form follows the ACTIVITY_REFERENCE tab column by column (Activity_ID ... Is_Fertilizer) and the
  * "Row preview" at the bottom shows the row exactly as it will be appended. Saved through 'create-activity' {full:true}
