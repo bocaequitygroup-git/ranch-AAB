@@ -6043,7 +6043,7 @@ function rbRecentHTML(d){
         <button class="rb-act" onclick="rbOpenActivity('${k}')" title="Open activity profile">${esc(actLabel(x.activity))}</button>
         <button class="dc-mini" onclick="rbGoBed('${esc(x.bedId)}','history')" title="Open bed">Bed ${esc(x.bedId)}</button>
         ${x.cohortId?`<button class="dc-mini" onclick="rbGoBed('${esc(x.bedId)}','overview')" title="Open cohort on its bed">${esc(x.cohortId)}</button>`:''}
-        <span class="qsub" style="text-transform:none;letter-spacing:0;">${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</span></div>`; }).join('')}</div>`;
+        <span class="qsub" style="text-transform:none;letter-spacing:0;">${esc(x.workerName)} · checked by ${esc(x.checkedBy)} ${esc(rbWhen(x.checkedDate))}</span>${x.verified?` <span class="chip chip-ok">Verified${x.verifiedBy?' by '+esc(x.verifiedBy):''}${x.verifiedDate?' \u00b7 '+esc(rbWhen(x.verifiedDate)):''}</span>`:''}</div>`; }).join('')}</div>`;
 }
 function bbSyncBlock(bedId){ const blk=pvBlockOf(bedId); if(blk&&PLAN_BLOCKS.includes(blk)&&bb.sel!==blk){ bb.sel=blk; bb.dry=null; bb.res=null; bb.confirm=false; } }
 function rbGoBed(bedId,tab){ bb.act=null; bbBedClick(bedId); if(tab) bb.tab=tab; }
