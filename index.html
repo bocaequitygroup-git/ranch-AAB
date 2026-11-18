@@ -110,6 +110,13 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .rb-bulk{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0;}
 .btn.rb-mini{width:auto;margin:0;padding:6px 12px;font-size:12px;} .rb-btns{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;}
 .rb-pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;font-size:12px;color:var(--ink-soft);margin:8px 0 0;}
+.ow-sec{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 10px;} .ow-sec h3{font-size:12.5px;margin:0 0 8px;}
+.ow-row{align-items:center;flex-wrap:wrap;gap:6px 9px;} .ow-main{flex:1;min-width:150px;} .ow-end{display:flex;gap:8px;align-items:center;margin-left:auto;}
+.ow-pvb{border:1px solid var(--line);background:var(--paper);color:#1D4ED8;font:inherit;font-size:11px;font-weight:700;border-radius:99px;padding:3px 10px;cursor:pointer;white-space:nowrap;} .ow-pvb:hover{background:var(--sand);}
+.ow-code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;}
+.ow-tip{position:fixed;z-index:80;max-width:290px;background:var(--ink);color:var(--paper);font-size:11.5px;line-height:1.4;padding:8px 10px;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.3);pointer-events:none;} .ow-tip b{font-weight:800;}
+.ow-pv{position:fixed;top:0;right:0;bottom:0;width:min(400px,100vw);z-index:75;background:var(--paper);border-left:1px solid var(--line);box-shadow:-6px 0 20px rgba(0,0,0,.25);padding:16px;overflow-y:auto;}
+.ow-pv .row{align-items:flex-start;gap:10px;} .ow-pv .row>span:last-child{text-align:right;}
 .pha-t td{white-space:normal;}
 .pha-t td:nth-child(4){min-width:150px;}
 .pha-t td:nth-child(6){white-space:nowrap;}
@@ -1327,6 +1334,7 @@ function setTab(t){ ui.tab=t; render(); }
 function ovBackdropClick(el,ev){
   if(!ev||ev.target!==el) return;
   if(ui.modal==='urgent'||ui.modal==='dispatch'||(ui.modalDraft&&ui.modalDraft.busy)) return;
+  if(ui.modal==='one-worker'&&ui.modalDraft&&(ui.modalDraft.beds||[]).length) return;   /* an accidental tap outside must not throw away ticked beds: use Close */
   closeModal();
 }
 /* Unsent assignment picks (activities, workers, date) are kept in this browser tab's sessionStorage, so an accidental close or a page
@@ -3085,62 +3093,148 @@ function owIso(n){ const x=new Date(); x.setDate(x.getDate()+n); return x.getFul
 /* Default schedule date for the assign dialogs: the crop's DOB (Planned DOB, the control date) of the first selected bed
  * that has a cohort; today only when no selected bed has one. The manager can still change it. */
 function owDobDate(d){ for(const id of (d.beds||[])){ let v=null; try{ v=bedViewById(id); }catch(e){} const dob=(v&&v.cohortId)?String(dispatchDob(v)||'').slice(0,10):''; if(/^\d{4}-\d{2}-\d{2}$/.test(dob)) return dob; } return todayISO(); }
-function owD(){ const d=ui.modalDraft; if(!d.beds) d.beds=[]; if(d.workerId==null) d.workerId=''; if(d.activity==null) d.activity=''; if(!d.date) d.date=owDobDate(d); if(d.q==null) d.q=''; if(d.result===undefined) d.result=null; if(d.busy==null) d.busy=false; return d; }
-function openOneWorker(){ openModal('one-worker',{ beds:[], workerId:'', activity:'', q:'', date:'', dateTouched:false, result:null, busy:false }); }
+function owD(){ const d=ui.modalDraft; if(!d.beds) d.beds=[]; if(d.workerId==null) d.workerId=''; if(d.activity==null) d.activity=''; if(!d.date) d.date=owDobDate(d); if(d.q==null) d.q=''; if(d.result===undefined) d.result=null; if(d.busy==null) d.busy=false; if(d.block==null) d.block=''; if(d.pv==null) d.pv=''; return d; }
+function openOneWorker(){ openModal('one-worker',{ beds:[], workerId:'', activity:'', q:'', block:'', pv:'', date:'', dateTouched:false, customMode:false, result:null, busy:false }); }
 function owActivities(){ return (state.activityCatalog||[]).filter(a=>a&&a.name&&!isFertAct(a.name)&&!(Number(a.postHarvestSequence)>0)).sort((x,y)=>String(x.name).localeCompare(String(y.name))); }
 function owBed(id){ return (state.beds||[]).find(b=>b.id===id)||{id:id}; }
 function owEligible(b,act){ try{ return startableActivities(b.id,!!b.cohortId).list.some(a=>a.name===act); }catch(e){ return false; } }
+/* Bed picker: Block dropdown -> one block's beds, each with cohort code, crop and a status badge. Hover = quick facts, "Preview" = full detail pane INSIDE this
+ * dialog (so the ticked beds, worker, activity and date are never lost). Eligible beds are computed once per activity (d._elig), not on every keystroke. */
+function owElig(d){ if(!d.activity) return []; if(d._eligAct!==d.activity){ d._elig=(state.beds||[]).filter(b=>owEligible(b,d.activity)); d._eligAct=d.activity; } return d._elig; }
+function owBlockOf(b){ return pvBlockOf(b.id)||String(b.blockId||'')||'\u2014'; }
+function owViewOf(id){ let v=null; try{ v=bedViewById(id); }catch(e){} return v||owBed(id); }
+function owBlocks(d){
+  const el=owElig(d), keys=PLAN_BLOCKS.slice(); el.forEach(b=>{ const k=owBlockOf(b); if(keys.indexOf(k)<0) keys.push(k); });
+  return keys.map(k=>({ k, label:BLOCK_LABELS[k]||k, n:el.filter(b=>owBlockOf(b)===k).length, sel:d.beds.filter(id=>owBlockOf(owBed(id))===k).length }));
+}
+function owCurBlock(d){ const bl=owBlocks(d); const cur=bl.find(x=>x.k===d.block); if(cur) return cur.k; const first=bl.find(x=>x.n>0); return (first||bl[0]||{k:''}).k; }
+function owStatus(v){   /* [label, chip class] */
+  if(v.cohortId){
+    const cs=String(v.cohortStatus||'').toUpperCase(), sk=stageKey(v.currentStage);
+    if(cs==='PRE_PLANTING'||sk==='preplanting') return ['PRE PLANTING','chip-warn'];
+    return [String(v.currentStage||'').replace(/_/g,' ').toUpperCase()||'ACTIVE', (sk==='growing'||sk==='harvestready')?'chip-ok':'chip-neutral'];
+  }
+  const st=bedState(v);
+  return ({ POST_HARVEST:['POST-HARVEST','chip-neutral'], PROPOSED:['PROPOSED','chip-info'], UNVERIFIED:['NOT VERIFIED','chip-neutral'], AVAILABLE:['AVAILABLE','chip-neutral'] })[st]||[st,'chip-neutral'];
+}
+function owPrereq(v){   /* what is still pending on this bed, in plain words */
+  const out=[], st=bedState(v), tasks=bedSessions(v.id).length;
+  if(v.cohortId){
+    const pre=String(v.cohortStatus||'').toUpperCase()==='PRE_PLANTING'||stageKey(v.currentStage)==='preplanting';
+    if(pre&&!v.plantingDate) out.push('Planting not verified yet');
+    if(pre&&v.propagationPath&&!v.propagationVerifiedBy&&!v.propagationOverrideBy) out.push('Propagation not verified yet');
+  }else if(st==='PROPOSED') out.push('Proposed cohort is awaiting approval');
+  else if(st==='POST_HARVEST') out.push('Bed turnover (post-harvest) is in progress');
+  else if(st==='UNVERIFIED') out.push('Bed is not verified ready');
+  if(tasks) out.push(tasks+' open task'+(tasks===1?'':'s')+' already on this bed');
+  return out;
+}
+function owTipHTML(v){
+  const [lab]=owStatus(v), pre=owPrereq(v), row=(k,x)=>x?`<div>${esc(k)}: <b>${esc(x)}</b></div>`:'';
+  const dob=v.cohortId?`<div>DOB: planned <b>${esc(v.plannedDob?diFmt(v.plannedDob):'\u2014')}</b> \u00b7 actual <b>${esc(v.plantingDate?diFmt(v.plantingDate):'not planted')}</b></div>`:'';
+  return `<div><b>${esc(v.id)}</b> \u00b7 ${esc(lab)}</div>${row('Crop',(v.cropName||'')+(v.shortfall?' (Shortfall)':''))}${row('Cohort',v.cohortId)}${dob}${row('Harvest window',v.harvestWindow)}${pre.length?`<div style="margin-top:3px;">\u26A0 ${pre.map(esc).join('<br>\u26A0 ')}</div>`:''}<div style="opacity:.7;margin-top:3px;">Tap Preview for full detail</div>`;
+}
+function owTip(el,on){
+  const t=document.getElementById('ow-tip'); if(!t) return;
+  if(!on){ t.hidden=true; return; }
+  t.innerHTML=owTipHTML(owViewOf(el.dataset.id)); t.hidden=false;
+  const r=el.getBoundingClientRect(), w=t.offsetWidth, h=t.offsetHeight; let top=r.bottom+6; if(top+h>innerHeight-8) top=Math.max(8,r.top-h-6);
+  t.style.top=top+'px'; t.style.left=Math.max(8,Math.min(r.left+36,innerWidth-w-8))+'px';
+}
 function owBedsHTML(d){
   if(!d.activity) return `<div class="empty">Pick an activity first. Only beds that can take it will be listed.</div>`;
-  const q=d.q.trim().toLowerCase();
-  const ok=(state.beds||[]).filter(b=>owEligible(b,d.activity)).filter(b=>!q||(b.id+' '+(b.blockId||'')+' '+(b.cropName||'')).toLowerCase().includes(q));
-  if(!ok.length) return `<div class="empty">${q?'No bed matches this search.':'No bed can take this activity right now.'}</div>`;
-  const groups={}; ok.forEach(b=>{ const k=b.blockId||'No block'; (groups[k]=groups[k]||[]).push(b); });
-  return Object.keys(groups).sort().map(g=>{
-    const ids=groups[g].map(b=>b.id), all=ids.every(i=>d.beds.includes(i));
-    return `<div class="ma-grp" style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><span>${esc(g)} · ${ids.length} bed${ids.length===1?'':'s'}</span><button class="gt-link" data-ids="${esc(ids.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!all})">${all?'Clear block':'Select block'}</button></div>`+
-      groups[g].map(b=>{ const on=d.beds.includes(b.id); return `<label class="ma-row ${on?'on':''}"><input type="checkbox" ${on?'checked':''} data-v="${esc(b.id)}" onchange="owToggleBed(this.dataset.v,this.checked)"><span><b style="font-weight:700;">${esc(b.id)}</b>${b.cropName?` <span class="d">${esc(b.cropName)}</span>`:''}</span></label>`; }).join('');
+  const blk=owCurBlock(d), q=d.q.trim().toLowerCase();
+  const inBlock=owElig(d).filter(b=>owBlockOf(b)===blk);
+  const ok=inBlock.filter(b=>{ if(!q) return true; const v=owViewOf(b.id); return (b.id+' '+(v.cropName||'')+' '+(v.cohortId||'')).toLowerCase().includes(q); });
+  if(!ok.length) return `<div class="empty">${q?'No bed in this block matches the search.':'No bed in '+esc(BLOCK_LABELS[blk]||blk)+' can take this activity right now.'}</div>`;
+  return ok.map(b=>{
+    const v=owViewOf(b.id), on=d.beds.includes(b.id), [lab,cls]=owStatus(v);
+    return `<label class="ma-row ow-row ${on?'on':''}" data-id="${esc(b.id)}" onmouseenter="owTip(this,true)" onmouseleave="owTip(this,false)"><input type="checkbox" ${on?'checked':''} data-v="${esc(b.id)}" onchange="owToggleBed(this.dataset.v,this.checked)">
+      <span class="ow-main"><b style="font-weight:700;">${esc(b.id)}</b>${v.cropName?` <span class="d" style="display:inline;">\u00b7 ${esc(v.cropName)}</span>`:''}${v.shortfall?' <span class="chip chip-warn">Shortfall</span>':''}${v.cohortId?` <span class="chip chip-neutral ow-code">${esc(v.cohortId)}</span>`:''}</span>
+      <span class="ow-end"><span class="chip ${cls}">${esc(lab)}</span><button type="button" class="ow-pvb" data-v="${esc(b.id)}" onclick="event.preventDefault();event.stopPropagation();owPreview(this.dataset.v)">Preview \uD83D\uDD0D</button></span></label>`;
   }).join('');
 }
+function owBlockSelHTML(d){
+  const bl=owBlocks(d), cur=owCurBlock(d);
+  return `<select id="ow-block" ${d.activity?'':'disabled'} aria-label="Select block" onchange="owSetBlock(this.value)">${bl.map(x=>`<option value="${esc(x.k)}" ${x.k===cur?'selected':''}>${esc(x.label)}: ${x.n} available bed${x.n===1?'':'s'}${x.sel?' \u00b7 '+x.sel+' selected':''}</option>`).join('')}</select>`;
+}
+function owBlockHeadHTML(d){
+  if(!d.activity) return '';
+  const blk=owCurBlock(d), q=d.q.trim().toLowerCase();
+  const ids=owElig(d).filter(b=>owBlockOf(b)===blk).filter(b=>{ if(!q) return true; const v=owViewOf(b.id); return (b.id+' '+(v.cropName||'')+' '+(v.cohortId||'')).toLowerCase().includes(q); }).map(b=>b.id);
+  if(!ids.length) return '';
+  const all=ids.every(i=>d.beds.includes(i));
+  return `<div class="ma-grp" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;"><span>${esc(BLOCK_LABELS[blk]||blk)} \u00b7 ${ids.length} bed${ids.length===1?'':'s'}${q?' shown':''}</span><button class="gt-link" data-ids="${esc(ids.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!all})">${all?'Clear shown':'Select all shown'}</button></div>`;
+}
 function owToggleBed(id,on){ const d=owD(), i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); d.result=null; if(!d.dateTouched) d.date=owDobDate(d); owRefresh(); }
-function owToggleBlock(csv,on){ const d=owD(); csv.split(',').forEach(id=>{ const i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); }); d.result=null; owRefresh(); }
+function owToggleBlock(csv,on){ const d=owD(); csv.split(',').forEach(id=>{ const i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); }); d.result=null; if(!d.dateTouched) d.date=owDobDate(d); owRefresh(); }
+function owSetBlock(k){ const d=owD(); d.block=k; d.q=''; const s=document.getElementById('ow-search'); if(s) s.value=''; owRefresh(); }
 function owSetWorker(v){ const d=owD(); d.workerId=v||''; d.result=null; owRefresh(); }
-function owSetActivity(v){ const d=owD(); d.activity=v||''; d.beds=d.beds.filter(id=>owEligible(owBed(id),d.activity)); d.result=null; owRefresh(); owPlantPop(); }
-function owSetDate(n){ const d=owD(); d.date=owIso(n); d.dateTouched=true; owRefresh(); owPlantPop(); }
+function owSetActivity(v){ const d=owD(); d.activity=v||''; d._eligAct=null; d.beds=d.beds.filter(id=>owEligible(owBed(id),d.activity)); d.result=null; owRefresh(); owPlantPop(); }
+function owSetDate(n){ const d=owD(); d.date=owIso(n); d.dateTouched=true; d.customMode=false; owRefresh(); owPlantPop(); }
+function owPickDate(v){ const d=owD(); d.date=v||todayISO(); d.dateTouched=true; d.customMode=true; owRefresh(); owPlantPop(); }
+function owCustomDate(){ const d=owD(); d.dateTouched=true; d.customMode=true; owRefresh(); const i=document.getElementById('ow-date'); if(i){ i.focus(); try{ if(i.showPicker) i.showPicker(); }catch(e){} } }
 function owSearch(v){ owD().q=v; owRefresh(); }
+function owPreview(id){ owD().pv=id; owTip(document.body,false); owPvPaint(); }
+function owPreviewClose(){ owD().pv=''; owPvPaint(); }
+function owPvHTML(d){
+  if(!d.pv) return '';
+  const v=owViewOf(d.pv), [lab,cls]=owStatus(v), on=d.beds.includes(v.id), pre=owPrereq(v), r=(k,x)=>`<div class="row"><span>${esc(k)}</span><span>${(x===''||x==null)?'\u2014':esc(x)}</span></div>`;
+  const tasks=bedSessions(v.id).map(t=>`<div class="qsub" style="text-transform:none;letter-spacing:0;">${esc(actLabel(t.activity))} \u00b7 ${esc(maWName(t.workerId))} \u00b7 ${esc(String(t.status||'').toLowerCase())}</div>`).join('');
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><h2 style="font-size:15px;margin:0;">Bed ${esc(v.id)}</h2><button class="btn btn-ghost" style="width:auto;margin:0;padding:6px 12px;" onclick="owPreviewClose()">Close \u2715</button></div>
+    <div style="margin:6px 0 8px;"><span class="chip ${cls}">${esc(lab)}</span>${v.shortfall?' <span class="chip chip-warn">Shortfall crop</span>':''}</div>
+    <div class="card">${r('Block',BLOCK_LABELS[owBlockOf(v)]||owBlockOf(v))}${r('Crop',v.cropName)}${r('Cohort',v.cohortId)}${v.cohortId?r('Cohort status',COHORT_STATUS_LABEL[v.cohortStatus]||v.cohortStatus):''}${v.cohortId?r('Crop stage',String(v.currentStage||'').replace(/_/g,' ')):''}
+      ${v.cohortId?r('DOB (planned)',v.plannedDob?diFmt(v.plannedDob):'')+r('DOB (actual)',v.plantingDate?diFmt(v.plantingDate):'not planted yet')+r('Harvest window',v.harvestWindow):''}</div>
+    ${v.cohortId?pwBox(v.plantingWindow,{shortfall:v.shortfall})+pdSummaryBox(v.plantingDeviation,{shortfall:v.shortfall,plannedDob:v.plannedDob,actualDob:v.plantingDate}):''}
+    ${pre.length?`<div class="note" style="color:var(--warn);font-weight:600;">${pre.map(esc).join('<br>')}</div>`:''}
+    ${tasks?`<div class="qsub" style="margin:8px 0 2px;">Open tasks on this bed</div>${tasks}`:''}
+    <div class="qbtns" style="margin-top:12px;"><button class="btn ${on?'btn-outline':'btn-primary'}" onclick="owToggleBed('${esc(v.id)}',${!on});owPvPaint()">${on?'Remove from selection':'Add to selection'}</button></div>
+    <div class="note">Your worker, activity, ticked beds and date are kept while you look.</div>`;
+}
+function owPvPaint(){ const e=document.getElementById('ow-pv'), d=owD(); if(!e) return; e.innerHTML=owPvHTML(d); e.hidden=!d.pv; }
+function owSchedHTML(d){
+  const mode=d.customMode?'custom':d.date===owIso(0)?'today':d.date===owIso(1)?'tomorrow':'custom';
+  const b=(k,label,fn)=>`<button class="btn ${mode===k?'btn-primary':'btn-outline'}" style="width:auto;margin:0;padding:5px 12px;font-size:12px;" onclick="${fn}">${label}</button>`;
+  return `<b>Schedule</b>${b('today','Today','owSetDate(0)')}${b('tomorrow','Tomorrow','owSetDate(1)')}${b('custom','Custom date','owCustomDate()')}<input type="date" id="ow-date" value="${esc(d.date)}" onchange="owPickDate(this.value)">`;
+}
 function owRefresh(){
   const g=id=>document.getElementById(id);
   if(!g('ow-beds')) return render();
-  const d=owD(), t=g('ow-beds').scrollTop;
+  const d=owD(), t=g('ow-beds').scrollTop; owTip(document.body,false);
+  g('ow-blocksel').innerHTML=owBlockSelHTML(d); g('ow-bhead').innerHTML=owBlockHeadHTML(d);
   g('ow-beds').innerHTML=owBedsHTML(d); g('ow-beds').scrollTop=t;
-  g('ow-foot').innerHTML=owFootHTML();
+  g('ow-sched').innerHTML=owSchedHTML(d); g('ow-foot').innerHTML=owFootHTML();
   const n=g('ow-n'); if(n) n.textContent=d.beds.length;
-  const di=g('ow-date'); if(di) di.value=d.date;
+  owPvPaint();
 }
 function owFootHTML(){
   const d=owD(), n=d.beds.length, ok=!!d.workerId&&!!d.activity&&n>0&&!d.busy;
+  const per={}; d.beds.forEach(id=>{ const k=owBlockOf(owBed(id)); per[k]=(per[k]||0)+1; });
+  const spread=Object.keys(per).length>1?` <span style="color:var(--ink-soft);">(${Object.keys(per).sort().map(k=>esc(BLOCK_LABELS[k]||k)+': '+per[k]).join(', ')})</span>`:'';
   const sum=!d.workerId||!d.activity?`<span style="color:var(--ink-soft);">Pick a worker and an activity.</span>`
     : !n?`<span style="color:var(--ink-soft);">Tick the beds this worker should do.</span>`
-    : `<b>${esc(maWName(d.workerId))}</b> → <b>${esc(actLabel(d.activity))}</b> on <b>${n}</b> bed${n===1?'':'s'}.`;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} bed${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} already open (skipped).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.bedId)}: ${esc(propErrText(f)||f.errorCode||'not assigned')}</div>`).join('')}</div>`;
+    : `<b>${esc(maWName(d.workerId))}</b> \u2192 <b>${esc(actLabel(d.activity))}</b> on <b>${n}</b> bed${n===1?'':'s'}.${spread}`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>\u2713 ${r.created.length} bed${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} already open (skipped).</div>`:''}${r.failed.map(f=>`<div class="bad">\u2717 ${esc(f.bedId)}: ${esc(propErrText(f)||f.errorCode||'not assigned')}</div>`).join('')}</div>`;
   return `<div class="ma-sum">${sum}</div>${res}
-    <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitOneWorker()">${d.busy?'<span class="vp-spin"></span>Assigning…':(ok?`Assign ${n} bed${n===1?'':'s'}`:'Assign')}</button><button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
+    <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitOneWorker()">${d.busy?'<span class="vp-spin"></span>Assigning\u2026':(ok?`Assign ${n} Bed${n===1?'':'s'}`:'Assign')}</button><button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
     <div class="note" style="margin:6px 0 0;">Each task shows as Pending until the worker taps Start. Server rules still apply to every bed.</div>`;
 }
 function oneWorkerModal(){
   const d=owD(), acts=owActivities(), wk=state.workers||[];
-  return `<div class="ma-head"><h2 style="font-size:16px;margin:0;"><b>One worker to many beds</b></h2><span class="qsub">Pick one activity and one worker, then tick every bed they should do.</span></div>
-  <div class="ma-cols">
-    <div class="ma-col"><div class="ma-colhead"><h3>1 · Worker and activity</h3></div>
-      <div class="field"><label>Worker</label><select onchange="owSetWorker(this.value)"><option value="">Select a worker…</option>${wk.map(w=>{ const n=workerLoad(w.workerId); return `<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.name)} (${esc(w.workerId)}) · ${n?n+' open':'free'}</option>`; }).join('')}</select></div>
-      <div class="field"><label>Activity</label><select onchange="owSetActivity(this.value)"><option value="">Select an activity…</option>${acts.map(a=>`<option value="${esc(a.name)}" ${d.activity===a.name?'selected':''}>${esc(actLabel(a.name))}</option>`).join('')}</select></div>
-      <div class="note" style="margin-top:6px;">Fertilizer and post-harvest turnover steps are not listed here. Use multi-assign or the turnover sequence for those.</div></div>
-    <div class="ma-col"><div class="ma-colhead"><h3>2 · Pick beds (<span id="ow-n">${d.beds.length}</span>)</h3>
-      <input class="ma-search" id="ow-search" type="search" placeholder="Search beds (ID, block, crop)…" value="${esc(d.q)}" oninput="owSearch(this.value)"></div>
-      <div id="ow-beds" style="overflow-y:auto;max-height:48vh;">${owBedsHTML(d)}</div></div>
-  </div>
-  <div class="ma-date"><b>Schedule</b><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(0)">Today</button><button class="btn btn-outline" style="width:auto;margin:0;padding:5px 10px;font-size:12px;" onclick="owSetDate(1)">Tomorrow</button><input type="date" id="ow-date" value="${esc(d.date)}" onchange="owD().date=this.value||todayISO();owD().dateTouched=true;owPlantPop()"></div>
-  <div class="ma-foot" id="ow-foot">${owFootHTML()}</div>`;
+  return `<div class="ma-head"><h2 style="font-size:16px;margin:0;"><b>One Worker to Many Beds</b></h2><span class="qsub">Pick one worker and one activity, choose a block, then tick the beds they should do.</span></div>
+  <div class="ow-sec"><h3>1 \u00b7 Worker &amp; Activity</h3>
+    <div class="field"><label>Worker</label><select onchange="owSetWorker(this.value)"><option value="">Select a worker\u2026</option>${wk.map(w=>{ const n=workerLoad(w.workerId); return `<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.name)} (${esc(w.workerId)}) \u00b7 ${n?n+' open':'free'}</option>`; }).join('')}</select></div>
+    <div class="field"><label>Activity</label><select onchange="owSetActivity(this.value)"><option value="">Select an activity\u2026</option>${acts.map(a=>`<option value="${esc(a.name)}" ${d.activity===a.name?'selected':''}>${esc(actLabel(a.name))}</option>`).join('')}</select></div>
+    <div class="note" style="margin-top:6px;">Fertilizer and post-harvest turnover steps are not listed here. Use multi-assign or the turnover sequence for those.</div></div>
+  <div class="ow-sec"><h3>2 \u00b7 Pick Beds (<span id="ow-n">${d.beds.length}</span> selected)</h3>
+    <div class="field" style="margin-bottom:6px;"><label>Select block</label><div id="ow-blocksel">${owBlockSelHTML(d)}</div></div>
+    <input class="ma-search" id="ow-search" type="search" placeholder="Search this block (bed, crop, cohort)\u2026" value="${esc(d.q)}" oninput="owSearch(this.value)" style="width:100%;">
+    <div id="ow-bhead">${owBlockHeadHTML(d)}</div>
+    <div id="ow-beds" style="overflow-y:auto;max-height:42vh;" onscroll="owTip(document.body,false)">${owBedsHTML(d)}</div></div>
+  <div class="ma-date" id="ow-sched">${owSchedHTML(d)}</div>
+  <div class="ma-foot" id="ow-foot">${owFootHTML()}</div>
+  <div id="ow-tip" class="ow-tip" hidden></div>
+  <div id="ow-pv" class="ow-pv" ${d.pv?'':'hidden'}>${owPvHTML(d)}</div>`;
 }
 async function submitOneWorker(){
   const d=owD(); if(d.busy||!d.workerId||!d.activity||!d.beds.length) return;
