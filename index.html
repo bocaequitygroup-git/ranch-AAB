@@ -430,7 +430,6 @@ table.rotmatrix th,table.rotmatrix td{border-bottom:1px solid var(--line);}
 .urg-bed.picked.urg-bed-sf span{color:#ffd9d4;}
 
 @keyframes vpSpin{to{transform:rotate(360deg)}}
-.exc-badge{cursor:pointer}.exc-pulse{animation:excPulse 1.4s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}@keyframes excPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.35);opacity:.6}}
 @keyframes vpSlide{0%{left:-40%}100%{left:100%}}
 .vp-spin{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:vpSpin .7s linear infinite;vertical-align:-2px;margin-right:6px}
 #vp-busy{position:fixed;left:0;right:0;top:0;z-index:99999;pointer-events:none;display:none}
@@ -1292,7 +1291,6 @@ async function doTerminateCohort(cohortId, reason){
 function selectBed(bedId){ ui.selectedBed=bedId; ui.tab='overview'; render(); pdueLoad(bedId,true); pselLoadFor(bedId); }  // always opens on Overview
 function closePanel(){ ui.selectedBed=null; render(); }
 function setOverlay(mode){ ui.overlay=mode; render(); }
-function openExceptionBed(bedId){ ui.selectedBed=bedId; ui.tab='exceptions'; render(); pdueLoad(bedId,true); pselLoadFor(bedId); }
 function setTab(t){ ui.tab=t; render(); }
 /* A click on the dim background closes most dialogs. The activity-assignment dialog ('dispatch') never closes that way: its unsent picks
  * would be lost. Use its Close button (the picks are kept, see maPersist) or Clear. */
@@ -1556,7 +1554,7 @@ function mapSVG(){
         ${!has&&!prop&&match?`<text x="${bx+cw/2}" y="${by+(ph&&phTile(v).total?30:36)}" text-anchor="middle" font-size="8" font-weight="700" fill="${tc}">No crop assigned</text>
         ${ph&&phTile(v).total?`<text x="${bx+cw/2}" y="${by+44}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${tc}" opacity=".85">${phTile(v).started?phTile(v).done+'/'+phTile(v).total+' done':phTile(v).open+' open'}</text>${match?phTileBar(phTile(v),bx,by,cw,ch):''}`:''}`:''}
         ${sess?`<circle cx="${bx+cw-7}" cy="${by+7}" r="4" fill="#1F3A2E"></circle>`:''}
-        ${exc?`<g class="exc-badge" onclick="event.stopPropagation();openExceptionBed('${esc(v.id)}')"><circle class="exc-pulse" cx="${bx+cw-19}" cy="${by+7}" r="7" fill="var(--danger)"></circle><text x="${bx+cw-19}" y="${by+10.5}" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">!</text><title>Open exception: review and resolve</title></g>`:''}
+        ${exc?`<circle cx="${bx+cw-19}" cy="${by+7}" r="4" fill="var(--danger)"></circle>`:''}
         ${hr?`<circle cx="${bx+cw-7}" cy="${by+ch-7}" r="4" fill="var(--ok)"></circle>`:''}
         ${has&&match?pwTileMark(v.plantingWindow,bx,by,ch):''}
         ${tileStickers(v,bx,by,cw,ch)}
@@ -1576,6 +1574,7 @@ function panelHTML(){
   return `<div class="panelhead"><div><h2>${esc(b.id)}</h2><div class="meta">${b.cohortId?`${esc(b.blockId)} · ${esc(b.cropName)} · ${esc(b.cohortId)}`:`${esc(b.blockId)} · ${esc(String(b.locationType||'field').toLowerCase())} bed · ${b.proposals.length?'Proposed':bedPanelStatus(b)}`}</div></div><button onclick="closePanel()">✕</button></div>
   <div class="dp-stickers" style="display:flex;flex-wrap:wrap;gap:6px;padding:6px 12px;">${bedStickers(b,b.cohortId)}</div>
   ${bedCompare(b)}
+  ${bedMethodRow(b)}
   <div class="tabs">
     <button class="${ui.tab==='overview'?'active':''}" onclick="setTab('overview')">Overview</button>
     ${b.cohortId?`<button class="${ui.tab==='activity'?'active':''}" onclick="setTab('activity')">Activity</button>`:''}
@@ -1833,9 +1832,7 @@ function exceptionsTab(b,exc){
   return exc.length? exc.map(x=>`<div class="card">
     <div class="row"><span>${esc(x.type)}</span><span class="chip ${x.severity==='CRITICAL'||x.severity==='HIGH'?'chip-danger':'chip-warn'}">${esc(x.severity)}</span></div>
     <div class="row"><span>Reported</span><span>${esc(x.workerName||x.worker||'')}</span></div>
-    ${x.symptom?`<div class="row"><span>Finding</span><span>${esc(x.symptom)}</span></div>`:''}
     ${x.notes?`<div class="row"><span>Notes</span><span>${esc(x.notes)}</span></div>`:''}
-    ${x.photo?`<div class="row"><span>Photo</span><a href="${esc(x.photo)}" target="_blank" rel="noopener noreferrer"><img src="${esc(x.photo)}" alt="Scouting photo" style="width:120px;height:120px;object-fit:cover;border-radius:8px;"></a></div>`:''}
     ${x.status==='OPEN'?`<button class="btn btn-primary" onclick="openModal('resolve',{exceptionId:'${esc(x.id)}'})">Mark resolved</button>`:`<span class="chip chip-ok">RESOLVED</span>`}
   </div>`).join('') : `<div class="empty">No exceptions on this bed.</div>`;
 }
@@ -2652,6 +2649,7 @@ function modalHTMLBase(){
   else if(ui.modal==='change-loc') inner=changeLocModal();
   else if(ui.modal==='reject') inner=rejectModal();
   else if(ui.modal==='verify-planting') inner=verifyPlantingModal();
+  else if(ui.modal==='planting-method') inner=plantingMethodModal();
   else if(ui.modal==='move') inner=moveModal();
   else if(ui.modal==='terminate') inner=terminateModal();
   else if(ui.modal==='pastdue') inner=pastDueModal();
@@ -2683,6 +2681,21 @@ function bedStageKey(b){ return stageKey(b.currentStage) || (stageKey(b.cohortSt
  * method (TRANSPLANT, CUTTING, SLIP, SUCKER, CROWN) -> Transplanting. The server sends bed.plantingActivity (ActivityEngine.gs 4.1b); CROP_MASTER is the
  * fallback. '' = method unknown: nothing is offered and the server would refuse it too (PLANTING_METHOD_UNKNOWN). Replanting is a recovery
  * operation, listed separately, never a third method. */
+/* Planting method per bed: the method of its assigned crop, or of the crop planned for it when nothing is assigned yet. */
+function bedMethodOf(b){
+  let act=plantingActivityFor(b);
+  if(!act){ const pc=gatePlannedCrop(b); if(pc) act=plantingActivityFor({cropId:pc.id,cropName:pc.name}); }
+  return act||'';
+}
+function bedMethodRow(b){
+  const act=bedMethodOf(b);
+  const label=act==='DirectSeeding'?'Direct seeding':act==='Transplanting'?'Transplant':'';
+  return `<div class="dp-stickers" style="padding:6px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <span class="qsub" style="text-transform:uppercase;letter-spacing:.04em;">Planting method</span>
+    ${label?`<span class="chip chip-neutral">${label}</span>`:'<span class="chip chip-warn">Not set for this crop</span>'}
+    <button class="btn btn-outline" style="width:auto;margin:0;padding:4px 10px;font-size:12px;" onclick="openModal('planting-method',{bed:'${esc(b.id)}',method:'${act}'})">What does this mean?</button>
+  </div>`;
+}
 function plantingActivityFor(b){
   if(!b) return '';
   if(b.plantingActivity) return b.plantingActivity;
@@ -3256,6 +3269,24 @@ function reassignModal(){
   <div class="field"><label>Note (optional)</label><textarea id="md-note" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;"></textarea></div>
   <button class="btn ${isClose?'btn-danger':'btn-primary'}" onclick="${isClose?'closeAndNew':'reassignSession'}('${esc(d.sessionId)}', document.getElementById('md-worker').value, document.getElementById('md-note').value)">${isClose?'Close & start new':'Reassign'}</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+}
+function plantingMethodModal(){
+  const d=ui.modalDraft, direct=d.method==='DirectSeeding', tr=d.method==='Transplanting';
+  const meaning=direct?'Direct seeding: the seed is sown straight into the bed in the field.'
+    :tr?'Transplant: seedlings are grown first in a nursery or greenhouse, then moved into the bed.'
+    :'No planting method is set for this crop.';
+  const req=direct
+    ?['Pre-Seed Tillage, Bed Shaping & Crown Firming and the Pre-Plant Moisture Check (ACT_060, ACT_061, ACT_062) must all be completed and manager-verified before Direct Seeding (ACT_007) can be assigned or started.',
+      'No nursery batch or propagation verification is needed.']
+    :tr?['The crop is raised first in a nursery or greenhouse, so it needs its propagation lead time before it is ready to transplant.',
+      'The manager must verify propagation (R01) before Transplanting (ACT_008) can be assigned or started.',
+      'Releasing the bed does not depend on propagation verification.']
+    :['Set the planting method for this crop in the crop reference. Until then, nothing can be assigned to the bed.'];
+  return `<h2 style="font-size:15px;">Planting method · Bed ${esc(d.bed||'')}</h2>
+  <p style="margin:6px 0 10px;">${esc(meaning)}</p>
+  <div class="qsub" style="text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Requirements</div>
+  <ul style="margin:0 0 14px 18px;padding:0;line-height:1.5;">${req.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>
+  <button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
 }
 function resolveModal(){
   const d=ui.modalDraft;
@@ -6128,7 +6159,7 @@ function rbCrewHTML(d){
       <div class="pc-head"><div><div class="pc-title">${esc(actLabel(i.activity))}</div><div class="pc-sub">Bed ${esc(i.bedId)}${planting&&i.cohortId?' \u00b7 '+esc(i.cohortId)+(i.crop?' \u00b7 '+esc(i.crop):''):''}</div></div>${chip}</div>
       ${avLines(s)}${avPortionLines(s)}${btn}</div>`;
   }).join('');
-  return `<h2 style="font-size:13px;margin:14px 0 6px;">Activities with more than one worker (${list.length})</h2>
+  return `<h2 style="font-size:13px;margin:14px 0 6px;">More than one worker: check each portion, then verify (${list.length})</h2>
     <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:2px;">Check each worker's portion as they finish. Workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.</div>${rows}`;
 }
 async function rbVerifyCrew(el){
@@ -6147,12 +6178,12 @@ function rbPanel(){
   const d=rb.data;
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
   const nC=Object.keys(rb.sel).length, nV=Object.keys(rb.selV).length, total=d.toCheck.length+d.toVerify.length+rbCrewList(d).length;
-  const chk=d.toCheck.length?`<h2 style="font-size:13px;margin:10px 0 6px;">Checked activities to review (${d.toCheck.length}) <span class="chip chip-ok">non-blocking</span></h2>
+  const chk=d.toCheck.length?`<h2 style="font-size:13px;margin:14px 0 6px;">One worker: check only, no verification needed (${d.toCheck.length}) <span class="chip chip-ok">non-blocking</span></h2>
     <div class="dp-tools"><button onclick="rbAll('check',true)">Select all</button><button onclick="rbAll('check',false)">Clear</button></div>
     <div class="ma-list" style="max-height:340px;">${d.toCheck.map(x=>rbRow(x,'check')).join('')}</div>
     <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="check" ${nC?'':'disabled'} onclick="rbReview('check')">Mark checked${nC?' ('+nC+')':''}</button>
     <div class="qsub" style="text-transform:none;letter-spacing:0;margin-top:4px;">Checking only logs your review. It does not change any bed, cohort, schedule or assignment.</div>`:'';
-  const ver=d.toVerify.length?`<h2 style="font-size:13px;margin:14px 0 6px;">Verified-class activities waiting for your verification (${d.toVerify.length})</h2>
+  const ver=d.toVerify.length?`<h2 style="font-size:13px;margin:14px 0 6px;">One worker: verification required (${d.toVerify.length})</h2>
     <div class="dp-tools"><button onclick="rbAll('verify',true)">Select all</button><button onclick="rbAll('verify',false)">Clear</button></div>
     <div class="ma-list" style="max-height:300px;">${d.toVerify.map(x=>rbRow(x,'verify')).join('')}</div>
     <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-rbgo="verify" ${nV?'':'disabled'} onclick="rbReview('verify')">Verify selected${nV?' ('+nV+')':''}</button>`:'';
@@ -6160,7 +6191,7 @@ function rbPanel(){
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
       <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></span></div>
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
-    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${rbCrewHTML(d)}${chk}${ver}${recent}</div>`;
+    ${total?'':`<div class="empty" style="padding:8px 0;">Nothing to review. Completed Checked activities from the last ${d.lookbackDays} days appear here.</div>`}${rbCrewHTML(d)}${ver}${chk}${recent}</div>`;
 }
 /* ADD NEW ACTIVITY. The form follows the ACTIVITY_REFERENCE tab column by column (Activity_ID ... Is_Fertilizer) and the
  * "Row preview" at the bottom shows the row exactly as it will be appended. Saved through 'create-activity' {full:true}
