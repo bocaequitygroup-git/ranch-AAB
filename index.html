@@ -564,6 +564,12 @@ const zoneOvIs=f=>!!f&&ZONE_OV_CODES.includes(String(f.errorCode||f.code||''));
 /* Only these two mean "a written reason would let it through". A bare ZONE_UNVERIFIED is NOT overridable for that request (e.g. a bed the server cannot find),
  * so it is shown as a plain message and never gets a reason box. */
 const zoneOvAsk=f=>!!f&&['OVERRIDE_REASON_REQUIRED','OVERRIDE_LOG_FAILED'].includes(String(f.errorCode||f.code||''));
+/* ZONE RECORD INCONSISTENT (server: ZONE_RECORD_INCONSISTENT): ACT_013 approval and BED_MASTER.Zone disagree, or the approval cannot be confirmed.
+ * The bed is flagged and blocked. It NEVER gets a reason box or an override button. Only the not-approved state (ZONE_UNVERIFIED) is overridable. */
+const zoneFlagOf=f=>!!f&&String(f.errorCode||f.code||'')==='ZONE_RECORD_INCONSISTENT';
+function zoneFlagBox_(message,beds){
+  return `<div class="pw-box warn"><div class="pw-t">Zone record inconsistent: not assignable</div><div>${esc(plainMsg_(message)||'This bed’s zone record does not agree with its ACT_013 approval.')}</div>${beds&&beds.length?`<div>Beds: ${esc(beds.join(', '))}</div>`:''}<div class="pw-why">No override is offered. The bed’s ACT_013 approval and its recorded zone must agree before it can be assigned.</div></div>`;
+}
 const zoneOvCan=()=>/^(manager|founder)$/i.test(String(state.role||'').trim());
 function zoneOvSet(key,v){ (ui.zoneReasons=ui.zoneReasons||{})[key]=v; }
 function zoneOvGet(key){ return String((ui.zoneReasons||{})[key]||'').trim(); }
@@ -1012,6 +1018,8 @@ async function mgrOvRetry(kind){
 }
 function zoneOvKey(kind){ try{ if(kind==='dp') return 'bed:'+((ui.dp&&ui.dp.bedId)||''); if(kind==='ma') return 'bed:'+(maD().bedId||''); }catch(e){} return kind==='ow'?'ow':''; }
 function zoneOvBox(failed,kind){
+  const inc=(failed||[]).filter(zoneFlagOf);
+  if(inc.length) return zoneFlagBox_(inc[0].message,inc.map(f=>f.bedId).filter(Boolean));
   const rows=(failed||[]).filter(zoneOvAsk); if(!rows.length) return '';
   const key=zoneOvKey(kind); if(!key||key==='bed:') return '';
   const logFail=rows.every(f=>f.errorCode==='OVERRIDE_LOG_FAILED');
@@ -5575,6 +5583,12 @@ function irrDayItems(){ return ((irr.data&&irr.data.items)||[]).filter(x=>x.date
 /* ZONE_UNVERIFIED on the irrigation calendar. irr.zoneNeed[cohort|date] = {code, message, beds}: the beds the server refused, so the card can ask a manager for a
  * reason. The reason (ui.zoneReasons['irr:'+key]) goes out only when every ticked bed is one of those beds. Nothing here changes a bed's zone. */
 function irrZoneTrack(key,beds,res,err){
+  irr.zoneFlag=irr.zoneFlag||{}; delete irr.zoneFlag[key];
+  let flag=null;
+  if(err){ if(zoneFlagOf(err)) flag={ message:err.message, beds:beds.slice() }; }
+  else{ const inc=((res&&res.failed)||[]).map(x=>({bedId:x.bedId,d:(x.detail&&typeof x.detail==='object')?x.detail:{errorCode:x.detail}})).filter(x=>zoneFlagOf(x.d));
+    if(inc.length) flag={ message:inc[0].d.message, beds:inc.map(x=>x.bedId) }; }
+  if(flag){ irr.zoneFlag[key]=flag; delete irr.zoneNeed[key]; if(ui.zoneReasons) delete ui.zoneReasons['irr:'+key]; return false; }
   let need=null;
   if(err){ if(!zoneOvAsk(err)) return false; need={ code:err.code, message:plainMsg_(err.message), beds:beds.slice() }; }
   else{ const zf=((res&&res.failed)||[]).map(x=>({bedId:x.bedId,d:(x.detail&&typeof x.detail==='object')?x.detail:{errorCode:x.detail}})).filter(x=>zoneOvAsk(x.d));
@@ -5647,12 +5661,13 @@ function irrCardHTML(it,i){
   const beds=it.beds.map(b=>{ const a=irrItemOpen(it)&&irrAssignable(b), x=IRR_ST[b.status];
     return `<label class="irr-bed">${a?`<input type="checkbox" ${sel.beds.includes(b.bedId)?'checked':''} onchange="irrToggle(${i},'beds','${esc(b.bedId)}')">`:''}<b>${esc(b.bedId)}</b>${b.plan&&b.plan.displaced?bedStickers({plan:b.plan},''):''}${b.zoneId?`<span class="irr-z">${esc(b.zoneId.replace('IRR-',''))}${b.shiftWindow?' · shift '+esc(b.shiftWindow):''}</span>`:''}${(b.gallons!=null||b.minutes!=null)?`<span class="irr-z">${b.gallons!=null?fmt(b.gallons)+' gal':''}${b.gallons!=null&&b.minutes!=null?' · ':''}${b.minutes!=null?b.minutes+' min':''}</span>`:''}<span class="irr-st" style="--c:${x[1]}">${x[0]}${b.workerName?' · '+esc(b.workerName):''}</span></label>`; }).join('');
   const zk=it.cohortId+'|'+it.date, zn=irr.zoneNeed&&irr.zoneNeed[zk];
+  const zflag=(irr.zoneFlag&&irr.zoneFlag[zk])?zoneFlagBox_(irr.zoneFlag[zk].message,irr.zoneFlag[zk].beds):'';
   const zbox=(zn&&canAssign)?`<div class="pw-box warn"><div class="pw-t">${zn.code==='OVERRIDE_LOG_FAILED'?'Zone override was not recorded':'Irrigation zone not verified'}</div><div>${esc(zn.message||'')}</div>${(zn.beds||[]).length?`<div>Beds: ${esc(zn.beds.join(', '))}</div>`:''}
      <div class="pw-why">A manager or founder can assign it anyway. Write why; the override is logged under your name and the bed's zone stays blank.</div>
      <textarea placeholder="Reason for assigning irrigation before the zone is verified (required)" maxlength="300" oninput="zoneOvSet('irr:${esc(zk)}',this.value)">${esc((ui.zoneReasons||{})['irr:'+zk]||'')}</textarea>
      <button class="btn btn-danger" style="width:auto;margin:6px 0 0" onclick="irrAssignZone(${i})">Assign anyway with reason</button></div>`:'';
   const ws=canAssign?`<div class="irr-w">${workers.length?workers.map(w=>`<label class="irr-chip"><input type="checkbox" ${sel.workers.includes(w.id)?'checked':''} onchange="irrToggle(${i},'workers','${esc(w.id)}')">${esc(w.name||w.id)}</label>`).join(''):'<span class="note">Loading workers…</span>'}</div>
-     ${zbox}<button class="btn" style="width:auto;margin:8px 0 0" ${irr.sending?'disabled':''} onclick="irrAssign(${i})">${irr.sending?'Assigning…':'Assign irrigation'}</button>`:'';
+     ${zflag}${zbox}<button class="btn" style="width:auto;margin:8px 0 0" ${irr.sending?'disabled':''} onclick="irrAssign(${i})">${irr.sending?'Assigning…':'Assign irrigation'}</button>`:'';
   return `<div class="cal-item" style="--c:${c[1]}"><div class="kind">${c[0]} · irrigation ${it.seq} of ${it.of}</div><div class="nm">${esc(it.cropName)} <span style="font-weight:600;color:var(--ink-soft)">${esc(it.cohortId)}</span></div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0" title="Water depth, Kc, MAD and stage days follow the Active cohort and its verified DOB. The Plan sticker is for review only.">${bedStickers({shortfall:it.shortfall,plantingDate:it.plantingDate},it.cohortId)}</div>
     <div class="sb">Day ${it.dayAfterPlanting} after verified planting (${calFull(it.plantingDate)})${it.depthInches!=null?` · ${it.depthInches} in`:''}${it.reducedDepth?' · <b>reduced depth (pre-harvest dry-down)</b>':''}</div>
