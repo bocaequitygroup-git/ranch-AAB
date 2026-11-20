@@ -1499,7 +1499,7 @@ function ranchScreen(){
   const note=state.todayPending||!state.board.loaded?`<div class="demo-strip">${state.fromCache?'Showing saved data, updating\u2026':'Loading live bed and cohort data\u2026'}</div>`:(state.board.error?`<div class="demo-strip">Cohort board: ${esc(state.board.error)}</div>`:'');
   return `${IS_DEMO?'<div class="demo-strip">Demo mode with generated sample data.</div>':''}
   <div class="topbar"><div><div class="brand">Ngapori Ranch \u00b7 Production Area Layout</div><div class="sub">${esc(state.name||'')} \u00b7 ${esc(state.role||'')}</div></div>
-  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing\u2026':'\u21bb Refresh'}</button><button onclick="goBoard()">Daily Board</button><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div></div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing\u2026':'\u21bb Refresh'}</button><button onclick="goBoard()">Daily Board</button><button onclick="openZoneTrace()">Zone sign-off</button><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div></div>
   ${note}
   <div class="wrap"><div class="mapcol"><div class="mapscroll"><div class="rl-wrap">
     <div class="rl-top">${assignmentsButton()}<div class="seg"><button class="${all?'active':''}" onclick="rlBlock('ALL')">Master layout</button>${RL_BLOCKS.map(b=>`<button class="${R.block===b[0]?'active':''}" onclick="rlBlock('${b[0]}')">${b[0]}</button>`).join('')}</div>
@@ -2734,7 +2734,8 @@ function modalHTMLBase(){
   else if(ui.modal==='new-activity') inner=newActivityModal();
   else if(ui.modal==='activity-profile') inner=activityProfileModal();
   else if(ui.modal==='one-worker') inner=oneWorkerModal();
-  return `<div class="overlay" onclick="ovBackdropClick(this,event)"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  else if(ui.modal==='zone-trace') inner=zoneTraceModal();
+  return `<div class="overlay" onclick="ovBackdropClick(this,event)"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'||ui.modal==='zone-trace'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -7037,6 +7038,87 @@ function urgResultHTML(){
     <div class="row"><span>Short of ready beds</span><b>${s.short||0} wave(s)</b></div><div class="row"><span>${r.dryRun?'Shortfall cohorts to create':'Shortfall cohorts created'}</span><b>${r.dryRun?(s.cohortsToCreate||0):(s.created||0)}</b></div></div>`;
   const notes=(r.notes||[]).length?`<div class="note">${r.notes.map(esc).join('<br>')}</div>`:'';
   return bar+body+notes;
+}
+/* ================= ACT_013 zone-trace sign-off (manager queue) =================
+   Lists worker zone traces still waiting for sign-off (get-zone-trace-queue). Approve calls verify-zone-trace with a zone chosen
+   from the fixed IRR-Z01..IRR-Z07 list (no free text). The server never overwrites a zone already on file; that refusal is shown
+   here as a conflict. Reject calls reject-zone-trace with a written reason. Nothing here touches commissioning flags, the
+   ZONE_UNVERIFIED override log, or BED_MASTER directly. */
+const ZT_ZONES_=['IRR-Z01','IRR-Z02','IRR-Z03','IRR-Z04','IRR-Z05','IRR-Z06','IRR-Z07'];
+const ZT_={ loaded:false, loading:false, error:'', items:[], drafts:{} };
+function ztD_(id){ if(!ZT_.drafts[id]) ZT_.drafts[id]={zone:'',busy:false,err:'',conflict:'',rejecting:false,reason:''}; return ZT_.drafts[id]; }
+function ztDropItem_(id){ ZT_.items=ZT_.items.filter(x=>String(x.Trace_ID)!==String(id)); delete ZT_.drafts[id]; }
+async function openZoneTrace(){ openModal('zone-trace',{}); await ztLoad(); }
+async function ztLoad(){
+  ZT_.loading=true; ZT_.error=''; if(ui.modal==='zone-trace') render();
+  try{ const d=await apiCall('get-zone-trace-queue',{}); ZT_.items=Array.isArray(d)?d:[]; }
+  catch(e){ ZT_.error=e.message||'Could not load the zone-trace queue.'; }
+  ZT_.loading=false; ZT_.loaded=true;
+  if(ui.modal==='zone-trace') render();
+}
+function zoneTraceModal(){
+  const intro=`<p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Zone traces that workers recorded with ACT_013 wait here. Signing off sets that bed's irrigation zone, which releases the zone lock for that bed only. You choose the zone from the fixed list. A bed that already has a zone on file is never overwritten; that case is shown as a conflict. Rejecting closes a trace and changes nothing.</p>`;
+  let body;
+  if(ZT_.loading&&!ZT_.loaded) body=`<div class="note">Loading zone traces…</div>`;
+  else if(ZT_.error) body=`<div class="notice">${esc(ZT_.error)}</div>`;
+  else if(!ZT_.items.length) body=`<div class="empty">No zone traces are waiting for sign-off.</div>`;
+  else body=ZT_.items.map(ztCardHtml_).join('');
+  return `<h2 style="font-size:15px;">Irrigation zone sign-off</h2>${intro}
+  <div style="display:flex;gap:8px;margin-bottom:10px;"><button class="btn btn-outline" style="width:auto;" ${ZT_.loading?'disabled':''} onclick="ztLoad()">${ZT_.loading?'Refreshing…':'Refresh'}</button><button class="btn btn-ghost" style="width:auto;" onclick="closeModal()">Close</button></div>
+  ${body}`;
+}
+function ztCardHtml_(t){
+  const id=String(t.Trace_ID||''), d=ztD_(id), eid=esc(id), bed=String(t.Bed_ID||'');
+  const obs=String(t.Observed_Zone_Canonical||'').trim(), raw=String(t.Observed_Zone_Raw||'').trim();
+  const when=t.Timestamp?new Date(t.Timestamp).toLocaleString():'';
+  const mismatch=!!(d.zone&&obs&&d.zone!==obs);
+  let h=`<div class="card" style="margin-bottom:10px;">
+    <div style="font-weight:700;">${esc(bed)} <span class="sub">· cohort ${esc(t.Cohort_ID||'—')}</span></div>
+    <div class="sub">Worker ${esc(t.Worker_ID||'—')}${when?' · submitted '+esc(when):''}</div>
+    <div class="sub"><b>Worker recorded:</b> ${obs?esc(obs):(raw?'&ldquo;'+esc(raw)+'&rdquo; (not a recognized zone)':'nothing recognized')}</div>
+    ${t.Line_Notes?`<div class="sub"><b>Line / emitter notes:</b> ${esc(t.Line_Notes)}</div>`:''}`;
+  if(d.conflict) h+=`<div class="pw-box warn" style="margin-top:8px;"><div class="pw-t">Zone conflict: not signed off</div><div>${esc(d.conflict)}</div><div class="pw-why">Nothing was changed. Check the bed on site, then reject this trace if the recorded zone is wrong.</div></div>`;
+  if(!d.rejecting){
+    h+=`<label style="margin-top:8px;">Zone to sign off</label><select onchange="ztZoneSet_('${eid}',this.value)"><option value="">Choose a zone…</option>${ZT_ZONES_.map(z=>`<option value="${z}" ${d.zone===z?'selected':''}>${z}</option>`).join('')}</select>`;
+    if(mismatch) h+=`<div class="sub" style="color:var(--warn);margin-top:4px;">The worker recorded ${esc(obs)}. You are signing off ${esc(d.zone)}.</div>`;
+    if(d.err) h+=`<div class="notice" style="margin-top:6px;">${esc(d.err)}</div>`;
+    h+=`<div class="qbtns" style="margin-top:8px;"><button class="btn btn-primary" ${d.busy||!d.zone?'disabled':''} onclick="ztApprove('${eid}')">${d.busy?'Signing off…':'Approve and sign off'}</button><button class="btn btn-outline" ${d.busy?'disabled':''} onclick="ztRejectOpen('${eid}')">Reject</button></div>`;
+  } else {
+    h+=`<label style="margin-top:8px;">Why is this trace being rejected? (required)</label><textarea rows="2" maxlength="300" oninput="ztD_('${eid}').reason=this.value">${esc(d.reason)}</textarea>`;
+    if(d.err) h+=`<div class="notice" style="margin-top:6px;">${esc(d.err)}</div>`;
+    h+=`<div class="qbtns" style="margin-top:8px;"><button class="btn btn-primary" ${d.busy?'disabled':''} onclick="ztReject('${eid}')">${d.busy?'Rejecting…':'Confirm reject'}</button><button class="btn btn-ghost" ${d.busy?'disabled':''} onclick="ztRejectCancel('${eid}')">Cancel</button></div>`;
+  }
+  return h+`</div>`;
+}
+function ztZoneSet_(id,v){ const d=ztD_(id); d.zone=v; d.err=''; render(); }
+async function ztApprove(id){
+  const d=ztD_(id), t=ZT_.items.find(x=>String(x.Trace_ID)===String(id));
+  if(d.busy||!t) return;
+  if(ZT_ZONES_.indexOf(d.zone)<0){ d.err='Choose one of IRR-Z01 to IRR-Z07.'; render(); return; }
+  d.busy=true; d.err=''; d.conflict=''; render();
+  try{
+    await apiCall('verify-zone-trace',{traceId:id,zone:d.zone});
+    ztDropItem_(id);
+    toast('Bed '+(t.Bed_ID||'')+' signed off to '+d.zone+'.');
+  }catch(e){
+    d.busy=false;
+    if(e.code==='ALREADY_VERIFIED') d.conflict=e.message||'This bed already has a zone on file.';
+    else d.err=e.message||'Could not sign off this trace.';
+    render();
+  }
+}
+function ztRejectOpen(id){ const d=ztD_(id); d.rejecting=true; d.reason=''; d.err=''; render(); }
+function ztRejectCancel(id){ const d=ztD_(id); d.rejecting=false; d.reason=''; d.err=''; render(); }
+async function ztReject(id){
+  const d=ztD_(id), reason=String(d.reason||'').trim();
+  if(d.busy) return;
+  if(!reason){ d.err='Enter why this trace is being rejected.'; render(); return; }
+  d.busy=true; d.err=''; render();
+  try{
+    await apiCall('reject-zone-trace',{traceId:id,reason:reason});
+    ztDropItem_(id);
+    toast('Trace rejected. The bed zone was not changed.');
+  }catch(e){ d.busy=false; d.err=e.message||'Could not reject this trace.'; render(); }
 }
 function urgentModal(){
   const r=urg.res, canCreate=r&&r.dryRun&&r.ok&&r.summary&&r.summary.placed>0&&!urg.done&&(!r.summary.outOfWindow||urg.confirmOut);
