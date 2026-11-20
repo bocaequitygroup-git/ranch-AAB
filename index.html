@@ -567,6 +567,7 @@ const zoneOvAsk=f=>!!f&&['OVERRIDE_REASON_REQUIRED','OVERRIDE_LOG_FAILED'].inclu
 /* ZONE RECORD INCONSISTENT (server: ZONE_RECORD_INCONSISTENT): ACT_013 approval and BED_MASTER.Zone disagree, or the approval cannot be confirmed.
  * The bed is flagged and blocked. It NEVER gets a reason box or an override button. Only the not-approved state (ZONE_UNVERIFIED) is overridable. */
 const zoneFlagOf=f=>!!f&&String(f.errorCode||f.code||'')==='ZONE_RECORD_INCONSISTENT';
+const zoneShownInBox_=f=>zoneOvAsk(f)||zoneFlagOf(f);   /* these rows are explained by zoneOvBox, so the raw failure line is not repeated */
 function zoneFlagBox_(message,beds){
   return `<div class="pw-box warn"><div class="pw-t">Zone record inconsistent: not assignable</div><div>${esc(plainMsg_(message)||'This bed’s zone record does not agree with its ACT_013 approval.')}</div>${beds&&beds.length?`<div>Beds: ${esc(beds.join(', '))}</div>`:''}<div class="pw-why">No override is offered. The bed’s ACT_013 approval and its recorded zone must agree before it can be assigned.</div></div>`;
 }
@@ -1017,20 +1018,45 @@ async function mgrOvRetry(kind){
   return kind==='dp' ? dpSubmit() : submitMultiAssign();
 }
 function zoneOvKey(kind){ try{ if(kind==='dp') return 'bed:'+((ui.dp&&ui.dp.bedId)||''); if(kind==='ma') return 'bed:'+(maD().bedId||''); }catch(e){} return kind==='ow'?'ow':''; }
+/* Plain-language zone box for a manager. Two routes, in order of preference:
+ *  1. Confirm the zone first: send a zone check (ACT_013) to a worker; the manager approves it in Zone sign-off, then ACT_031 assigns normally.
+ *  2. Assign now without a confirmed zone: needs a written reason, logged, bed stays unverified, zone stays blank. */
+function zoneIrrName_(n){ return /^ACT_031\b/i.test(String(n||'').trim())||/^Irrigation$/i.test(String(n||'').replace(/^ACT_\d+:\s*/,'').trim()); }
+function zoneCheckAct_(){ return (maList()||[]).find(a=>String(a.id||'').toUpperCase()==='ACT_013'||/^ACT_013\b/i.test(String(a.name||'')))||null; }
+function zoneSwapToCheck_(){
+  const d=maD(), zc=zoneCheckAct_();
+  if(!zc){ toast('The zone check (ACT_013) is not available for this bed. Assign it from the bed panel.'); return; }
+  d.acts.filter(zoneIrrName_).forEach(n=>{ const i=d.acts.indexOf(n); if(i>=0) d.acts.splice(i,1); delete d.map[n]; });
+  if(!d.acts.includes(zc.name)){ d.acts.push(zc.name); d.map[zc.name]=d.map[zc.name]||[]; }
+  d.result=null; maAutoDate(); maRefresh();
+  toast('Zone check added. The irrigation task was removed until the zone is confirmed. Choose a worker for the zone check, then assign.',6000);
+}
+function zoneBedOf_(kind,rows){
+  const ids=[...new Set(rows.map(f=>f.bedId).filter(Boolean))];
+  if(ids.length) return ids.join(', ');
+  try{ if(kind==='ma') return maD().bedId||''; if(kind==='dp') return (ui.dp&&ui.dp.bedId)||''; }catch(e){}
+  return '';
+}
 function zoneOvBox(failed,kind){
   const inc=(failed||[]).filter(zoneFlagOf);
   if(inc.length) return zoneFlagBox_(inc[0].message,inc.map(f=>f.bedId).filter(Boolean));
   const rows=(failed||[]).filter(zoneOvAsk); if(!rows.length) return '';
   const key=zoneOvKey(kind); if(!key||key==='bed:') return '';
   const logFail=rows.every(f=>f.errorCode==='OVERRIDE_LOG_FAILED');
-  const beds=kind==='ow'?[...new Set(rows.map(f=>f.bedId).filter(Boolean))]:[];
-  const msg=kind==='ow'?'These beds have no verified irrigation zone yet (pipe tracing pending).':(plainMsg_(rows[0].message)||'This bed has no verified irrigation zone yet (pipe tracing pending).');
-  const head=`<div class="pw-t">${logFail?'Zone override was not recorded':'Irrigation zone not verified'}</div><div>${esc(msg)}</div>${beds.length?`<div>Beds: ${esc(beds.join(', '))}</div>`:''}`;
-  if(!zoneOvCan()) return `<div class="pw-box warn">${head}<div class="pw-why">Only a manager or founder can assign irrigation before the zone is verified.</div></div>`;
-  return `<div class="pw-box warn">${head}
-    <div class="pw-why">A manager or founder can assign it anyway. Write why; the override is logged under your name and the bed's zone stays blank.</div>
-    <textarea placeholder="Reason for assigning irrigation before the zone is verified (required)" maxlength="300" oninput="zoneOvSet('${esc(key)}',this.value)">${esc((ui.zoneReasons||{})[key]||'')}</textarea>
-    <button class="btn btn-danger" onclick="zoneOvRetry('${esc(key)}','${esc(kind||'')}')">Assign anyway with reason and retry</button></div>`;
+  const bed=zoneBedOf_(kind,rows);
+  const title=logFail?'Override was not recorded, so nothing was assigned':`Irrigation can’t be assigned to ${bed||'this bed'} yet`;
+  const why='The irrigation zone is the valve section that feeds this bed. Until it is confirmed, the zone-level shift, pressure and run time for this bed are not set, so the system does not assign irrigation. Nothing was guessed from the crop or block, and nothing has been changed.';
+  if(!zoneOvCan()) return `<div class="pw-box warn"><div class="pw-t">${esc(title)}</div><div class="pw-why">${esc(why)}</div><div class="pw-why">Only a manager or founder can assign irrigation before the zone is confirmed. Ask a manager to add a zone check (ACT_013) for this bed.</div></div>`;
+  const canSwap=kind==='ma'&&!!zoneCheckAct_();
+  const cur=(ui.zoneReasons||{})[key]||'';
+  return `<div class="pw-box warn"><div class="pw-t">${esc(title)}</div><div class="pw-why">${esc(why)}</div>
+    <div style="margin-top:10px;"><b>Option 1 (recommended): confirm the zone first.</b></div>
+    <div class="pw-why">Send a zone check (ACT_013) to a worker on this bed. They start it in the field app, trace the line, and record the zone. You approve it under Zone sign-off in the top bar. Then assign irrigation normally.</div>
+    ${canSwap?`<button class="btn btn-primary" style="width:auto;margin:6px 0 0;" onclick="zoneSwapToCheck_()">Use a zone check (ACT_013) instead</button>`:''}
+    <div style="margin-top:12px;"><b>Option 2: assign now without a confirmed zone.</b></div>
+    <div class="pw-why">Needs a written reason. It is logged under your name, the bed stays unverified, and its zone stays blank.</div>
+    <textarea placeholder="Why irrigation has to start before the zone is confirmed (required)" maxlength="300" oninput="zoneOvSet('${esc(key)}',this.value)">${esc(cur)}</textarea>
+    <button class="btn btn-danger" onclick="zoneOvRetry('${esc(key)}','${esc(kind||'')}')">Assign now with reason</button></div>`;
 }
 async function zoneOvRetry(key,kind){
   if(!zoneOvGet(key)){ toast('Enter a reason to assign a bed whose zone is not verified.'); return; }
@@ -2189,7 +2215,7 @@ function dpInnerLegacy(b,sess){
       <div style="flex:1;min-width:0;"><b>${esc(r.name)}</b>${r.id?` (${esc(r.id)})`:''}${r.desc?`<span class="d">${esc(r.desc)}</span>`:''}${crew}${on&&isFertAct(r.name)?fertBox('dp',r.name):''}</div><span class="st">${dpStChip(r.st)}</span></div>`; }).join('')).join('');
   let total=0,dup=0,missing=0,fm=0; d.acts.forEach(a=>{ const cr=dpCrew(a); if(!cr.length) missing++; if(isFertAct(a)&&!fertDone(fertOf(d,a))) fm++; cr.forEach(w=>{ total++; if(open[String(w).toUpperCase()+'|'+a]) dup++; }); });
   const fresh=total-dup, ok=d.acts.length&&!missing&&!fm&&fresh>0&&!d.busy;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} dispatched.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||f.errorCode)}</div>`).join('')}${pwWarnHTML(r.failed,'dp')}</div>`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} dispatched.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.filter(f=>!zoneShownInBox_(f)).map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||f.errorCode)}</div>`).join('')}${pwWarnHTML(r.failed,'dp')}</div>`;
   const ph=b.postHarvest, remaining=ph?(ph.steps||[]).filter(x=>x.status!=='COMPLETE').length:0;
   const ovScope=ph?(ph.bedLevel?'BED:'+b.id:b.cohortId):''; if(ph) PH_STEPS[ovScope]=ph;   /* the override modal lists the remaining steps from here */
   const ovBlock=ph?`<div class="dp-box"><div class="t"><span>Manager override</span></div>
@@ -3088,7 +3114,7 @@ function maFootHTML(){
     : c.missing?`<span style="color:var(--warn);font-weight:600;">${c.missing} selected activit${c.missing===1?'y has':'ies have'} no worker yet.</span> Choose a worker for each, or remove it.`
     : c.fertMissing?`<span style="color:var(--warn);font-weight:600;">${c.fertMissing} fertilizer task${c.fertMissing===1?'':'s'} still need type, brand and quantity.</span> Fill in the green box on each.`
     : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}${pwWarnHTML(r.failed,'ma')}</div>`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.filter(f=>!zoneShownInBox_(f)).map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}${pwWarnHTML(r.failed,'ma')}</div>`;
   const dsHold=dsPreBlocked(d.bedId,d.acts);
   const ok=d.acts.length&&!c.missing&&!c.fertMissing&&c.fresh>0&&!d.busy&&!dsHold;
   const dsNote=dsHold?`<div style="font-size:12px;color:var(--warn);font-weight:600;margin:4px 0;">Direct Seeding is on hold: Pre-Seed Tillage, Bed Shaping &amp; Crown Firming and Pre-Plant Moisture Check must be verified first (see the box under Direct Seeding), or write an override reason.</div>`:'';
@@ -3278,7 +3304,7 @@ function owFootHTML(){
   const sum=!d.workerId||!d.activity?`<span style="color:var(--ink-soft);">Pick a worker and an activity.</span>`
     : !n?`<span style="color:var(--ink-soft);">Tick the beds this worker should do.</span>`
     : `<b>${esc(maWName(d.workerId))}</b> \u2192 <b>${esc(actLabel(d.activity))}</b> on <b>${n}</b> bed${n===1?'':'s'}.${spread}`;
-  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>\u2713 ${r.created.length} bed${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} already open (skipped).</div>`:''}${r.failed.map(f=>`<div class="bad">\u2717 ${esc(f.bedId)}: ${esc(propErrText(f)||f.errorCode||'not assigned')}</div>`).join('')}${zoneOvBox(r.failed,'ow')}</div>`;
+  const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>\u2713 ${r.created.length} bed${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} already open (skipped).</div>`:''}${r.failed.filter(f=>!zoneShownInBox_(f)).map(f=>`<div class="bad">\u2717 ${esc(f.bedId)}: ${esc(propErrText(f)||f.errorCode||'not assigned')}</div>`).join('')}${zoneOvBox(r.failed,'ow')}</div>`;
   return `<div class="ma-sum">${sum}</div>${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitOneWorker()">${d.busy?'<span class="vp-spin"></span>Assigning\u2026':(ok?`Assign ${n} Bed${n===1?'':'s'}`:'Assign')}</button><button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
     <div class="note" style="margin:6px 0 0;">Each task shows as Pending until the worker taps Start. Server rules still apply to every bed.</div>`;
