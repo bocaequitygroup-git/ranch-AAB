@@ -290,6 +290,13 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .login-body input:focus{outline:2px solid var(--forest);outline-offset:1px;}
 .login-note{color:var(--ink-soft);font-size:13px;margin:0 0 16px;line-height:1.45;}
 .topbar button:disabled{opacity:.55;cursor:default;}
+.topbar button.nav-on{background:#fff;color:var(--forest);cursor:default;}
+.topbar button.zt-alert{background:#B3261E;color:#fff;box-shadow:0 0 0 0 rgba(179,38,30,.7);animation:ztPulse 1.6s infinite;}
+.zt-badge{display:inline-block;min-width:18px;padding:1px 6px;margin-left:6px;border-radius:99px;background:#fff;color:#B3261E;font-size:11.5px;font-weight:800;text-align:center;}
+.zt-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#B3261E;color:#fff;padding:9px 16px;font-size:13px;font-weight:600;}
+.zt-banner button{background:#fff;border:none;color:#B3261E;font-family:inherit;font-size:12.5px;font-weight:800;cursor:pointer;padding:6px 12px;border-radius:8px;}
+@keyframes ztPulse{0%{box-shadow:0 0 0 0 rgba(179,38,30,.7);}70%{box-shadow:0 0 0 9px rgba(179,38,30,0);}100%{box-shadow:0 0 0 0 rgba(179,38,30,0);}}
+@media (prefers-reduced-motion:reduce){.topbar button.zt-alert{animation:none;}}
 .error{background:#F7DEDB;color:var(--danger);padding:10px 13px;border-radius:9px;font-size:12.5px;font-weight:600;margin-bottom:12px;}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;display:flex;align-items:center;justify-content:center;}
 .sheet{background:var(--paper);width:100%;max-width:420px;border-radius:14px;padding:18px;max-height:86vh;overflow-y:auto;margin:16px;}
@@ -1532,8 +1539,7 @@ function ranchScreen(){
   const legend=Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('')+`<span><span class="sw" style="background:${PROPOSED_FILL}"></span>PROPOSED</span><span><span class="sw" style="background:${POST_HARVEST_FILL}"></span>POST-HARVEST (not started)</span><span><span class="sw" style="background:${POST_HARVEST_ACTIVE_FILL}"></span>POST-HARVEST (work started)</span><span><span class="sw" style="background:${UNVERIFIED_FILL}"></span>NOT VERIFIED</span><span><span class="sw" style="background:#EEE;border:1px solid var(--line)"></span>AVAILABLE</span><span><span class="sw" style="border:1px dashed var(--ink-soft)"></span>NO RECORD LOADED</span>`;
   const note=state.todayPending||!state.board.loaded?`<div class="demo-strip">${state.fromCache?'Showing saved data, updating\u2026':'Loading live bed and cohort data\u2026'}</div>`:(state.board.error?`<div class="demo-strip">Cohort board: ${esc(state.board.error)}</div>`:'');
   return `${IS_DEMO?'<div class="demo-strip">Demo mode with generated sample data.</div>':''}
-  <div class="topbar"><div><div class="brand">Ngapori Ranch \u00b7 Production Area Layout</div><div class="sub">${esc(state.name||'')} \u00b7 ${esc(state.role||'')}</div></div>
-  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()">${ui.loading?'Refreshing\u2026':'\u21bb Refresh'}</button><button onclick="goBoard()">Daily Board</button><button onclick="openZoneTrace()">Zone sign-off</button><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div></div>
+  ${mgrTopbar_('Ngapori Ranch \u00b7 Production Area Layout', `${esc(state.name||'')} \u00b7 ${esc(state.role||'')}`)}
   ${note}
   <div class="wrap"><div class="mapcol"><div class="mapscroll"><div class="rl-wrap">
     <div class="rl-top">${assignmentsButton()}<div class="seg"><button class="${all?'active':''}" onclick="rlBlock('ALL')">Master layout</button>${RL_BLOCKS.map(b=>`<button class="${R.block===b[0]?'active':''}" onclick="rlBlock('${b[0]}')">${b[0]}</button>`).join('')}</div>
@@ -1576,10 +1582,7 @@ function loginScreen(){
 function boardScreen(){
   return `
   ${IS_DEMO?`<div class="demo-strip">Demo mode with generated sample data. Set WEB_APP_URL to connect to your live backend.</div>`:''}
-  <div class="topbar">
-    <div><div class="brand">Activity Assignment Board</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button ${ui.loading?'disabled':''} onclick="loadToday()" title="Reload live data">${ui.loading?'Refreshing…':'↻ Refresh'}</button><button onclick="goRanch()">Ranch Layout</button><button onclick="goPlanning()">Season Planning</button><button onclick="goPlanning();setPMode('operation')">Operation Planner</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
-  </div>
+  ${mgrTopbar_('Activity Assignment Board', `${esc(state.name||'')} · ${esc(state.role||'')}`)}
   <div class="wrap">
     <div class="mapcol">
       <div class="toolbar">
@@ -4150,11 +4153,10 @@ function laborBody(){
 /* Full-page Labor Hours: top bar with back / reload / log out, content uses the whole width. */
 function laborScreen(){
   const back=ui.laborFrom==='planning'?'Season Planning':'Daily board';
-  return `<div class="topbar">
-    <div><div class="brand">Labor Hours</div><div class="sub">${esc(state.name||'')} \u00b7 ${esc(state.role||'')}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><span class="conn" id="conn" data-s="idle"></span><button onclick="lbBack()">\u2190 ${back}</button><button onclick="lbReload()">Reload</button><button onclick="logout()">Log out</button></div>
-  </div>
-  <div style="flex:1;padding:16px 20px 40px;width:100%;box-sizing:border-box;">${ui.lab?laborBody():''}</div>`;
+  return `${mgrTopbar_('Labor Hours', `${esc(state.name||'')} \u00b7 ${esc(state.role||'')}`)}
+  <div style="flex:1;padding:16px 20px 40px;width:100%;box-sizing:border-box;">${ui.lab?laborBody():''}</div>
+  ${ui.toast?`<div class="toast">${esc(ui.toast)}</div>`:''}
+  ${modalHTML()}`;
 }
 const lbCsvCell=v=>{ let s=String(v==null?'':v); if(/^[=+\-@\t\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
 function lbCsv(){
@@ -7087,8 +7089,70 @@ function urgResultHTML(){
    ZONE_UNVERIFIED override log, or BED_MASTER directly. */
 const ZT_ZONES_=['IRR-Z01','IRR-Z02','IRR-Z03','IRR-Z04','IRR-Z05','IRR-Z06','IRR-Z07'];
 const ZT_={ loaded:false, loading:false, error:'', items:[], drafts:{} };
-function ztD_(id){ if(!ZT_.drafts[id]) ZT_.drafts[id]={zone:'',busy:false,err:'',conflict:'',rejecting:false,reason:''}; return ZT_.drafts[id]; }
-function ztDropItem_(id){ ZT_.items=ZT_.items.filter(x=>String(x.Trace_ID)!==String(id)); delete ZT_.drafts[id]; }
+/* The zone dropdown starts on the zone the worker recorded (Observed_Zone_Canonical), so the manager confirms instead of re-typing it.
+   Only a recognized IRR-Z01..IRR-Z07 value is preselected; an unrecognized reading leaves it blank for the manager to choose.
+   This runs once per trace: after that the manager's own choice (including "Choose a zone...") is kept. */
+function ztD_(id){
+  if(!ZT_.drafts[id]){
+    const t=ZT_.items.find(x=>String(x.Trace_ID)===String(id));
+    const obs=t?String(t.Observed_Zone_Canonical||'').trim().toUpperCase():'';
+    ZT_.drafts[id]={zone:ZT_ZONES_.indexOf(obs)>=0?obs:'',busy:false,err:'',conflict:'',rejecting:false,reason:''};
+  }
+  return ZT_.drafts[id];
+}
+function ztDropItem_(id){ ZT_.items=ZT_.items.filter(x=>String(x.Trace_ID)!==String(id)); delete ZT_.drafts[id]; document.title=(ZT_.items.length?'('+ZT_.items.length+') ':'')+(typeof ZT_TITLE0_!=='undefined'?ZT_TITLE0_:document.title); }
+/* ================= SHARED MANAGER TOP BAR =================
+   One menu for every manager screen (Ranch Layout, Daily Board, Season Planning, Operation Planner, Labor hours) so no screen is
+   missing a destination. The current screen is highlighted. Zone sign-off carries a live count of ACT_013 traces waiting for the
+   manager and turns red; a banner repeats it under the bar, because an unsigned zone holds irrigation on that bed. */
+function mgrCurrent_(){ return ui.screen==='planning' ? (ui.pMode==='operation'?'operation':'planning') : ui.screen; }
+function mgrRefreshBtn_(){
+  const s=ui.screen;
+  if(s==='planning') return `<button onclick="refreshPlanning()" title="Reload this screen's data">↻ Refresh</button>`;
+  if(s==='labor') return `<button onclick="lbReload()" title="Reload labor hours">↻ Refresh</button>`;
+  return `<button ${ui.loading?'disabled':''} onclick="loadToday()" title="Reload live data">${ui.loading?'Refreshing…':'↻ Refresh'}</button>`;
+}
+function ztCount_(){ return ZT_.loaded?ZT_.items.length:0; }
+function mgrTopbar_(brand, sub, extra){
+  const cur=mgrCurrent_(), n=ztCount_();
+  const nav=[['ranch','Ranch Layout','goRanch()'],['board','Daily Board','goBoard()'],['zone','Zone sign-off','openZoneTrace()'],
+    ['planning','Season Planning','goPlanning()'],['operation','Operation Planner',"goPlanning();setPMode('operation')"],
+    ['team','Team','openTeam()'],['labor','Labor hours','openLabor()']];
+  const btns=nav.map(function(x){
+    const on=x[0]===cur, z=x[0]==='zone';
+    return `<button class="${on?'nav-on':''}${z&&n?' zt-alert':''}" ${on?'aria-current="page"':''} onclick="${x[2]}"${z?` title="${n?n+' zone trace(s) waiting for your sign-off':'No zone traces waiting'}"`:''}>${x[1]}${z&&n?`<span class="zt-badge">${n}</span>`:''}</button>`;
+  }).join('');
+  return `<div class="topbar"><div><div class="brand">${brand}</div><div class="sub">${sub}</div></div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span>${mgrRefreshBtn_()}${extra||''}${btns}<button onclick="logout()">Log out</button></div></div>${ztBanner_()}`;
+}
+function ztBanner_(){
+  const n=ztCount_(); if(!n||ui.modal==='zone-trace') return '';
+  return `<div class="zt-banner" role="alert"><span>⚠ ${n} irrigation zone trace${n>1?'s are':' is'} waiting for your sign-off. Irrigation assignment on ${n>1?'those beds is':'that bed is'} held until you approve.</span><button onclick="openZoneTrace()">Review now</button></div>`;
+}
+/* Background check of the sign-off queue (read-only get-zone-trace-queue). Updates the badge / banner / tab title, and shows a
+   toast when a NEW trace arrives. Repaints only when the queue changed and the manager is not typing or mid-action. */
+const ZT_POLL_MS=15000, ZT_TITLE0_=document.title;
+function ztPoll_(){
+  if(!state.token||ui.screen==='login'||ZT_.loading||ZT_.polling) return;
+  ZT_.polling=true; ZT_.last=Date.now();
+  apiCall('get-zone-trace-queue',{}).then(function(d){
+    const list=Array.isArray(d)?d:[], oldIds=ZT_.items.map(function(t){return String(t.Trace_ID);}), first=!ZT_.loaded;
+    const fresh=list.filter(function(t){return oldIds.indexOf(String(t.Trace_ID))<0;});
+    const changed=first||fresh.length>0||list.length!==ZT_.items.length;
+    ZT_.items=list; ZT_.loaded=true;
+    document.title=(list.length?'('+list.length+') ':'')+ZT_TITLE0_;
+    if(!changed) return;
+    if(!first&&fresh.length) toast('New zone trace waiting for sign-off: bed '+(fresh[0].Bed_ID||'')+(fresh.length>1?' and '+(fresh.length-1)+' more':'')+'.',9000);
+    else if(!ZT_.anyBusy_()){ render(); }
+  }).catch(function(){}).then(function(){ ZT_.polling=false; });
+}
+ZT_.anyBusy_=function(){
+  const a=document.activeElement, typing=a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+  const busy=Object.keys(ZT_.drafts).some(function(k){return ZT_.drafts[k].busy;});
+  return typing||busy||(ui.modal&&ui.modal!=='zone-trace')||ui.loading;
+};
+setInterval(function(){ if(document.visibilityState==='hidden') return; if(Date.now()-(ZT_.last||0)>=(ZT_.loaded?ZT_POLL_MS:0)) ztPoll_(); },3000);
+document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible') ztPoll_(); });
 async function openZoneTrace(){ openModal('zone-trace',{}); await ztLoad(); }
 async function ztLoad(){
   ZT_.loading=true; ZT_.error=''; if(ui.modal==='zone-trace') render();
@@ -7098,7 +7162,7 @@ async function ztLoad(){
   if(ui.modal==='zone-trace') render();
 }
 function zoneTraceModal(){
-  const intro=`<p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Zone traces that workers recorded with ACT_013 wait here. Signing off sets that bed's irrigation zone, which releases the zone lock for that bed only. You choose the zone from the fixed list. A bed that already has a zone on file is never overwritten; that case is shown as a conflict. Rejecting closes a trace and changes nothing.</p>`;
+  const intro=`<p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Zone traces that workers recorded with ACT_013 wait here. Signing off sets that bed's irrigation zone, which releases the zone lock for that bed only. The zone the worker recorded is already selected; change it only if you disagree, and it must be one of the fixed zones. A bed that already has a zone on file is never overwritten; that case is shown as a conflict. Rejecting closes a trace and changes nothing.</p>`;
   let body;
   if(ZT_.loading&&!ZT_.loaded) body=`<div class="note">Loading zone traces…</div>`;
   else if(ZT_.error) body=`<div class="notice">${esc(ZT_.error)}</div>`;
@@ -7120,7 +7184,7 @@ function ztCardHtml_(t){
     ${t.Line_Notes?`<div class="sub"><b>Line / emitter notes:</b> ${esc(t.Line_Notes)}</div>`:''}`;
   if(d.conflict) h+=`<div class="pw-box warn" style="margin-top:8px;"><div class="pw-t">Zone conflict: not signed off</div><div>${esc(d.conflict)}</div><div class="pw-why">Nothing was changed. Check the bed on site, then reject this trace if the recorded zone is wrong.</div></div>`;
   if(!d.rejecting){
-    h+=`<label style="margin-top:8px;">Zone to sign off</label><select onchange="ztZoneSet_('${eid}',this.value)"><option value="">Choose a zone…</option>${ZT_ZONES_.map(z=>`<option value="${z}" ${d.zone===z?'selected':''}>${z}</option>`).join('')}</select>`;
+    h+=`<label style="margin-top:8px;">Zone to sign off${d.zone&&d.zone===obs?' <span class="sub">(as recorded by the worker)</span>':''}</label><select onchange="ztZoneSet_('${eid}',this.value)"><option value="">Choose a zone…</option>${ZT_ZONES_.map(z=>`<option value="${z}" ${d.zone===z?'selected':''}>${z}</option>`).join('')}</select>`;
     if(mismatch) h+=`<div class="sub" style="color:var(--warn);margin-top:4px;">The worker recorded ${esc(obs)}. You are signing off ${esc(d.zone)}.</div>`;
     if(d.err) h+=`<div class="notice" style="margin-top:6px;">${esc(d.err)}</div>`;
     h+=`<div class="qbtns" style="margin-top:8px;"><button class="btn btn-primary" ${d.busy||!d.zone?'disabled':''} onclick="ztApprove('${eid}')">${d.busy?'Signing off…':'Approve and sign off'}</button><button class="btn btn-outline" ${d.busy?'disabled':''} onclick="ztRejectOpen('${eid}')">Reject</button></div>`;
@@ -7143,7 +7207,7 @@ async function ztApprove(id){
     toast('Bed '+(t.Bed_ID||'')+' signed off to '+d.zone+'.');
   }catch(e){
     d.busy=false;
-    if(e.code==='ALREADY_VERIFIED') d.conflict=e.message||'This bed already has a zone on file.';
+    if(e.code==='ALREADY_VERIFIED'||e.code==='ZONE_CONFLICT_WITH_RECORD') d.conflict=e.message||'This bed already has a zone on file.';
     else d.err=e.message||'Could not sign off this trace.';
     render();
   }
@@ -7525,10 +7589,7 @@ function planningScreen(){
   if(ui.pMode==='postharvest') ensureCoverLoaded();
   if(ui.pMode==='assigncohort') ensureAcLoaded();
   if(ui.pMode==='rotation'||ui.pMode==='infra') ensureRotationLoaded();
-  return `<div class="topbar">
-    <div><div class="brand">Season Planning</div><div class="sub">${esc(state.name||'')} · ${esc(state.role||'')} · Season ${ui.pYear}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;"><button onclick="goBoard()">← Daily board</button><button onclick="refreshPlanning()" title="Reload this screen's data">↻ Refresh</button><button onclick="openUrgent()" style="background:#B4231A;color:#fff;border-color:#B4231A;">+ Shortfall crop</button><button onclick="openTeam()">Team</button><button onclick="openLabor()">Labor hours</button><button onclick="logout()">Log out</button></div>
-  </div>
+  return `${mgrTopbar_('Season Planning', `${esc(state.name||'')} · ${esc(state.role||'')} · Season ${ui.pYear}`, `<button onclick="openUrgent()" style="background:#B4231A;color:#fff;border-color:#B4231A;">+ Shortfall crop</button>`)}
   ${planTabStrip()}
   <div class="toolbar">${planSubViews()}${planToolbarControls()}</div>
   ${mockNotice()}
