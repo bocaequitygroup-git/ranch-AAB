@@ -1609,7 +1609,7 @@ function boardScreen(){
 }
 
 function pendingAssignments(){ const c=state.aq.counts||{}; return (c.proposed||0)+(c.exceptions||0); }
-function assignmentsButton(){ const n=pendingAssignments(); return `<button class="btn btn-primary btn-cta" style="width:auto;margin:0;" onclick="openQueue()">Assignments${n?` (${n})`:''}</button>`; }
+function assignmentsButton(){ const n=pendingAssignments(); return `<button class="btn btn-primary btn-cta" style="width:auto;margin:0;" onclick="openQueue()">Assignments${n?` (${n})`:''}</button>`+reviewButton(); }
 function legendHTML(){
   if(ui.overlay==='queue') return `<span><span class="sw sw-proposed"></span>PROPOSED (awaiting approval)</span>` + Object.entries(QUEUE_COLOR).filter(([k])=>k!=='NONE').map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace('_',' ')}</span>`).join('');
   return `<span><span class="sw sw-avail"></span>AVAILABLE</span><span><span class="sw" style="background:#E4E0EE;border:1px solid var(--line);"></span>NOT VERIFIED</span><span><span class="sw sw-proposed"></span>PROPOSED (awaiting approval)</span>` + Object.entries(STAGE_COLOR).map(([k,c])=>`<span><span class="sw" style="background:${c}"></span>${k.replace(/_/g,' ')}</span>`).join('') + `<span><span class="sw" style="background:var(--danger);border-radius:50%;"></span>Exception</span><span><span class="sw" style="background:var(--ok);border-radius:50%;"></span>Harvest ready</span>`;
@@ -6193,7 +6193,7 @@ function bbPanelHTML(){
         <div class="row"><span>Crop</span><span>${esc(cropName)}${b&&b.shortfall?' <span class="urg-badge">SHORTFALL CROP</span>':''}</span></div>${kv('Cohort',cohort)}
         ${b?`<div class="row"><span>Crop stage</span><span>${chip(String(b.currentStage||'\u2014').replace(/_/g,' '))}</span></div>
         <div class="row"><span>Cohort status</span><span>${chip(COHORT_STATUS_LABEL[cs]||cs||'\u2014')}</span></div>
-        ${kv('Planted',b.plantingDate)}${b.plannedDob?kv('DOB (planned)',b.plannedDob):''}${kv('Harvest window',b.harvestWindow)}`:''}
+        ${kv('Planted',b.plantingDate)}${b.plannedDob?kv('DOB (planned)',b.plannedDob):''}${kv('Harvest window',b.harvestWindow)}${bedMethodRow(b)}`:''}
         ${lastRows}</div>`;
     } else {
       cohortCard=`<div class="card">
@@ -6423,7 +6423,23 @@ function rbView(tab,rows){
   return { all, f, pages, p, rows:f.slice(p*RB_PAGE,(p+1)*RB_PAGE) };
 }
 function rbResetView(){ rb.page={multi:0,single:0,history:0}; rb.sel={}; rb.selV={}; }
-function rbTab(t){ rb.tab=t; rbResetView(); render(); rbLoad(false); }
+function rbTab(t){ rb.tab=t; rbResetView(); render(); rbLoad(false); if(t==='zone') ztEnsureReview_(); }
+/* ACT_013 zone traces inside Manager review: pending ones are processed here (same approve / reject as Zone sign-off), reviewed ones list below. */
+async function ztLoadHist_(){
+  if(ZT_.hLoading) return; ZT_.hLoading=true; render();
+  try{ const d=await apiCall('get-zone-trace-history',{}); ZT_.hist=Array.isArray(d)?d:[]; ZT_.hLoaded=true; }catch(e){ ZT_.hErr=e.message||'Could not load reviewed zone traces.'; ZT_.hLoaded=true; }
+  ZT_.hLoading=false; render();
+}
+function ztEnsureReview_(){ if(!ZT_.loaded&&!ZT_.loading) ztLoad(); if(!ZT_.hLoaded&&!ZT_.hLoading) setTimeout(ztLoadHist_,0); }
+function rbZoneBody(){
+  if(!ZT_.hLoaded&&!ZT_.hLoading) setTimeout(ztLoadHist_,0);
+  const items=ZT_.items.filter(t=>!rb.fBlock||pvBlockOf(String(t.Bed_ID||''))===rb.fBlock);
+  const pend=ZT_.loading&&!ZT_.loaded?'<div class="note">Loading zone traces\u2026</div>':ZT_.error?`<div class="notice">${esc(ZT_.error)}</div>`
+    :items.length?items.map(ztCardHtml_).join(''):'<div class="empty" style="padding:10px 0;">No zone traces are waiting for sign-off.</div>';
+  const hist=ZT_.hErr?`<div class="notice">${esc(ZT_.hErr)}</div>`:ztHistHtml_();
+  return `<h3 style="font-size:13px;margin:6px 0;">Waiting for sign-off (${items.length})</h3>${pend}
+    <h3 style="font-size:13px;margin:14px 0 6px;">Reviewed zone traces</h3>${hist}`;
+}
 function rbSyncBlock(k){ if(k&&PLAN_BLOCKS.includes(k)&&bb.sel!==k){ bb.sel=k; bb.dry=null; bb.res=null; bb.confirm=false; } }
 function rbSetF(k,v,set){ rb[k]=set?v:(rb[k]===v?'':v); if(k==='fBlock') rbSyncBlock(rb.fBlock); rbResetView(); render(); }
 function rbSetDate(k,v){ rb[k]=v||''; rbResetView(); render(); rbLoad(false); }
@@ -6525,13 +6541,14 @@ function rbPanel(){
   if(IS_DEMO||rb.hide) return '';
   const d=rb.data;
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
-  const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>!r.pending).length, total=pend('multi')+pend('single');
-  const v=rbView(rb.tab,rows);
-  const tabs=[['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['history','History & audit',nHist,'chip-neutral']];
+  const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>!r.pending).length, nZone=ztCount_(), total=pend('multi')+pend('single')+nZone;
+  const v=rbView(rb.tab==='zone'?'single':rb.tab,rows);
+  const tabs=[['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['zone','Zone traces (ACT_013)',nZone,'chip-warn'],['history','History & audit',nHist,'chip-neutral']];
   const blurb={ multi:"Each worker's finished portion is checked as they finish; workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.",
     single:'Routine work done by one worker. Checking only logs your review; it never changes a bed, cohort, schedule or assignment.',
+    zone:'Physical zone traces recorded by workers with ACT_013. Approve to set the bed\'s irrigation zone (it must be IRR-Z01 to IRR-Z07, and a zone already on file is never overwritten), or reject with a reason. Every decision stays in the reviewed list below.',
     history:'Every checked and verified item, up to '+RB_HISTORY_DAYS+' days back (the most recent '+200+' are loaded). Loaded only while this tab is open.' }[rb.tab]
-    +(rb.tab==='history'?'':(rb.dFrom||rb.dTo?' Showing the dates you picked.':' Showing what is waiting plus work checked in the last '+RB_ACTIVE_DAYS+' days; pick a date range to look further back.'))
+    +(rb.tab==='history'||rb.tab==='zone'?'':(rb.dFrom||rb.dTo?' Showing the dates you picked.':' Showing what is waiting plus work checked in the last '+RB_ACTIVE_DAYS+' days; pick a date range to look further back.'))
     +(rb.fBlock?' Block filter: '+(BLOCK_LABELS[rb.fBlock]||rb.fBlock)+' (change it with the block list on the left).':'');
   const histWait=rbWantDays()>rb.loadedDays;
   const empty=histWait?'Loading history\u2026':v.all.length?'No items match the filters. <button class="dc-mini" onclick="rbClearF()">Clear filters</button>'
@@ -6543,7 +6560,7 @@ function rbPanel(){
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
     <div class="rb-tabs" role="tablist">${tabs.map(t=>`<button role="tab" aria-selected="${rb.tab===t[0]}" class="${rb.tab===t[0]?'on':''}" onclick="rbTab('${t[0]}')">${esc(t[1])}${t[2]?`<span class="chip ${t[3]}">${t[2]}</span>`:''}</button>`).join('')}</div>
     <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:6px;">${esc(blurb)}</div>
-    ${rbFilterBar(rows)}${rbBulk(v)}${table}</div>`;
+    ${rb.tab==='zone'?rbZoneBody():rbFilterBar(rows)+rbBulk(v)+table}</div>`;
 }
 /* ADD NEW ACTIVITY. The form follows the ACTIVITY_REFERENCE tab column by column (Activity_ID ... Is_Fertilizer) and the
  * "Row preview" at the bottom shows the row exactly as it will be appended. Saved through 'create-activity' {full:true}
@@ -6793,7 +6810,7 @@ function bbScreen(){
     <div style="margin:10px 0 6px;">${grid||`<div class="empty">${bb.busy?'Loading\u2026':'No beds loaded.'}</div>`}</div>
     <div class="qsub" style="margin:0 0 14px;">Tile color = live bed status. A crop and cohort show only on a bed a cohort actually holds; the planting plan is not shown here. A dark circled number is how many activities are assigned or running on that bed right now, a red dot an open exception. An amber number means that many things on the bed are waiting for your verification. The block you pick is also the one Start of operations works on.</div>`;
   const nVerify=state.lastSync?(pvActivities().length+pvPlantings().length+pvReadyBeds().length):0;
-  const nReview=(!IS_DEMO&&!rb.hide&&rb.data)?((rb.data.toCheck||[]).length+(rb.data.toVerify||[]).length+rbCrewList(rb.data).length):0;
+  const nReview=(!IS_DEMO&&!rb.hide)?rvCount_():0;
   const nTasks=(state.sessions||[]).filter(x=>String(x.status||'').toUpperCase()!=='COMPLETED').length;
   const SECS=[['overview','Block map',0,overview],['verify','Waiting for verification',nVerify,pvPanel()],['review','Manager review',nReview,rbPanel()],['tasks','Open tasks',nTasks,bbTasksPanel()],['release','Start of operations',0,relPanel]]
     .filter(x=>x[0]!=='review'||(!IS_DEMO&&!rb.hide));
@@ -6801,6 +6818,7 @@ function bbScreen(){
   const navBtns=SECS.map(x=>`<button class="${x[0]===bb.sec?'on':''}" aria-current="${x[0]===bb.sec?'page':'false'}" onclick="bbSec('${x[0]}')"><span>${esc(x[1])}</span>${x[2]?`<span class="chip chip-warn">${x[2]}</span>`:''}</button>`).join('');
   /* left list = one card per block (like the crop cards on Bed layout); the map in the middle shows ONE block at a time */
   const rvc={}; if(bb.sec==='review'&&rb.data) rbRows(rb.data).forEach(r=>{ if(r.pending&&r.block) rvc[r.block]=(rvc[r.block]||0)+1; });
+  if(bb.sec==='review') ZT_.items.forEach(t=>{ const k=pvBlockOf(String(t.Bed_ID||'')); if(k) rvc[k]=(rvc[k]||0)+1; });
   const blockCards=PLAN_BLOCKS.map(b=>{
     const d=bb.data[b];
     if(!d) return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span class="chip chip-neutral">${bb.busy?'Loading\u2026':'Not loaded'}</span></div></div>`;
@@ -6813,6 +6831,7 @@ function bbScreen(){
   return `<div class="leftpanel"><nav class="bb-nav" aria-label="Bed status board sections" style="position:static;margin-bottom:12px;">${navBtns}</nav>${blockCards}</div>
     <div class="mapcol">
     <div class="toolbar" style="justify-content:flex-end;">
+      ${bb.sec==='review'?'':reviewButton()}
       <button class="ow-cta" onclick="openOneWorker()" title="Give one worker the same activity on several beds"><span class="ow-ico" aria-hidden="true">👤</span><b>One worker to many beds</b></button>
     </div>
     ${bb.sec==='overview'?bbFilterBar()+`<div class="legend">${legend}</div>`:''}
@@ -7105,7 +7124,21 @@ function ztDropItem_(id){ ZT_.items=ZT_.items.filter(x=>String(x.Trace_ID)!==Str
    One menu for every manager screen (Ranch Layout, Daily Board, Season Planning, Operation Planner, Labor hours) so no screen is
    missing a destination. The current screen is highlighted. Zone sign-off carries a live count of ACT_013 traces waiting for the
    manager and turns red; a banner repeats it under the bar, because an unsigned zone holds irrigation on that bed. */
-function mgrCurrent_(){ return ui.screen==='planning' ? (ui.pMode==='operation'?'operation':'planning') : ui.screen; }
+function mgrCurrent_(){ return ui.screen==='planning' ? (ui.pMode==='operation'?'operation':(ui.pMode==='bedboard'&&bb.sec==='review'?'review':'planning')) : ui.screen; }
+/* Manager review: everything waiting on the manager = routine/verify items from the review board + ACT_013 zone traces. */
+function rvCount_(){ const d=rb.data, n=(!IS_DEMO&&!rb.hide&&d)?((d.toCheck||[]).length+(d.toVerify||[]).length+rbCrewList(d).length):0; return n+ztCount_(); }
+/* One jump to the Manager review section of the Bed status board, from any screen. tab: 'zone' opens the ACT_013 zone-trace tab. */
+function goManagerReview(tab){
+  ui.modal=null; ui.screen='planning'; ui.pMode='bedboard'; bb.sec='review';
+  if(tab){ rb.tab=tab; rbResetView(); }
+  render(); bbLoad(true); loadToday(); rbLoad(true);
+  if(rb.tab==='zone') ztEnsureReview_();
+}
+function reviewButton(){ const n=rvCount_(); return `<button class="btn btn-outline btn-cta" style="width:auto;margin:0;" onclick="goManagerReview()" title="Checks, verifications and zone traces waiting for you">Manager review${n?` (${n})`:''}</button>`; }
+function rvBanner_(){
+  const n=rvCount_(); if(!n||(ui.screen!=='board'&&ui.screen!=='ranch')) return '';
+  return `<div class="zt-banner" role="status"><span>${n} item${n>1?'s are':' is'} waiting in Manager review (checks, verifications and ACT_013 zone traces).</span><button onclick="goManagerReview()">Open Manager review</button></div>`;
+}
 function mgrRefreshBtn_(){
   const s=ui.screen;
   if(s==='planning') return `<button onclick="refreshPlanning()" title="Reload this screen's data">↻ Refresh</button>`;
@@ -7115,15 +7148,15 @@ function mgrRefreshBtn_(){
 function ztCount_(){ return ZT_.loaded?ZT_.items.length:0; }
 function mgrTopbar_(brand, sub, extra){
   const cur=mgrCurrent_(), n=ztCount_();
-  const nav=[['ranch','Ranch Layout','goRanch()'],['board','Daily Board','goBoard()'],['zone','Zone sign-off','openZoneTrace()'],
+  const nav=[['ranch','Ranch Layout','goRanch()'],['board','Daily Board','goBoard()'],['review','Manager review','goManagerReview()'],['zone','Zone sign-off','openZoneTrace()'],
     ['planning','Season Planning','goPlanning()'],['operation','Operation Planner',"goPlanning();setPMode('operation')"],
     ['team','Team','openTeam()'],['labor','Labor hours','openLabor()']];
   const btns=nav.map(function(x){
-    const on=x[0]===cur, z=x[0]==='zone';
-    return `<button class="${on?'nav-on':''}${z&&n?' zt-alert':''}" ${on?'aria-current="page"':''} onclick="${x[2]}"${z?` title="${n?n+' zone trace(s) waiting for your sign-off':'No zone traces waiting'}"`:''}>${x[1]}${z&&n?`<span class="zt-badge">${n}</span>`:''}</button>`;
+    const on=x[0]===cur, z=x[0]==='zone', rv=x[0]==='review', rn=rvCount_();
+    return `<button class="${on?'nav-on':''}${z&&n?' zt-alert':''}" ${on?'aria-current="page"':''} onclick="${x[2]}"${z?` title="${n?n+' zone trace(s) waiting for your sign-off':'No zone traces waiting'}"`:''}>${x[1]}${z&&n?`<span class="zt-badge">${n}</span>`:''}${rv&&rn?`<span class="zt-badge">${rn}</span>`:''}</button>`;
   }).join('');
   return `<div class="topbar"><div><div class="brand">${brand}</div><div class="sub">${sub}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span>${mgrRefreshBtn_()}${extra||''}${btns}<button onclick="logout()">Log out</button></div></div>${ztBanner_()}`;
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span>${mgrRefreshBtn_()}${extra||''}${btns}<button onclick="logout()">Log out</button></div></div>${ztBanner_()}${rvBanner_()}`;
 }
 function ztBanner_(){
   const n=ztCount_(); if(!n||ui.modal==='zone-trace') return '';
@@ -7159,7 +7192,7 @@ async function ztLoad(){
   try{ const d=await apiCall('get-zone-trace-queue',{}); ZT_.items=Array.isArray(d)?d:[]; }
   catch(e){ ZT_.error=e.message||'Could not load the zone-trace queue.'; }
   ZT_.loading=false; ZT_.loaded=true;
-  if(ui.modal==='zone-trace') render();
+  if(ui.modal==='zone-trace'||(ui.screen==='planning'&&bb.sec==='review')) render();
 }
 /* History / audit log: every reviewed trace stays on file (get-zone-trace-history). */
 const ZT_LABEL_={VERIFIED:'Approved',REJECTED:'Rejected',CONFLICT:'Conflict',UNRESOLVED:'Inconclusive'}, ZT_CHIP_={VERIFIED:'chip-ok',REJECTED:'chip-danger',CONFLICT:'chip-warn',UNRESOLVED:'chip-neutral'};
