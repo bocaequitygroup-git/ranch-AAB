@@ -294,6 +294,19 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .topbar button.zt-alert{background:#B3261E;color:#fff;box-shadow:0 0 0 0 rgba(179,38,30,.7);animation:ztPulse 1.6s infinite;}
 .zt-badge{display:inline-block;min-width:18px;padding:1px 6px;margin-left:6px;border-radius:99px;background:#fff;color:#B3261E;font-size:11.5px;font-weight:800;text-align:center;}
 .zt-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#B3261E;color:#fff;padding:9px 16px;font-size:13px;font-weight:600;}
+.zt-help{position:relative;display:inline-block;}
+.zt-help summary{list-style:none;cursor:pointer;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--forest);color:var(--forest);font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;}
+.zt-help summary::-webkit-details-marker{display:none;}
+.zt-help .zt-pop{position:absolute;right:0;top:28px;z-index:30;width:min(340px,80vw);background:var(--paper,#fff);border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:10px 12px;font-size:12.5px;font-weight:400;color:var(--ink-soft);}
+.zt-strip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;margin:6px 0;background:#E4F1E5;color:var(--ok);}
+.zt-strip.warn{background:#FBEBD6;color:var(--warn);}
+.zt-strip button{margin-left:auto;}
+.zh-item{border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:var(--sand);overflow:hidden;}
+.zh-sum{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;border:0;background:none;font:inherit;font-size:13px;padding:8px 10px;cursor:pointer;text-align:left;color:var(--ink);}
+.zh-bed{font-weight:800;min-width:56px;} .zh-delta{font-weight:700;} .zh-who{margin-left:auto;color:var(--ink-soft);font-size:12px;}
+.zh-over{background:#FBEBD6;color:var(--warn);border-radius:6px;padding:0 6px;font-weight:800;font-size:11.5px;}
+.zh-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;padding:8px 12px 10px;border-top:1px solid var(--line);font-size:12.5px;}
+.zh-cols h4{margin:0 0 4px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);}
 .zt-banner button{background:#fff;border:none;color:#B3261E;font-family:inherit;font-size:12.5px;font-weight:800;cursor:pointer;padding:6px 12px;border-radius:8px;}
 @keyframes ztPulse{0%{box-shadow:0 0 0 0 rgba(179,38,30,.7);}70%{box-shadow:0 0 0 9px rgba(179,38,30,0);}100%{box-shadow:0 0 0 0 rgba(179,38,30,0);}}
 @media (prefers-reduced-motion:reduce){.topbar button.zt-alert{animation:none;}}
@@ -6431,14 +6444,27 @@ async function ztLoadHist_(){
   ZT_.hLoading=false; render();
 }
 function ztEnsureReview_(){ if(!ZT_.loaded&&!ZT_.loading) ztLoad(); if(!ZT_.hLoaded&&!ZT_.hLoading) setTimeout(ztLoadHist_,0); }
+function ztRv_(v){ ZT_.rv=v; render(); }
 function rbZoneBody(){
   if(!ZT_.hLoaded&&!ZT_.hLoading) setTimeout(ztLoadHist_,0);
-  const items=ZT_.items.filter(t=>!rb.fBlock||pvBlockOf(String(t.Bed_ID||''))===rb.fBlock);
-  const pend=ZT_.loading&&!ZT_.loaded?'<div class="note">Loading zone traces\u2026</div>':ZT_.error?`<div class="notice">${esc(ZT_.error)}</div>`
-    :items.length?items.map(ztCardHtml_).join(''):'<div class="empty" style="padding:10px 0;">No zone traces are waiting for sign-off.</div>';
-  const hist=ZT_.hErr?`<div class="notice">${esc(ZT_.hErr)}</div>`:ztHistHtml_();
-  return `<h3 style="font-size:13px;margin:6px 0;">Waiting for sign-off (${items.length})</h3>${pend}
-    <h3 style="font-size:13px;margin:14px 0 6px;">Reviewed zone traces</h3>${hist}`;
+  const items=ZT_.items.filter(t=>!rb.fBlock||pvBlockOf(String(t.Bed_ID||''))===rb.fBlock), n=items.length, nAll=ZT_.items.length;
+  const hN=ZT_.hLoaded?ZT_.hist.length:'\u2026';
+  const rv=ZT_.rv||(n>0?'queue':'history');   /* nothing waiting: open on the audit history instead of an empty box */
+  const pill=(k,label)=>`<button class="${rv===k?'active':''}" onclick="ztRv_('${k}')">${label}</button>`;
+  const help=`<details class="zt-help"><summary title="How zone sign-off works">?</summary><div class="zt-pop">Physical zone traces recorded by workers with ACT_013. Approve sets the bed's irrigation zone (IRR-Z01 to IRR-Z07 only). A zone already on file is never overwritten; that is recorded as a conflict. Reject needs a reason. Every decision stays in History &amp; audit with who and when.</div></details>`;
+  const bar=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;"><div class="seg">${pill('queue','Sign-off queue ('+n+' pending)')}${pill('history','History &amp; audit ('+hN+' reviewed)')}</div><span style="margin-left:auto;">${help}</span></div>`;
+  let view;
+  if(rv==='queue'){
+    if(ZT_.loading&&!ZT_.loaded) view='<div class="note">Loading zone traces\u2026</div>';
+    else if(ZT_.error) view=`<div class="notice">${esc(ZT_.error)}</div>`;
+    else if(!n) view=rb.fBlock&&nAll?`<div class="zt-strip warn">No pending traces in ${esc(BLOCK_LABELS[rb.fBlock]||rb.fBlock)} \u00b7 ${nAll} waiting elsewhere <button class="dc-mini" onclick="rbSetF('fBlock','',true)">Show all blocks</button></div>`
+      :'<div class="zt-strip">\u2713 Sign-off queue clear \u00b7 0 pending traces</div>';
+    else view=items.map(ztCardHtml_).join('');
+  } else {
+    const strip=n?`<div class="zt-strip warn">${n} trace${n>1?'s':''} waiting for sign-off <button class="dc-mini" onclick="ztRv_('queue')">Open queue</button></div>`:'<div class="zt-strip">\u2713 Sign-off queue clear \u00b7 0 pending traces</div>';
+    view=strip+(ZT_.hErr?`<div class="notice">${esc(ZT_.hErr)}</div>`:ztHistHtml_());
+  }
+  return bar+view;
 }
 function rbSyncBlock(k){ if(k&&PLAN_BLOCKS.includes(k)&&bb.sel!==k){ bb.sel=k; bb.dry=null; bb.res=null; bb.confirm=false; } }
 function rbSetF(k,v,set){ rb[k]=set?v:(rb[k]===v?'':v); if(k==='fBlock') rbSyncBlock(rb.fBlock); rbResetView(); render(); }
@@ -6543,10 +6569,10 @@ function rbPanel(){
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
   const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>!r.pending).length, nZone=ztCount_(), total=pend('multi')+pend('single')+nZone;
   const v=rbView(rb.tab==='zone'?'single':rb.tab,rows);
-  const tabs=[['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['zone','Zone traces (ACT_013)',nZone,'chip-warn'],['history','History & audit',nHist,'chip-neutral']];
+  const tabs=[['zone','Zone sign-off (ACT_013)',nZone,'chip-warn'],['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['history','Activity history',nHist,'chip-neutral']];
   const blurb={ multi:"Each worker's finished portion is checked as they finish; workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.",
     single:'Routine work done by one worker. Checking only logs your review; it never changes a bed, cohort, schedule or assignment.',
-    zone:'Physical zone traces recorded by workers with ACT_013. Approve to set the bed\'s irrigation zone (it must be IRR-Z01 to IRR-Z07, and a zone already on file is never overwritten), or reject with a reason. Every decision stays in the reviewed list below.',
+    zone:'Worker zone traces awaiting your decision.',
     history:'Every checked and verified item, up to '+RB_HISTORY_DAYS+' days back (the most recent '+200+' are loaded). Loaded only while this tab is open.' }[rb.tab]
     +(rb.tab==='history'||rb.tab==='zone'?'':(rb.dFrom||rb.dTo?' Showing the dates you picked.':' Showing what is waiting plus work checked in the last '+RB_ACTIVE_DAYS+' days; pick a date range to look further back.'))
     +(rb.fBlock?' Block filter: '+(BLOCK_LABELS[rb.fBlock]||rb.fBlock)+' (change it with the block list on the left).':'');
@@ -7205,25 +7231,42 @@ async function ztSetTab_(t){
     ZT_.hLoading=false; render();
   }
 }
+/* display name next to the ID wherever the app knows it: "Linda (linda)" */
+function ztName_(id){
+  id=String(id||'').trim(); if(!id) return '\u2014';
+  const w=(state.workers||[]).find(x=>String(x.workerId).toLowerCase()===id.toLowerCase());
+  const nm=w&&w.name?w.name:(String(state.managerId||'').toLowerCase()===id.toLowerCase()?state.name:'');
+  return nm&&nm!==id?esc(nm)+' ('+esc(id)+')':esc(id);
+}
+function ztWhen_(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?esc(String(v)):esc(d.toLocaleString('en-US',{month:'numeric',day:'numeric',year:'2-digit',hour:'numeric',minute:'2-digit'})); }
+function ztHOpen_(id){ ZT_.open=ZT_.open||{}; if(ZT_.open[id]) delete ZT_.open[id]; else ZT_.open[id]=true; render(); }
 function ztHistHtml_(){
   const q=ZT_.hQuery.trim().toUpperCase();
-  const list=ZT_.hist.filter(function(t){ return (!ZT_.hStatus||t.Review_Status===ZT_.hStatus)&&(!q||[t.Bed_ID,t.Worker_Recorded_Zone,t.Final_Applied_Zone,t.Submitted_By,t.Reviewed_By].some(function(v){return String(v||'').toUpperCase().indexOf(q)>=0;})); });
+  const list=ZT_.hist.filter(function(t){ return (!ZT_.hStatus||t.Review_Status===ZT_.hStatus)&&(!q||[t.Bed_ID,t.Worker_Recorded_Zone,t.Final_Applied_Zone,t.Submitted_By,t.Reviewed_By,ztName_(t.Submitted_By),ztName_(t.Reviewed_By)].some(function(v){return String(v||'').toUpperCase().indexOf(q)>=0;})); });
   const f=[['','All'],['VERIFIED','Approved'],['REJECTED','Rejected'],['CONFLICT','Conflict'],['UNRESOLVED','Inconclusive']]
     .map(function(x){return `<button class="${ZT_.hStatus===x[0]?'active':''}" onclick="ZT_.hStatus='${x[0]}';render()">${x[1]}</button>`;}).join('');
   const ctl=`<div class="seg" style="margin-bottom:8px;flex-wrap:wrap;">${f}</div><input type="text" maxlength="40" placeholder="Find by bed, zone or worker" value="${esc(ZT_.hQuery)}" style="margin-bottom:10px;" onchange="ZT_.hQuery=this.value;render()">`;
   if(ZT_.hLoading) return ctl+`<div class="note">Loading history…</div>`;
   if(!list.length) return ctl+`<div class="empty">${ZT_.hist.length?'No reviewed traces match that filter.':'No zone traces have been reviewed yet.'}</div>`;
+  const open=ZT_.open||{};
   return ctl+list.map(function(t){
-    const st=String(t.Review_Status||''), prop=String(t.Worker_Recorded_Zone||'').trim(), raw=String(t.Observed_Zone_Raw||'').trim(), ap=String(t.Final_Applied_Zone||'').trim();
-    const proposed=prop?esc(prop):(raw?'&ldquo;'+esc(raw)+'&rdquo; (not a recognized zone)':'no zone (inconclusive)');
-    const result=ap?'Applied <b>'+esc(ap)+'</b>':(st==='VERIFIED'?'Applied (zone not recorded)':'Not applied &mdash; '+esc((ZT_LABEL_[st]||st).toLowerCase()));
-    const sub=t.Submitted_At?' · '+esc(new Date(t.Submitted_At).toLocaleString()):'';
-    const rev=st==='UNRESOLVED'?'<div class="sub"><b>Manager:</b> no review needed (nothing to sign off)</div>':'<div class="sub"><b>Manager:</b> '+esc(t.Reviewed_By||'—')+(t.Reviewed_At?' · '+esc(new Date(t.Reviewed_At).toLocaleString()):'')+'</div>';
-    return `<div class="card" style="margin-bottom:10px;"><div style="font-weight:700;">${esc(t.Bed_ID||'')} <span class="sub">· cohort ${esc(t.Cohort_ID||'—')}</span> <span class="chip ${ZT_CHIP_[st]||'chip-neutral'}">${esc(ZT_LABEL_[st]||st)}</span></div>
-      <div class="sub"><b>Worker proposed</b> ${proposed} &rarr; ${result}</div>
-      <div class="sub"><b>Worker:</b> ${esc(t.Submitted_By||'—')}${sub}</div>${rev}
-      ${t.Line_Notes?`<div class="sub"><b>Line / emitter notes:</b> ${esc(t.Line_Notes)}</div>`:''}
-      ${t.Review_Reason?`<div class="sub"><b>Reason:</b> ${esc(t.Review_Reason)}</div>`:''}</div>`;
+    const id=String(t.Trace_ID||''), st=String(t.Review_Status||''), prop=String(t.Worker_Recorded_Zone||'').trim(), raw=String(t.Observed_Zone_Raw||'').trim(), ap=String(t.Final_Applied_Zone||'').trim();
+    const over=!!(ap&&prop&&ap!==prop);
+    const delta=ap?`${esc(prop||'\u2014')} \u2192 ${esc(ap)}${over?' <span class="zh-over">Overridden</span>':''}`:`${prop?esc(prop):(raw?'&ldquo;'+esc(raw)+'&rdquo;':'no zone')} \u2192 Not applied`;
+    const chip=`<span class="chip ${ZT_CHIP_[st]||'chip-neutral'}">${esc(ZT_LABEL_[st]||st)}</span>`;
+    const by=st==='UNRESOLVED'?ztName_(t.Submitted_By):ztName_(t.Reviewed_By), at=st==='UNRESOLVED'?t.Submitted_At:t.Reviewed_At;
+    const isOpen=!!open[id];
+    const reason=t.Review_Reason?esc(t.Review_Reason):'';
+    const revLine=st==='UNRESOLVED'?'<div>No review needed (nothing to sign off)</div>'
+      :`<div><b>Reviewed:</b> ${ztName_(t.Reviewed_By)}${t.Reviewed_At?' \u00b7 '+ztWhen_(t.Reviewed_At):''}</div>${(st==='REJECTED'||st==='CONFLICT')?`<div style="margin-top:3px;">${chip}${reason?' '+reason:''}</div>`:''}`;
+    return `<div class="zh-item" style="border-left:5px solid ${st==='VERIFIED'?'var(--ok)':st==='REJECTED'?'var(--danger)':st==='CONFLICT'?'var(--warn)':'var(--line)'};">
+      <button class="zh-sum" aria-expanded="${isOpen}" onclick="ztHOpen_('${esc(id)}')"><span class="zh-bed">${esc(t.Bed_ID||'')}</span>${chip}<span class="zh-delta">${delta}</span><span class="zh-who">${by} \u00b7 ${ztWhen_(at)} ${isOpen?'\u25B4':'\u25BE'}</span></button>
+      ${isOpen?`<div class="zh-cols">
+        <div><h4>Target &amp; outcome</h4><div><b>${esc(t.Bed_ID||'')}</b> \u00b7 Cohort ${esc(t.Cohort_ID||'\u2014')}</div><div style="margin-top:3px;">${chip}</div></div>
+        <div><h4>Zone delta &amp; notes</h4><div>Proposed: <b>${prop?esc(prop):(raw?'&ldquo;'+esc(raw)+'&rdquo; (not a recognized zone)':'none')}</b> \u2192 Applied: <b>${ap?esc(ap):'not applied'}</b>${over?' <span class="zh-over">Overridden</span>':''}</div>
+          ${t.Line_Notes?`<div style="margin-top:3px;"><b>Notes:</b> ${esc(t.Line_Notes)}</div>`:''}${reason&&st==='VERIFIED'?`<div style="margin-top:3px;"><b>Reason:</b> ${reason}</div>`:''}</div>
+        <div><h4>Audit trail</h4><div><b>Submitted:</b> ${ztName_(t.Submitted_By)}${t.Submitted_At?' \u00b7 '+ztWhen_(t.Submitted_At):''}</div>${revLine}</div></div>`:''}
+    </div>`;
   }).join('');
 }
 function zoneTraceModal(){
@@ -7241,24 +7284,24 @@ function zoneTraceModal(){
 }
 function ztCardHtml_(t){
   const id=String(t.Trace_ID||''), d=ztD_(id), eid=esc(id), bed=String(t.Bed_ID||'');
-  const obs=String(t.Observed_Zone_Canonical||'').trim(), raw=String(t.Observed_Zone_Raw||'').trim();
-  const when=t.Timestamp?new Date(t.Timestamp).toLocaleString():'';
+  const obs=String(t.Observed_Zone_Canonical||'').trim(), raw=String(t.Observed_Zone_Raw||'').trim(), onFile=String(t.Zone_On_File||'').trim();
   const mismatch=!!(d.zone&&obs&&d.zone!==obs);
-  let h=`<div class="card" style="margin-bottom:10px;">
-    <div style="font-weight:700;">${esc(bed)} <span class="sub">· cohort ${esc(t.Cohort_ID||'—')}</span></div>
-    <div class="sub">Worker ${esc(t.Worker_ID||'—')}${when?' · submitted '+esc(when):''}</div>
-    <div class="sub"><b>Worker recorded:</b> ${obs?esc(obs):(raw?'&ldquo;'+esc(raw)+'&rdquo; (not a recognized zone)':'nothing recognized')}</div>
-    ${t.Line_Notes?`<div class="sub"><b>Line / emitter notes:</b> ${esc(t.Line_Notes)}</div>`:''}`;
-  if(d.conflict) h+=`<div class="pw-box warn" style="margin-top:8px;"><div class="pw-t">Zone conflict: not signed off</div><div>${esc(d.conflict)}</div><div class="pw-why">Nothing was changed. Check the bed on site, then reject this trace if the recorded zone is wrong.</div></div>`;
+  const conflict=onFile&&(!obs||onFile.toUpperCase()!==obs.toUpperCase());
+  const fileBadge=onFile?`<span class="chip ${conflict?'chip-warn':'chip-info'}" title="${conflict?'A different zone is already on file. Approving this will be refused as a conflict.':'The zone on file matches this trace; approving confirms it.'}">${conflict?'Conflict: ':'On file: '}${esc(onFile)}</span>`:'';
+  let h=`<div class="card" style="margin-bottom:8px;padding:10px 12px;">
+    <div class="row" style="align-items:center;"><span style="font-weight:800;">${esc(bed)} <span class="sub">\u00b7 cohort ${esc(t.Cohort_ID||'\u2014')}</span></span><span>${fileBadge}</span></div>
+    <div class="sub">${ztName_(t.Worker_ID)}${t.Timestamp?' \u00b7 '+ztWhen_(t.Timestamp):''}</div>
+    <div class="sub"><b>Proposed:</b> ${obs?esc(obs):(raw?'&ldquo;'+esc(raw)+'&rdquo; (not a recognized zone)':'nothing recognized')}${t.Line_Notes?` \u00b7 <b>Notes:</b> ${esc(t.Line_Notes)}`:''}</div>`;
+  if(d.conflict) h+=`<div class="pw-box warn" style="margin-top:6px;"><div class="pw-t">Not signed off</div><div>${esc(d.conflict)}</div></div>`;
   if(!d.rejecting){
-    h+=`<label style="margin-top:8px;">Zone to sign off${d.zone&&d.zone===obs?' <span class="sub">(as recorded by the worker)</span>':''}</label><select onchange="ztZoneSet_('${eid}',this.value)"><option value="">Choose a zone…</option>${ZT_ZONES_.map(z=>`<option value="${z}" ${d.zone===z?'selected':''}>${z}</option>`).join('')}</select>`;
-    if(mismatch) h+=`<div class="sub" style="color:var(--warn);margin-top:4px;">The worker recorded ${esc(obs)}. You are signing off ${esc(d.zone)}.</div>`;
+    h+=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;"><select style="flex:1;min-width:150px;" aria-label="Zone to sign off" onchange="ztZoneSet_('${eid}',this.value)"><option value="">Choose a zone\u2026</option>${ZT_ZONES_.map(z=>`<option value="${z}" ${d.zone===z?'selected':''}>${z}</option>`).join('')}</select>
+      <button class="btn btn-primary" style="width:auto;margin:0;" ${d.busy||!d.zone?'disabled':''} onclick="ztApprove('${eid}')">${d.busy?'Signing off\u2026':'Approve'}</button><button class="btn btn-outline" style="width:auto;margin:0;" ${d.busy?'disabled':''} onclick="ztRejectOpen('${eid}')">Reject</button></div>`;
+    if(mismatch) h+=`<div class="sub" style="color:var(--warn);margin-top:4px;">Worker proposed ${esc(obs)}; you are applying ${esc(d.zone)} (recorded as an override).</div>`;
     if(d.err) h+=`<div class="notice" style="margin-top:6px;">${esc(d.err)}</div>`;
-    h+=`<div class="qbtns" style="margin-top:8px;"><button class="btn btn-primary" ${d.busy||!d.zone?'disabled':''} onclick="ztApprove('${eid}')">${d.busy?'Signing off…':'Approve and sign off'}</button><button class="btn btn-outline" ${d.busy?'disabled':''} onclick="ztRejectOpen('${eid}')">Reject</button></div>`;
   } else {
-    h+=`<label style="margin-top:8px;">Why is this trace being rejected? (required)</label><textarea rows="2" maxlength="300" oninput="ztD_('${eid}').reason=this.value">${esc(d.reason)}</textarea>`;
+    h+=`<textarea rows="2" maxlength="300" placeholder="Why is this trace being rejected? (required)" style="margin-top:8px;" oninput="ztD_('${eid}').reason=this.value">${esc(d.reason)}</textarea>`;
     if(d.err) h+=`<div class="notice" style="margin-top:6px;">${esc(d.err)}</div>`;
-    h+=`<div class="qbtns" style="margin-top:8px;"><button class="btn btn-primary" ${d.busy?'disabled':''} onclick="ztReject('${eid}')">${d.busy?'Rejecting…':'Confirm reject'}</button><button class="btn btn-ghost" ${d.busy?'disabled':''} onclick="ztRejectCancel('${eid}')">Cancel</button></div>`;
+    h+=`<div style="display:flex;gap:8px;margin-top:6px;"><button class="btn btn-primary" style="width:auto;margin:0;" ${d.busy?'disabled':''} onclick="ztReject('${eid}')">${d.busy?'Rejecting\u2026':'Confirm reject'}</button><button class="btn btn-ghost" style="width:auto;margin:0;" ${d.busy?'disabled':''} onclick="ztRejectCancel('${eid}')">Cancel</button></div>`;
   }
   return h+`</div>`;
 }
