@@ -551,9 +551,16 @@ button.vp-busy-btn:disabled{opacity:.82;}
 .rl-top{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
 .rl-top select{padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--paper);color:var(--ink);}
 .rl-top label{font-size:12px;color:var(--ink-soft);display:flex;gap:5px;align-items:center;}
-/* ACT_031 irrigation runs review (ranch_aab) */
+/* Irrigation runs (ACT_031) - simplified manager view */
 .irr-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .irr-hd h2{margin:0 auto 0 0;font-size:16px;}
+.irr-season{border:1px solid #E2E8F0;border-radius:10px;padding:10px 12px;margin:10px 0;}
+.irr-season-h{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+.irr-season-n{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:6px 0;}
+.irr-bar{height:10px;border-radius:6px;background:#E2E8F0;overflow:hidden;}
+.irr-bar>i{display:block;height:100%;background:#2E7D32;}
+.irr-bar.over>i{background:#B3261E;}
+.irr-over{color:#B3261E;}
 .irr-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0;}
 .irr-kpi>div{border:1px solid #E2E8F0;border-radius:10px;padding:8px 10px;}
 .irr-kpi b{display:block;font-size:20px;}
@@ -569,6 +576,7 @@ button.vp-busy-btn:disabled{opacity:.82;}
 .irr-drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);overflow:auto;background:#fff;box-shadow:-8px 0 24px rgba(0,0,0,.25);padding:16px;z-index:60;}
 .irr-drawer table{width:100%;font-size:12.5px;border-collapse:collapse;}
 .irr-drawer td{padding:4px 6px;border-bottom:1px solid #E2E8F0;}
+.irr-sec{font-weight:700;margin-top:12px;}
 .irr-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
 .irr-acts button{min-height:40px;}
 </style>
@@ -7367,204 +7375,190 @@ function ztHistHtml_(){
     </div>`;
   }).join('');
 }
-/* ================= ACT_031 Irrigation post-run review & schedule control (Manager / Founder) =================
-   Data: get-activity-history (ACT_031 rows carry their calendar targets, see Code_main.gs irhHistoryEnrich_),
-   get-irrigation-calendar (schedule and daily ET state), get-scout-findings (scouting on the bed).
-   The only write is review-activity CHECK / VERIFY, which the server enforces (AUTH_MANAGERS). The ACT_013 follow-up goes
-   through the existing zone-check dispatch on the bed panel. Manager notes are kept in this window only (not saved yet). */
-const IRR_R={loaded:false,busy:false,err:'',derived:[],cal:null,calErr:'',scout:null,scoutBusy:false,fZone:'',fStatus:'',q:'',open:'',note:{},at:0};
-const IRR_ZONES=['IRR-Z01','IRR-Z02','IRR-Z03','IRR-Z04','IRR-Z05','IRR-Z06','IRR-Z07'];
-const IRR_STATUSES=['COMPLETED','CHECKED','VERIFIED','FLAGGED'];
-const IRR_STATUS_LABEL={COMPLETED:'Awaiting sign-off',CHECKED:'Checked',VERIFIED:'Verified',FLAGGED:'Flagged'};
-const IRR_STATUS_CHIP={COMPLETED:'chip-warn',CHECKED:'chip-neutral',VERIFIED:'chip-ok',FLAGGED:'chip-danger'};
-const IRR_FLAG_GAL=0.10;            /* gallons more than 10% off the target */
-const IRR_FLAG_MIN=0.50;            /* elapsed run time more than 50% over the estimate */
-const IRR_GAL_PER_IN_SQFT=0.623;    /* US gallons per (inch x square foot) */
-const IRR_NOTE_RE=/\b(leak\w*|pool\w*|runoff|run-off|abnormal)\b/i;
-const irrIso=n=>new Date(Date.now()+n*864e5).toISOString().slice(0,10);
-const irrWhen_=v=>{const d=new Date(v);return isNaN(d)?'—':d.toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});};
-const irrFmtN_=n=>Number(n||0).toLocaleString(undefined,{maximumFractionDigits:1});
-function irrRedraw_(){ if(ui.modal==='irr-review') render(); }
-function irrMinOf_(r){ const a=Date.parse(r.Start_Time), b=Date.parse(r.End_Time); return (isNaN(a)||isNaN(b)||b<a)?null:Math.round((b-a)/60000); }
-/* One row -> review status, flags and derived numbers. Status: VERIFIED once verified; otherwise FLAGGED if anything is flagged;
-   otherwise CHECKED if checked; otherwise COMPLETED (awaiting sign-off). */
-function irrDerive_(r){
-  const gal=Number(r.Quantity), tg=Number(r.targetGallons), em=Number(r.estimatedMinutes), am=irrMinOf_(r), area=Number(r.areaSqFt);
-  const flags=[];
-  if(tg>0&&isFinite(gal)&&Math.abs(gal-tg)/tg>IRR_FLAG_GAL) flags.push('Gallons '+(gal>tg?'over':'under')+' target by '+Math.round(Math.abs(gal-tg)/tg*100)+'%');
-  if(am!=null&&em>0&&(am-em)/em>IRR_FLAG_MIN) flags.push('Ran '+am+' min against about '+em+' min estimated');
-  if(IRR_NOTE_RE.test(String(r.Notes||''))) flags.push('Worker reported a leak, pooling, runoff or abnormal delivery');
-  if(r.offSchedule) flags.push('Off-schedule run (not on the calendar)');
-  if(r.overrideReason) flags.push('Override on file'+(r.overrideBy?' by '+r.overrideBy:''));
-  const verified=!!String(r.Verified_Date||'').trim(), checked=!!String(r.Checked_Date||'').trim();
-  const status=verified?'VERIFIED':flags.length?'FLAGGED':checked?'CHECKED':'COMPLETED';
-  const loggedDepth=(area>0&&isFinite(gal)&&gal>0)?gal/(area*IRR_GAL_PER_IN_SQFT):null;
-  return {r,status,flags,minutes:am,loggedDepth};
+/* ================= Irrigation runs (ACT_031) - simplified manager view (Manager / Founder) =================
+   Shows real run outcomes only. A run with no calendar row is NOT an error and is never flagged as off-schedule.
+   Data: get-irrigation-calendar (season budget, seasonBudget) and get-activity-history (ACT_031 log rows).
+   Active minutes = Elapsed_Minutes stored on the completed row (pause time already removed by computeElapsedMinutes_).
+   Writes: review-activity only (CHECK / VERIFY, enforced server-side). Manager notes stay in this window (not saved yet). */
+const IR2={loaded:false,busy:false,err:'',rows:[],budget:null,budgetErr:'',fZone:'',fStatus:'ALL',q:'',open:'',note:{},at:0};
+const IR2_ZONES=['IRR-Z01','IRR-Z02','IRR-Z03','IRR-Z04','IRR-Z05','IRR-Z06','IRR-Z07'];
+/* Zone from the bed ID, using the reference layout in IrrigationLayoutGate.gs (display and filter only; BED_MASTER.Zone is not used). */
+const IR2_ZONE_RULES=[['B1',1,15,'IRR-Z01'],['B1',16,55,'IRR-Z02'],['B2',1,55,'IRR-Z03'],['B3',1,11,'IRR-Z04'],['B3',12,55,'IRR-Z05'],['B4',1,55,'IRR-Z06'],['Z5',1,11,'IRR-Z07']];
+const IR2_NOTE_RE=/\b(leak\w*|pool\w*|runoff|run-off|abnormal)\b/i;
+const IR2_OUTLIER_X=2;              /* a run is an outlier when it is more than 2x the median of the loaded runs */
+const IR2_MIN_RUNS_FOR_MEDIAN=4;
+const IR2_STATUS_LABEL={UNREVIEWED:'Unreviewed',CHECKED:'Checked',VERIFIED:'Verified'};
+const IR2_STATUS_CHIP={UNREVIEWED:'chip-warn',CHECKED:'chip-neutral',VERIFIED:'chip-ok'};
+const ir2Iso=n=>new Date(Date.now()+n*864e5).toISOString().slice(0,10);
+const ir2Day=v=>String(v||'').slice(0,10);
+const ir2When=v=>{const d=new Date(v);return isNaN(d)?'—':d.toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});};
+const ir2N=(n,dp)=>Number(n||0).toLocaleString(undefined,{maximumFractionDigits:dp==null?0:dp});
+function ir2Redraw_(){ if(ui.modal==='irr-review') render(); }
+function ir2ZoneOf_(bed){
+  const m=/^(B[1-4]|Z5)-(\d{1,2})$/.exec(String(bed||'').trim().toUpperCase()); if(!m) return '';
+  const n=parseInt(m[2],10), hit=IR2_ZONE_RULES.find(z=>z[0]===m[1]&&n>=z[1]&&n<=z[2]);
+  return hit?hit[3]:'';
 }
-async function irrLoad(force){
-  if(IRR_R.busy) return;
-  if(!force&&IRR_R.loaded&&Date.now()-IRR_R.at<30000) return;
-  IRR_R.busy=true; IRR_R.err=''; irrRedraw_();
+function ir2Median_(a){ const s=a.slice().sort((x,y)=>x-y), n=s.length; if(!n) return null; return n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2; }
+/* Active minutes: stored Elapsed_Minutes (pauses already removed). Falls back to total elapsed only when that value is missing. */
+function ir2Active_(r){
+  if(r.Elapsed_Minutes!==''&&r.Elapsed_Minutes!=null&&isFinite(Number(r.Elapsed_Minutes))) return {min:Number(r.Elapsed_Minutes),basis:'active'};
+  const a=Date.parse(r.Start_Time), b=Date.parse(r.End_Time);
+  if(isNaN(a)||isNaN(b)||b<a) return {min:null,basis:''};
+  return {min:Math.round((b-a)/60000),basis:'total'};
+}
+/* Issues & outliers. Issues come from worker notes; outliers from volume or runtime well above the median of loaded runs. */
+function ir2Derive_(r,medGal,medMin){
+  const gal=Number(r.Quantity), act=ir2Active_(r), issues=[];
+  if(IR2_NOTE_RE.test(String(r.Notes||''))) issues.push('Worker reported a leak, pooling, runoff or abnormal delivery');
+  if(medGal&&gal>IR2_OUTLIER_X*medGal) issues.push('Volume '+ir2N(gal)+' gal, over twice the median run ('+ir2N(medGal)+' gal)');
+  if(medMin&&act.min!=null&&act.min>IR2_OUTLIER_X*medMin) issues.push('Run time '+act.min+' min, over twice the median run ('+ir2N(medMin)+' min)');
+  const checked=!!String(r.Checked_Date||'').trim(), verified=!!String(r.Verified_Date||'').trim();
+  return {r,gal:isFinite(gal)?gal:null,act,issues,zone:ir2ZoneOf_(r.Bed_ID),status:verified?'VERIFIED':checked?'CHECKED':'UNREVIEWED'};
+}
+function ir2Derived_(){
+  const rows=IR2.rows, gals=rows.map(r=>Number(r.Quantity)).filter(x=>x>0), mins=rows.map(r=>ir2Active_(r).min).filter(x=>x>0);
+  const medGal=gals.length>=IR2_MIN_RUNS_FOR_MEDIAN?ir2Median_(gals):null, medMin=mins.length>=IR2_MIN_RUNS_FOR_MEDIAN?ir2Median_(mins):null;
+  return rows.map(r=>ir2Derive_(r,medGal,medMin)).sort((a,b)=>String(b.r.Start_Time||'').localeCompare(String(a.r.Start_Time||'')));
+}
+let IR2_D=[];
+/* Loads the season budget first (it sets how far back the runs are read), then the ACT_031 log rows. */
+async function ir2Load(force){
+  if(IR2.busy) return;
+  if(!force&&IR2.loaded&&Date.now()-IR2.at<30000) return;
+  IR2.busy=true; IR2.err=''; ir2Redraw_();
   try{
-    const rows=await apiCall('get-activity-history',{dateRange:{start:irrIso(-60)+'T00:00:00Z',end:irrIso(1)+'T23:59:59Z'},filters:{activityName:'Irrigation'}},60000);
-    IRR_R.derived=(Array.isArray(rows)?rows:[]).filter(r=>String(r.Activity_Name||'').trim()==='Irrigation').map(irrDerive_)
-      .sort((a,b)=>String(b.r.Start_Time||'').localeCompare(String(a.r.Start_Time||'')));
-    IRR_R.loaded=true; IRR_R.at=Date.now();
-  }catch(e){ IRR_R.err=e.message||'Could not load irrigation runs.'; }
-  try{ IRR_R.cal=await apiCall('get-irrigation-calendar',{from:irrIso(-30),to:irrIso(30)},60000); IRR_R.calErr=''; }
-  catch(e){ IRR_R.cal=null; IRR_R.calErr=e.message||'Schedule not available.'; }
-  IRR_R.busy=false; irrRedraw_();
+    const cal=await apiCall('get-irrigation-calendar',{from:ir2Iso(0),to:ir2Iso(0)},60000);
+    IR2.budget=(cal&&cal.seasonBudget)||{status:'UNAVAILABLE'}; IR2.budgetErr='';
+  }catch(e){ IR2.budget=null; IR2.budgetErr=e.message||'Season budget not available.'; }
+  try{
+    const b=IR2.budget||{}, floor=ir2Iso(-60);
+    const start=(b.startDate&&b.startDate<floor)?b.startDate:floor;
+    const rows=await apiCall('get-activity-history',{dateRange:{start:start+'T00:00:00Z',end:ir2Iso(1)+'T23:59:59Z'},filters:{activityName:'Irrigation'}},60000);
+    IR2.rows=(Array.isArray(rows)?rows:[]).filter(r=>String(r.Activity_Name||'').trim()==='Irrigation');
+    IR2.loaded=true; IR2.at=Date.now();
+  }catch(e){ IR2.err=e.message||'Could not load irrigation runs.'; }
+  IR2_D=ir2Derived_();
+  IR2.busy=false; ir2Redraw_();
 }
 function openIrrReview(){
   if(!zoneOvCan()){ toast('Irrigation runs are for managers and founders.'); return; }
-  openModal('irr-review',{}); IRR_R.open=''; irrLoad(true);
+  openModal('irr-review',{}); IR2.open=''; ir2Load(true);
 }
-async function irrOpen_(id){
-  IRR_R.open=id; irrRedraw_();
-  if(IRR_R.scout===null&&!IRR_R.scoutBusy){
-    IRR_R.scoutBusy=true;
-    try{ const s=await apiCall('get-scout-findings',{},30000); IRR_R.scout=Array.isArray(s)?s:[]; }catch(e){ IRR_R.scout=[]; }
-    IRR_R.scoutBusy=false; irrRedraw_();
-  }
-}
-function irrClose_(){ IRR_R.open=''; irrRedraw_(); }
-function irrNote_(id,v){ IRR_R.note[id]=v; }
-/* Check / verify one run through the existing review-activity route (server-side AUTH_MANAGERS check). */
+function irrOpen_(id){ IR2.open=id; ir2Redraw_(); }
+function irrClose_(){ IR2.open=''; ir2Redraw_(); }
+function irrNote_(id,v){ IR2.note[id]=v; }
+/* Verify or check one run through the existing review-activity route (server enforces Manager / Founder). */
 async function irrReview_(logId,decision){
-  if(IRR_R.busy) return;
-  if(decision==='VERIFY'&&!confirm('Verify this irrigation run? This is logged with your name and the time.')) return;
-  IRR_R.busy=true; irrRedraw_();
+  if(IR2.busy) return;
+  if(decision==='VERIFY'&&!confirm('Verify this irrigation run? It is logged with your name and the time.')) return;
+  IR2.busy=true; ir2Redraw_();
+  let msg='';
   try{
     const r=await apiCall('review-activity',{logIds:[logId],decision});
     const bad=(r.results||[]).filter(x=>!x.ok).length;
-    IRR_R.busy=false;
-    toast((decision==='CHECK'?'Marked checked':'Verified')+(bad?' ('+bad+' could not be recorded)':'')+'.');
-  }catch(e){ IRR_R.busy=false; toast(e.message||'Could not record that review.'); }
-  await irrLoad(true);
+    msg=(decision==='CHECK'?'Marked checked':'Verified')+(bad?' ('+bad+' could not be recorded)':'')+'.';
+  }catch(e){ msg=e.message||'Could not record that review.'; }
+  IR2.busy=false;
+  toast(msg);
+  await ir2Load(true);
 }
-/* ACT_013 follow-up: opens the bed panel where the existing zone-check (ACT_013) dispatch assigns it to a worker. */
+/* ACT_013 follow-up: opens the bed panel, where the existing zone-check dispatch assigns IrrigationCheck to a worker. */
 function irrFollowUp_(bedId){
   if(!zoneCheckAct_()){ toast('The zone check (ACT_013) is not available. Assign it from the bed panel.'); return; }
   closeModal(); ui.screen='board'; selectBed(bedId);
   toast('Assign the zone check (ACT_013) to a worker for this bed. Put the issue in the task notes.',7000);
 }
-/* Upcoming / recent calendar rows for this run's cohort and bed (read-only, from get-irrigation-calendar). */
-function irrSchedFor_(r){
-  const out=[];
-  ((IRR_R.cal&&IRR_R.cal.items)||[]).forEach(it=>{
-    if(String(it.cohortId||'').toUpperCase()!==String(r.Cohort_ID||'').toUpperCase()) return;
-    (it.beds||[]).forEach(b=>{
-      if(String(b.bedId||'').toUpperCase()===String(r.Bed_ID||'').toUpperCase())
-        out.push({date:it.date,status:b.status||'',net:(it.water||{}).netInches,src:(it.water||{}).source||''});
-    });
-  });
-  return out.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+/* Season header: used vs budget, from the runs inside the active season dates. */
+function ir2SeasonHtml_(){
+  const b=IR2.budget;
+  if(IR2.budgetErr) return `<div class="irr-season"><div class="note">Season budget could not be read: ${esc(IR2.budgetErr)}</div></div>`;
+  if(!b) return '';
+  if(b.status==='NO_TAB') return `<div class="irr-season"><div class="note">No season budget tab yet. In the Apps Script editor, run setupIrrigationSeasonBudgetTab() once, then enter the season budget in IRRIGATION_SEASON_BUDGET.</div></div>`;
+  if(b.status==='NO_SEASON') return `<div class="irr-season"><div class="note">No season budget covers today (${esc(b.today||'')}). Add the season row to IRRIGATION_SEASON_BUDGET (Start_Date, End_Date, Budget_Gal).</div></div>`;
+  if(b.status==='INVALID') return `<div class="irr-season"><div class="note">The ${esc(b.season||'')} row in IRRIGATION_SEASON_BUDGET needs a Budget_Gal above 0.</div></div>`;
+  if(b.status!=='OK') return `<div class="irr-season"><div class="note">Season budget not available right now.</div></div>`;
+  const used=IR2_D.filter(d=>d.r.Start_Time&&ir2Day(d.r.Start_Time)>=b.startDate&&ir2Day(d.r.Start_Time)<=b.endDate).reduce((a,d)=>a+(d.gal||0),0);
+  const pct=b.budgetGal>0?used/b.budgetGal*100:0, over=used>b.budgetGal, rem=b.budgetGal-used;
+  return `<div class="irr-season">
+    <div class="irr-season-h"><b>Season ${esc(b.season)} water</b><span class="sub">${esc(b.startDate)} to ${esc(b.endDate)}</span></div>
+    <div class="irr-season-n"><span><b>${ir2N(used)}</b> gal used</span><span>of <b>${ir2N(b.budgetGal)}</b> gal budget</span><span>${over?`<b class="irr-over">${ir2N(-rem)} gal over budget</b>`:`<b>${ir2N(rem)}</b> gal remaining`}</span><span>${ir2N(pct,1)}% used</span></div>
+    <div class="irr-bar${over?' over':''}"><i style="width:${Math.min(pct,100).toFixed(1)}%"></i></div>
+  </div>`;
 }
-function irrKpi_(){
-  const D=IRR_R.derived;
-  const awaiting=D.filter(d=>d.status==='COMPLETED').length;
-  const flagged=D.filter(d=>d.flags.length&&d.status!=='VERIFIED').length;
-  const gal=D.reduce((a,d)=>a+(Number(d.r.Quantity)||0),0), tgt=D.reduce((a,d)=>a+(Number(d.r.targetGallons)||0),0);
-  let due=0, overdue=0, nextWeek=0;
-  ((IRR_R.cal&&IRR_R.cal.items)||[]).forEach(it=>(it.beds||[]).forEach(b=>{
-    if(b.status==='OVERDUE') overdue++;
-    else if(b.status==='DUE') due++;
-    else if(b.status==='UPCOMING'&&String(it.date)<=irrIso(7)) nextWeek++;
-  }));
-  return {awaiting,flagged,gal,tgt,due,overdue,nextWeek};
+function ir2Kpi_(){
+  const issues=IR2_D.filter(d=>d.issues.length).length, unrev=IR2_D.filter(d=>d.status==='UNREVIEWED').length;
+  return `<div class="irr-kpi"><div><span>Issues &amp; outliers</span><b>${issues}</b></div><div><span>Unreviewed runs</span><b>${unrev}</b></div><div><span>Runs (60 days)</span><b>${IR2_D.length}</b></div></div>`;
 }
-function irrView_(){
-  const q=String(IRR_R.q||'').trim().toLowerCase();
-  return IRR_R.derived.filter(d=>{
+function ir2View_(){
+  const q=String(IR2.q||'').trim().toLowerCase();
+  return IR2_D.filter(d=>{
     const r=d.r;
-    if(IRR_R.fZone&&String(r.zoneId||'')!==IRR_R.fZone) return false;
-    if(IRR_R.fStatus&&d.status!==IRR_R.fStatus) return false;
+    if(IR2.fZone&&d.zone!==IR2.fZone) return false;
+    if(IR2.fStatus==='ISSUES'&&!d.issues.length) return false;
+    if(IR2.fStatus==='UNREVIEWED'&&d.status!=='UNREVIEWED') return false;
+    if(IR2.fStatus==='VERIFIED'&&d.status!=='VERIFIED') return false;
     if(q&&![r.Bed_ID,r.Cohort_ID,r.Crop_ID,r.Crop_Name,r.Worker_Name,r.Worker_ID].some(v=>String(v||'').toLowerCase().includes(q))) return false;
     return true;
   });
 }
-function irrRowHtml_(d){
-  const r=d.r, id=esc(r.Log_ID), gal=Number(r.Quantity), tg=r.targetGallons;
-  const galTxt=(r.Quantity!==''&&r.Quantity!=null&&isFinite(gal)?gal:'—')+' / '+(tg!=null?tg:'—');
-  const depTxt=(d.loggedDepth!=null&&r.targetGrossInches!=null)?d.loggedDepth.toFixed(2)+' / '+Number(r.targetGrossInches).toFixed(2)+' in':'—';
-  const minTxt=(d.minutes!=null?d.minutes:'—')+' / '+(r.estimatedMinutes!=null?r.estimatedMinutes:'—');
-  const seqTxt=(r.sequence!=null?'#'+r.sequence+(r.of?' of '+r.of:''):'off-schedule')+' · '+(r.shiftWindow||'—');
-  const canCheck=!String(r.Checked_Date||'').trim()&&d.status!=='VERIFIED', canVerify=d.status!=='VERIFIED';
+function ir2RowHtml_(d){
+  const r=d.r, id=esc(r.Log_ID), canCheck=d.status==='UNREVIEWED', canVerify=d.status!=='VERIFIED';
+  const act=d.act.min!=null?d.act.min+' min'+(d.act.basis==='total'?' (total, no pause data)':''):'—';
   return `<tr onclick="irrOpen_('${id}')">
-    <td><b>${esc(r.Bed_ID||'')}</b><div class="sub">${esc(r.zoneId||'zone not on file')}</div></td>
+    <td><b>${esc(r.Bed_ID||'')}</b><div class="sub">${esc(d.zone||'zone not on file')}</div></td>
     <td>${esc(r.Cohort_ID||'')}<div class="sub">${esc(r.Crop_Name||r.Crop_ID||'')}</div></td>
-    <td>${esc(r.Worker_Name||r.Worker_ID||'')}<div class="sub">${esc(irrWhen_(r.Start_Time))}</div></td>
-    <td>${esc(galTxt)}</td><td>${esc(depTxt)}</td><td>${esc(minTxt)}</td><td>${esc(seqTxt)}</td>
-    <td><span class="chip ${IRR_STATUS_CHIP[d.status]}">${esc(IRR_STATUS_LABEL[d.status])}</span>${d.flags.length?`<div class="sub">⚑ ${d.flags.length} flag${d.flags.length>1?'s':''}</div>`:''}</td>
-    <td style="white-space:nowrap;">${canCheck?`<button class="dc-mini" ${IRR_R.busy?'disabled':''} onclick="event.stopPropagation();irrReview_('${id}','CHECK')">Check</button> `:''}${canVerify?`<button class="dc-mini" ${IRR_R.busy?'disabled':''} onclick="event.stopPropagation();irrReview_('${id}','VERIFY')">Verify</button>`:''}</td>
+    <td>${esc(r.Worker_Name||r.Worker_ID||'')}</td>
+    <td>${esc(ir2When(r.Start_Time))}</td>
+    <td>${d.gal!=null?esc(ir2N(d.gal,1))+' gal':'—'}</td>
+    <td>${esc(act)}</td>
+    <td><span class="chip ${IR2_STATUS_CHIP[d.status]}">${esc(IR2_STATUS_LABEL[d.status])}</span>${d.issues.length?`<div class="sub">⚑ ${d.issues.length} issue${d.issues.length>1?'s':''}</div>`:''}</td>
+    <td style="white-space:nowrap;">${canVerify?`<button class="dc-mini" ${IR2.busy?'disabled':''} onclick="event.stopPropagation();irrReview_('${id}','VERIFY')">Verify</button> `:''}<button class="dc-mini" onclick="event.stopPropagation();irrOpen_('${id}')">Inspect</button></td>
   </tr>`;
 }
-function irrTableHtml_(){
-  if(!IRR_R.loaded&&IRR_R.busy) return '<div class="note">Loading irrigation runs…</div>';
-  const v=irrView_();
-  if(!v.length) return `<div class="note">${IRR_R.derived.length?'No runs match these filters.':'No irrigation runs in the last 60 days.'}</div>`;
-  return `<div class="irr-tw"><table class="irr-t"><thead><tr><th>Bed / zone</th><th>Cohort / crop</th><th>Worker</th><th>Gallons logged / target</th><th>Depth logged / target</th><th>Minutes actual / est.</th><th>Sequence · shift</th><th>Review</th><th></th></tr></thead><tbody>${v.map(irrRowHtml_).join('')}</tbody></table></div>`;
+function ir2TableHtml_(){
+  if(!IR2.loaded&&IR2.busy) return '<div class="note">Loading irrigation runs…</div>';
+  const v=ir2View_();
+  if(!v.length) return `<div class="note">${IR2_D.length?'No runs match these filters.':'No irrigation runs in the last 60 days.'}</div>`;
+  return `<div class="irr-tw"><table class="irr-t"><thead><tr><th>Bed / zone</th><th>Cohort / crop</th><th>Worker</th><th>When</th><th>Gallons applied</th><th>Active minutes</th><th>Status</th><th></th></tr></thead><tbody>${v.map(ir2RowHtml_).join('')}</tbody></table></div>`;
 }
 /* Repaints only the table, so typing in the search box never loses focus. */
-function irrPaint_(){ const el=document.getElementById('irr-table'); if(el) el.innerHTML=irrTableHtml_(); }
-function irrDrawerHtml_(id){
-  const d=IRR_R.derived.find(x=>x.r.Log_ID===id);
-  if(!d) return '';
-  const r=d.r, dash=v=>(v==null||v===''||(typeof v==='number'&&!isFinite(v)))?'—':v;
-  const canCheck=!String(r.Checked_Date||'').trim()&&d.status!=='VERIFIED', canVerify=d.status!=='VERIFIED';
-  const plan=[['Zone',dash(r.zoneId)],['Shift',dash(r.shiftWindow)],['Pressure',r.targetPsi!=null?r.targetPsi+' psi':'—'],
-    ['Sequence',r.sequence!=null?'#'+r.sequence+(r.of?' of '+r.of:''):'off-schedule'],['Gallons',r.targetGallons!=null?r.targetGallons+' gal':'—'],
-    ['Depth (gross)',r.targetGrossInches!=null?r.targetGrossInches+' in':'—'],['Minutes (estimated)',r.estimatedMinutes!=null?r.estimatedMinutes+' min':'—']];
-  const act=[['Worker',dash(r.Worker_Name||r.Worker_ID)],['Gallons logged',(r.Quantity!==''&&r.Quantity!=null)?r.Quantity+' gal':'—'],
-    ['Depth logged',d.loggedDepth!=null?d.loggedDepth.toFixed(2)+' in':'—'],['Minutes elapsed',d.minutes!=null?d.minutes+' min':'—'],
-    ['Started',irrWhen_(r.Start_Time)],['Ended',irrWhen_(r.End_Time)],
-    ['Checked',r.Checked_Date?(r.Checked_By||'')+' · '+irrWhen_(r.Checked_Date):'—'],['Verified',r.Verified_Date?(r.Verified_By||'')+' · '+irrWhen_(r.Verified_Date):'—']];
-  const table=rows=>`<table>${rows.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
-  const scoutOn=(IRR_R.scout||[]).filter(s=>String(s.Bed_ID||s.bedId||'').toUpperCase()===String(r.Bed_ID||'').toUpperCase()).slice(-5);
-  const scoutHtml=IRR_R.scout===null?'<div class="sub">Loading scouting findings…</div>'
-    :scoutOn.length?scoutOn.map(s=>`<div class="sub">• ${esc(s.Symptom||s.Finding||s.Domain||'Finding')}${s.Severity?' · '+esc(s.Severity):''}</div>`).join('')
-    :'<div class="sub">No scouting findings on this bed.</div>';
-  const schedRows=irrSchedFor_(r).filter(x=>x.date>=irrIso(-7)&&x.date<=irrIso(14));
-  const schedHtml=!IRR_R.cal?`<div class="sub">${esc(IRR_R.calErr||'Schedule not loaded.')}</div>`
-    :schedRows.length?`<table>${schedRows.map(x=>`<tr><td>${esc(x.date)}</td><td>${esc(x.status)}</td><td>${x.net!=null?esc(x.net)+' in net':'—'}</td><td>${esc(x.src)}</td></tr>`).join('')}</table>`
-    :'<div class="sub">Nothing on the calendar for this bed in the next two weeks.</div>';
-  const flagsHtml=d.flags.length?d.flags.map(f=>`<div class="sub">⚑ ${esc(f)}</div>`).join(''):'<div class="sub">No variance or field flags.</div>';
-  const note=IRR_R.note[r.Log_ID]||'';
+function ir2Paint_(){ const el=document.getElementById('irr-table'); if(el) el.innerHTML=ir2TableHtml_(); }
+function ir2DrawerHtml_(id){
+  const d=IR2_D.find(x=>x.r.Log_ID===id); if(!d) return '';
+  const r=d.r, canCheck=d.status==='UNREVIEWED', canVerify=d.status!=='VERIFIED';
+  const row=(k,v)=>`<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`;
+  const facts=`<table>${row('Zone',d.zone||'not on file')}${row('Cohort',r.Cohort_ID||'—')}${row('Crop',r.Crop_Name||r.Crop_ID||'—')}${row('Worker',r.Worker_Name||r.Worker_ID||'—')}${row('Started',ir2When(r.Start_Time))}${row('Ended',ir2When(r.End_Time))}${row('Gallons applied',d.gal!=null?ir2N(d.gal,1)+' gal':'—')}${row('Active minutes',d.act.min!=null?d.act.min+' min'+(d.act.basis==='total'?' (total elapsed; no pause data)':''):'—')}${row('Review',IR2_STATUS_LABEL[d.status])}${r.Checked_Date?row('Checked by',(r.Checked_By||'')+' · '+ir2When(r.Checked_Date)):''}${r.Verified_Date?row('Verified by',(r.Verified_By||'')+' · '+ir2When(r.Verified_Date)):''}</table>`;
+  const issues=d.issues.length?d.issues.map(x=>`<div class="sub">⚑ ${esc(x)}</div>`).join(''):'<div class="sub">No issues or outliers on this run.</div>';
+  const note=IR2.note[r.Log_ID]||'';
   return `<aside class="irr-drawer" role="dialog" aria-label="Irrigation run detail">
-    <div class="irr-hd"><h2>${esc(r.Bed_ID||'')} · ${esc(r.zoneId||'zone not on file')}</h2><button onclick="irrClose_()">Close</button></div>
-    <div class="sub">${esc(r.Cohort_ID||'')} · ${esc(r.Crop_Name||r.Crop_ID||'')} · <span class="chip ${IRR_STATUS_CHIP[d.status]}">${esc(IRR_STATUS_LABEL[d.status])}</span></div>
-    <div class="sub" style="font-weight:700;margin-top:10px;">Planned</div>${table(plan)}
-    <div class="sub" style="font-weight:700;margin-top:10px;">Actual</div>${table(act)}
-    <div class="sub" style="font-weight:700;margin-top:10px;">Worker notes</div><div class="sub">${r.Notes?esc(r.Notes):'No notes from the worker.'}</div>
-    <div class="sub" style="font-weight:700;margin-top:10px;">Flags</div>${flagsHtml}
-    <div class="sub" style="font-weight:700;margin-top:10px;">Override reason</div><div class="sub">${r.overrideReason?esc(r.overrideReason):'None on file (see IRRIGATION_OVERRIDE_LOG).'}</div>
-    <div class="sub" style="font-weight:700;margin-top:10px;">Scouting on this bed</div>${scoutHtml}
-    <div class="sub" style="font-weight:700;margin-top:10px;">Schedule and daily ET (get-irrigation-calendar)</div>${schedHtml}
-    <div class="sub" style="font-weight:700;margin-top:10px;">Manager note</div>
-    <textarea style="width:100%;min-height:60px;" placeholder="Note for this run (kept in this window only)" oninput="irrNote_('${esc(r.Log_ID)}',this.value)">${esc(note)}</textarea>
+    <div class="irr-hd"><h2>${esc(r.Bed_ID||'')}</h2><button onclick="irrClose_()">Close</button></div>
+    ${facts}
+    <div class="sub irr-sec">Issues &amp; outliers</div>${issues}
+    <div class="sub irr-sec">Worker notes</div><div class="sub">${r.Notes?esc(r.Notes):'No notes from the worker.'}</div>
+    <div class="sub irr-sec">Manager note</div>
+    <textarea style="width:100%;min-height:60px;" placeholder="Note for this run (kept in this window only for now)" oninput="irrNote_('${esc(r.Log_ID)}',this.value)">${esc(note)}</textarea>
     <div class="irr-acts">
-      ${canCheck?`<button class="btn btn-outline" ${IRR_R.busy?'disabled':''} onclick="irrReview_('${esc(r.Log_ID)}','CHECK')">Mark checked</button>`:''}
-      ${canVerify?`<button class="btn" ${IRR_R.busy?'disabled':''} onclick="irrReview_('${esc(r.Log_ID)}','VERIFY')">Mark verified</button>`:''}
-      ${d.flags.length?`<button class="btn btn-outline" onclick="irrFollowUp_('${esc(r.Bed_ID||'')}')">Dispatch ACT_013 follow-up</button>`:''}
+      ${canVerify?`<button class="btn" ${IR2.busy?'disabled':''} onclick="irrReview_('${esc(r.Log_ID)}','VERIFY')">Verify run</button>`:''}
+      ${canCheck?`<button class="btn btn-outline" ${IR2.busy?'disabled':''} onclick="irrReview_('${esc(r.Log_ID)}','CHECK')">Mark checked</button>`:''}
+      ${d.issues.length?`<button class="btn btn-outline" onclick="irrFollowUp_('${esc(r.Bed_ID||'')}')">Dispatch IrrigationCheck (ACT_013)</button>`:''}
     </div>
   </aside>`;
 }
 function irrReviewModal(){
-  const hd=`<div class="irr-hd"><h2>Irrigation runs (ACT_031)</h2><button class="btn btn-outline" ${IRR_R.busy?'disabled':''} onclick="irrLoad(true)">${IRR_R.busy?'Loading…':'↻ Reload'}</button><button onclick="closeModal()">Close</button></div>`;
+  const hd=`<div class="irr-hd"><h2>Irrigation runs (ACT_031)</h2><button class="btn btn-outline" ${IR2.busy?'disabled':''} onclick="ir2Load(true)">${IR2.busy?'Loading…':'↻ Reload'}</button><button onclick="closeModal()">Close</button></div>`;
   if(!zoneOvCan()) return hd+'<div class="note">Manager or founder access is required to review irrigation runs.</div>';
-  const k=irrKpi_();
-  const err=IRR_R.err?`<div class="banner">${esc(IRR_R.err)}</div>`:'';
-  const kpi=`<div class="irr-kpi">
-    <div><span>Awaiting sign-off</span><b>${k.awaiting}</b></div>
-    <div><span>Variance / field flags</span><b>${k.flagged}</b></div>
-    <div><span>Gallons applied (60 days)</span><b>${irrFmtN_(k.gal)}</b><div class="sub">of ${irrFmtN_(k.tgt)} gal target</div></div>
-    <div><span>Due / overdue next runs</span><b>${k.due} / ${k.overdue}</b><div class="sub">${k.nextWeek} more in the next 7 days</div></div></div>`;
+  const err=IR2.err?`<div class="banner">${esc(IR2.err)}</div>`:'';
   const filters=`<div class="irr-filters">
-    <select aria-label="Zone" onchange="IRR_R.fZone=this.value;irrPaint_()"><option value="">All zones</option>${IRR_ZONES.map(z=>`<option value="${z}" ${IRR_R.fZone===z?'selected':''}>${z}</option>`).join('')}</select>
-    <select aria-label="Review status" onchange="IRR_R.fStatus=this.value;irrPaint_()"><option value="">All statuses</option>${IRR_STATUSES.map(s=>`<option value="${s}" ${IRR_R.fStatus===s?'selected':''}>${IRR_STATUS_LABEL[s]}</option>`).join('')}</select>
-    <input type="search" placeholder="Search bed, cohort, crop or worker" value="${esc(IRR_R.q)}" oninput="IRR_R.q=this.value;irrPaint_()"></div>`;
-  const drawer=IRR_R.open?irrDrawerHtml_(IRR_R.open):'';
-  return hd+err+kpi+filters+`<div id="irr-table">${irrTableHtml_()}</div>`+drawer;
+    <select aria-label="Zone" onchange="IR2.fZone=this.value;ir2Paint_()"><option value="">All zones</option>${IR2_ZONES.map(z=>`<option value="${z}" ${IR2.fZone===z?'selected':''}>${z}</option>`).join('')}</select>
+    <select aria-label="Status" onchange="IR2.fStatus=this.value;ir2Paint_()">
+      <option value="ALL" ${IR2.fStatus==='ALL'?'selected':''}>All runs</option>
+      <option value="ISSUES" ${IR2.fStatus==='ISSUES'?'selected':''}>Issues &amp; outliers</option>
+      <option value="UNREVIEWED" ${IR2.fStatus==='UNREVIEWED'?'selected':''}>Unreviewed</option>
+      <option value="VERIFIED" ${IR2.fStatus==='VERIFIED'?'selected':''}>Verified</option></select>
+    <input type="search" placeholder="Search bed, cohort, crop or worker" value="${esc(IR2.q)}" oninput="IR2.q=this.value;ir2Paint_()"></div>`;
+  const drawer=IR2.open?ir2DrawerHtml_(IR2.open):'';
+  return hd+err+ir2SeasonHtml_()+ir2Kpi_()+filters+`<div id="irr-table">${ir2TableHtml_()}</div>`+drawer;
 }
 function zoneTraceModal(){
   const intro=`<p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Zone traces that workers recorded with ACT_013 wait here. Signing off sets that bed's irrigation zone, which releases the zone lock for that bed only. The zone the worker recorded is already selected; change it only if you disagree, and it must be one of the fixed zones. A bed that already has a zone on file is never overwritten; that case is shown as a conflict. Rejecting closes a trace and changes nothing.</p>`;
