@@ -97,14 +97,24 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .rb-tabs button{border:0;background:none;font:inherit;font-size:12.5px;font-weight:700;color:var(--ink-soft);padding:8px 12px;border-bottom:3px solid transparent;cursor:pointer;display:flex;gap:6px;align-items:center;}
 .rb-tabs button.on{color:var(--forest);border-bottom-color:var(--forest);}
 .rb-filters{display:flex;flex-direction:column;gap:6px;margin:6px 0 10px;}
-.rb-frow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;} .rb-fl{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);min-width:78px;}
+.rb-frow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;} .rb-fl{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);min-width:40px;}
+.rb-seg{display:flex;flex-wrap:wrap;gap:5px;align-items:center;}
 .rb-fc{border:1px solid var(--line);background:var(--paper);border-radius:99px;font:inherit;font-size:11.5px;font-weight:700;padding:4px 11px;cursor:pointer;color:var(--ink-soft);}
 .rb-fc.on{background:var(--forest);border-color:var(--forest);color:#fff;}
-.rb-in{font:inherit;font-size:12.5px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);min-width:200px;max-width:100%;}
+.rb-in{font:inherit;font-size:12.5px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);min-width:160px;max-width:100%;}
 .rb-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;}
 .rb-tbl th.sortable{cursor:pointer;user-select:none;} .rb-tbl td.wrap{white-space:normal;min-width:170px;} .rb-tbl td.c,.rb-tbl th.c{width:28px;text-align:center;}
 .rb-tbl tr.rb-r td:first-child{border-left:4px solid var(--rbc);}
+.rb-tbl tr.rb-r.pending{background:color-mix(in srgb,var(--warn) 8%,var(--paper));}
+.rb-tbl tr.rb-r.pending td:first-child{border-left-width:5px;}
+.rb-tbl tr.rb-r.done{opacity:.86;}
+.rb-tbl tr.rb-r.done:hover{opacity:1;}
 .rb-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--rbc);margin-right:6px;}
+.rb-actrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.rb-actsep,.rb-locsep{opacity:.55;margin:0 1px;}
+.rb-notes{max-width:360px;}
+.rb-loc-rep{opacity:.5;}
+.rb-durflag{white-space:nowrap;}
 .rb-actl{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--ink);text-decoration:underline dotted;text-underline-offset:2px;cursor:pointer;text-align:left;}
 .rb-detail td{white-space:normal !important;background:var(--sand);}
 .rb-bulk{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0;}
@@ -6509,13 +6519,41 @@ function rbStatusChip(r){
     tocheck:'<span class="chip chip-warn">To check</span>', toverify:'<span class="chip chip-warn">To verify</span>',
     checked:'<span class="chip chip-info">Checked \u26A1</span>', verified:'<span class="chip chip-ok">Verified \u2713</span>' })[r.state]||'';
 }
-function rbSub(r){   /* quantity, time, fertilizer and notes: what the manager needs to see before checking */
+function rbSub(r){   /* quantity, fertilizer and notes on their own line, below the activity name+duration: what the manager needs before checking */
   const x=r.item; if(!x) return ''; const bits=[];
-  if(x.minutes) bits.push(x.minutes+' min');
   if(x.quantity!==''&&x.quantity!=null) bits.push(x.quantity+' '+(x.unit||''));
   if(x.fertilizer) bits.push([x.fertilizer.type,x.fertilizer.brand,(x.fertilizer.quantity+' '+x.fertilizer.unit)].join(' \u00b7 '));
   if(x.notes) bits.push(x.notes);
-  return bits.length?`<div class="qsub" style="text-transform:none;letter-spacing:0;white-space:normal;">${bits.map(esc).join(' \u00b7 ')}</div>`:'';
+  if(!bits.length) return '';
+  const full=bits.join(' \u00b7 ');
+  return `<div class="qsub rb-notes" style="text-transform:none;letter-spacing:0;white-space:normal;" title="${esc(full)}">${esc(full)}</div>`;
+}
+/* Flag unusually long logged durations (timer left running / forgotten pause), so review time goes to real outliers first. */
+var RB_LONG_MIN=240;   /* minutes; 4h+ on a single activity is well outside normal task length */
+function rbLong_(x){
+  if(!x) return false;
+  const m=Number(x.minutes)||0;
+  return m>=RB_LONG_MIN || /forgot|forgo(t|tten)?\s*(to\s*)?pause|left.*(running|on)|never paused|didn.?t pause/i.test(String(x.notes||''));
+}
+function rbDurBadge(x){
+  if(!x||!x.minutes) return '';
+  const long=rbLong_(x);
+  return `<span class="chip ${long?'chip-danger':'chip-neutral'}" title="Logged duration">${esc(x.minutes)} min</span>`
+    +(long?` <span class="chip chip-warn rb-durflag" title="Unusually long \u2014 confirm the worker did not forget to pause the timer.">\u26A0 Long duration</span>`:'');
+}
+/* "ACT_017 \u00b7 Trellising" instead of actLabel's "ACT_017: Trellising", to match the review board's own column style. */
+function rbActLabel(r){
+  const lbl=actLabel(r.activity), m=/^(\S+):\s*(.*)$/.exec(lbl);
+  return m?`${esc(m[1])} <span class="rb-actsep">\u00b7</span> ${esc(m[2])}`:esc(lbl);
+}
+/* Bed + Cohort in one cell. When this row's bed & cohort match the row above (e.g. four rows all on B4-54 / KAL-27-C08),
+ * the repeat is shown dimmed so the set reads as one group instead of four unrelated rows. */
+function rbLocCell(r,prev){
+  const bedBtn=`<button class="dc-mini" data-b="${esc(r.bedId)}" title="Open bed" onclick="rbGoBed(this.dataset.b,'history')">${esc(r.bedId)||'\u2014'}</button>`;
+  const cohortBtn=r.cohortId?`<button class="dc-mini" data-b="${esc(r.bedId)}" title="Open cohort on its bed" onclick="rbGoBed(this.dataset.b,'overview')">${esc(r.cohortId)}</button>`:'';
+  const inner=bedBtn+(cohortBtn?` <span class="rb-locsep">\u00b7</span> ${cohortBtn}`:'');
+  const rep=!!(prev&&r.bedId&&prev.bedId===r.bedId&&prev.cohortId===r.cohortId);
+  return `<td class="wrap${rep?' rb-loc-rep':''}" ${rep?'title="Same bed &amp; cohort as the row above"':''}>${inner}</td>`;
 }
 function rbActCell(r){
   const x=r.item||{}, w=v=>esc(rbWhen(v));
@@ -6534,17 +6572,17 @@ function rbActCell(r){
   }
   return `Checked by ${esc(x.checkedBy)} (${w(x.checkedDate)})`;
 }
-function rbTRow(r){
+function rbTRow(r,prev){
   const x=r.item||{}, c=rbColor(r.activity), m=r.state==='tocheck'?'check':r.state==='toverify'?'verify':'';
   const sel=m?`<input type="checkbox" ${(m==='check'?rb.sel:rb.selV)[x.logId]?'checked':''} data-k="${esc(x.logId)}" data-m="${m}" aria-label="Select" onchange="rbTog(this.dataset.k,this.dataset.m,this.checked)">`:'';
-  const name=(x.logId&&!r.pending)?`<button class="rb-actl" data-k="${esc(x.logId)}" title="Open activity profile" onclick="rbOpenActivity(this.dataset.k)">${esc(actLabel(r.activity))}</button>`:`<b>${esc(actLabel(r.activity))}</b>`;
+  const label=rbActLabel(r);
+  const name=(x.logId&&!r.pending)?`<button class="rb-actl" data-k="${esc(x.logId)}" title="Open activity profile" onclick="rbOpenActivity(this.dataset.k)">${label}</button>`:`<b>${label}</b>`;
   let detail='';
   if(r.crew&&rb.open[r.key]){ let h=''; try{ const s=rbCrewS(r.crew); h=avLines(s)+avPortionLines(s); }catch(e){ h='<div class="empty">Could not show the portions.</div>'; }
-    detail=`<tr class="rb-detail" style="--rbc:${c};"><td colspan="7">${h}</td></tr>`; }
-  return `<tr class="rb-r" style="--rbc:${c};"><td class="c">${sel}</td><td>${rbStatusChip(r)}</td>
-    <td class="wrap"><span class="rb-dot"></span>${name}${rbSub(r)}</td>
-    <td><button class="dc-mini" data-b="${esc(r.bedId)}" title="Open bed" onclick="rbGoBed(this.dataset.b,'history')">${esc(r.bedId)}</button></td>
-    <td>${r.cohortId?`<button class="dc-mini" data-b="${esc(r.bedId)}" title="Open cohort on its bed" onclick="rbGoBed(this.dataset.b,'overview')">${esc(r.cohortId)}</button>`:'\u2014'}</td>
+    detail=`<tr class="rb-detail" style="--rbc:${c};"><td colspan="6">${h}</td></tr>`; }
+  return `<tr class="rb-r ${r.pending?'pending':'done'}" style="--rbc:${c};"><td class="c">${sel}</td><td>${rbStatusChip(r)}</td>
+    <td class="wrap"><div class="rb-actrow"><span class="rb-dot"></span>${name}${rbDurBadge(x)}</div>${rbSub(r)}</td>
+    ${rbLocCell(r,prev)}
     <td class="wrap">${esc(r.workers.join(', '))||'\u2014'}${r.multi?' <span class="chip chip-neutral">shared</span>':''}</td>
     <td class="wrap">${rbActCell(r)}</td></tr>${detail}`;
 }
@@ -6556,15 +6594,20 @@ function rbFilterBar(all){
   const any=rb.fBlock||rb.fDomain||rb.fWorker||rb.q||rb.dFrom||rb.dTo;
   const pre=(n,label,on)=>`<button class="rb-fc ${on?'on':''}" onclick="rbPreset(${n})">${label}</button>`;
   const nodate=!rb.dFrom&&!rb.dTo;
+  /* Row 1: who/what (search, worker, activity group) + reset. Row 2: scope/time (block left, date right). */
   return `<div class="rb-filters">
-    <div class="rb-frow"><input id="rb-search" class="rb-in" type="search" placeholder="Search activity, bed, cohort or worker\u2026" value="${esc(rb.q)}" oninput="rbSearch(this.value)" aria-label="Search the review board">
-      <select class="rb-in" style="min-width:150px;" aria-label="Filter by worker" onchange="rbSetF('fWorker',this.value,true)"><option value="">All workers</option>${wk.map(w=>`<option value="${esc(w)}" ${rb.fWorker===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
-      ${any?'<button class="dc-mini" onclick="rbClearF()">Clear filters</button>':''}</div>
-    <div class="rb-frow"><span class="rb-fl">Block</span>${allChip('fBlock')}${PLAN_BLOCKS.map(b=>chip('fBlock',b,BLOCK_LABELS[b]||b)).join('')}</div>
-    <div class="rb-frow"><span class="rb-fl">Date</span>${pre('null','Any date',nodate)}${pre(0,'Today',rb.dFrom===owIso(0)&&rb.dTo===owIso(0))}${pre(7,'Last 7 days',rb.dFrom===owIso(-7)&&!rb.dTo)}${pre(30,'Last 30 days',rb.dFrom===owIso(-30)&&!rb.dTo)}
-      <label class="qsub" style="margin:0 0 0 6px;text-transform:none;letter-spacing:0;">From <input type="date" class="rb-in" style="min-width:0;padding:4px 6px;" value="${esc(rb.dFrom)}" onchange="rbSetDate('dFrom',this.value)"></label>
-      <label class="qsub" style="margin:0;text-transform:none;letter-spacing:0;">To <input type="date" class="rb-in" style="min-width:0;padding:4px 6px;" value="${esc(rb.dTo)}" onchange="rbSetDate('dTo',this.value)"></label></div>
-    ${doms.length?`<div class="rb-frow"><span class="rb-fl">Activity group</span>${allChip('fDomain')}${doms.map(g=>chip('fDomain',g,g)).join('')}</div>`:''}
+    <div class="rb-frow">
+      <input id="rb-search" class="rb-in" type="search" placeholder="Search activity, bed, cohort or worker\u2026" value="${esc(rb.q)}" oninput="rbSearch(this.value)" aria-label="Search the review board">
+      <select class="rb-in" style="min-width:140px;" aria-label="Filter by worker" onchange="rbSetF('fWorker',this.value,true)"><option value="">All workers</option>${wk.map(w=>`<option value="${esc(w)}" ${rb.fWorker===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
+      ${doms.length?`<span class="rb-seg">${allChip('fDomain')}${doms.map(g=>chip('fDomain',g,g)).join('')}</span>`:''}
+      ${any?'<button class="dc-mini" style="margin-left:auto;" onclick="rbClearF()">Reset</button>':''}
+    </div>
+    <div class="rb-frow" style="justify-content:space-between;">
+      <span class="rb-seg">${allChip('fBlock')}${PLAN_BLOCKS.map(b=>chip('fBlock',b,BLOCK_LABELS[b]||b)).join('')}</span>
+      <span class="rb-seg">${pre('null','Any date',nodate)}${pre(0,'Today',rb.dFrom===owIso(0)&&rb.dTo===owIso(0))}${pre(7,'7d',rb.dFrom===owIso(-7)&&!rb.dTo)}${pre(30,'30d',rb.dFrom===owIso(-30)&&!rb.dTo)}
+        <label class="qsub" style="margin:0 0 0 6px;text-transform:none;letter-spacing:0;">From <input type="date" class="rb-in" style="min-width:0;padding:4px 6px;" value="${esc(rb.dFrom)}" onchange="rbSetDate('dFrom',this.value)"></label>
+        <label class="qsub" style="margin:0;text-transform:none;letter-spacing:0;">To <input type="date" class="rb-in" style="min-width:0;padding:4px 6px;" value="${esc(rb.dTo)}" onchange="rbSetDate('dTo',this.value)"></label></span>
+    </div>
   </div>`;
 }
 function rbBulk(v){
@@ -6598,22 +6641,27 @@ function rbPanel(){
   const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>!r.pending).length, nZone=ztCount_(), total=pend('multi')+pend('single')+nZone;
   const v=rbView(rb.tab==='zone'?'single':rb.tab,rows);
   const tabs=[['zone','Zone sign-off (ACT_013)',nZone,'chip-warn'],['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['history','Activity history',nHist,'chip-neutral']];
-  const blurb={ multi:"Each worker's finished portion is checked as they finish; workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.",
+  /* Policy text (what Checked/Verified mean, what never changes) moves behind a "?" hint; the visible line is just the
+   * current scope (date window + block filter), so the table starts higher on the screen. */
+  const policy={ multi:"Each worker's finished portion is checked as they finish; workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.",
     single:'Routine work done by one worker. Checking only logs your review; it never changes a bed, cohort, schedule or assignment.',
     zone:'Worker zone traces awaiting your decision.',
-    history:'Every checked and verified item, up to '+RB_HISTORY_DAYS+' days back (the most recent '+200+' are loaded). Loaded only while this tab is open.' }[rb.tab]
-    +(rb.tab==='history'||rb.tab==='zone'?'':(rb.dFrom||rb.dTo?' Showing the dates you picked.':' Showing what is waiting plus work checked in the last '+RB_ACTIVE_DAYS+' days; pick a date range to look further back.'))
-    +(rb.fBlock?' Block filter: '+(BLOCK_LABELS[rb.fBlock]||rb.fBlock)+' (change it with the block list on the left).':'');
+    history:'Every checked and verified item, up to '+RB_HISTORY_DAYS+' days back (the most recent '+200+' are loaded). Loaded only while this tab is open.' }[rb.tab];
+  const scopeBits=[];
+  if(rb.tab!=='history'&&rb.tab!=='zone') scopeBits.push(rb.dFrom||rb.dTo?'Showing the dates you picked.':'Showing what is waiting plus work checked in the last '+RB_ACTIVE_DAYS+' days.');
+  if(rb.fBlock) scopeBits.push('Block: '+(BLOCK_LABELS[rb.fBlock]||rb.fBlock)+'.');
+  const scopeLine=scopeBits.join(' ')||policy;
+  const help=`<details class="zt-help"><summary title="What Checked / Verified mean">?</summary><div class="zt-pop">${esc(policy)}</div></details>`;
   const histWait=rbWantDays()>rb.loadedDays;
   const empty=histWait?'Loading history\u2026':v.all.length?'No items match the filters. <button class="dc-mini" onclick="rbClearF()">Clear filters</button>'
     :({ multi:'No multi-worker activities need review.', single:'Nothing to review. Completed Checked activities from the last '+RB_ACTIVE_DAYS+' days appear here.', history:'No checked or verified work in the last '+RB_HISTORY_DAYS+' days.' })[rb.tab];
-  const table=v.f.length?`<div class="rb-wrap"><table class="bb-t rb-tbl"><thead><tr><th class="c"></th>${rbTh('status','Status')}${rbTh('activity','Activity')}${rbTh('bed','Bed')}${rbTh('cohort','Cohort')}${rbTh('worker','Worker(s)')}${rbTh('when',rb.tab==='history'?'Manager action \u00b7 time':'Manager action \u00b7 time')}</tr></thead>
-    <tbody>${v.rows.map(rbTRow).join('')}</tbody></table></div>${rbPager(rb.tab,v)}`:`<div class="empty" style="padding:10px 0;">${empty}</div>`;
+  const table=v.f.length?`<div class="rb-wrap"><table class="bb-t rb-tbl"><thead><tr><th class="c"></th>${rbTh('status','Status')}${rbTh('activity','Activity')}${rbTh('bed','Location & Cohort')}${rbTh('worker','Worker')}${rbTh('when','Manager action \u00b7 time')}</tr></thead>
+    <tbody>${v.rows.map((r,i)=>rbTRow(r,v.rows[i-1])).join('')}</tbody></table></div>${rbPager(rb.tab,v)}`:`<div class="empty" style="padding:10px 0;">${empty}</div>`;
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
       <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></span></div>
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
     <div class="rb-tabs" role="tablist">${tabs.map(t=>`<button role="tab" aria-selected="${rb.tab===t[0]}" class="${rb.tab===t[0]?'on':''}" onclick="rbTab('${t[0]}')">${esc(t[1])}${t[2]?`<span class="chip ${t[3]}">${t[2]}</span>`:''}</button>`).join('')}</div>
-    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:6px;">${esc(blurb)}</div>
+    <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;">${esc(scopeLine)}${help}</div>
     ${rb.tab==='zone'?rbZoneBody():rbFilterBar(rows)+rbBulk(v)+table}</div>`;
 }
 /* ADD NEW ACTIVITY. The form follows the ACTIVITY_REFERENCE tab column by column (Activity_ID ... Is_Fertilizer) and the
@@ -8969,6 +9017,12 @@ async function mockBackend(action, p){
       state.fromCache=false;
       if(changed) paint();
       refreshVisible(false);
+      /* Manager review board (counts behind the "Manager review" badge + banner) is re-read on every tick, not only when
+       * the today-view signature changes above. A check or verify done from the Dashboard or another manager app does not
+       * move a bed, session or exception, so sigOf(d) can stay identical while toCheck/toVerify shrink on the server;
+       * without this, the badge and banner only cleared on a manual Refresh. rbLoad() self-throttles to ~20 s, so calling
+       * it every tick here is cheap and never doubles up with the one already scheduled after a manual loadToday(). */
+      rbLoad(false);
     }catch(e){ failStreak++; /* background refresh is silent; apiCall already updates the connection indicator */ }
     finally{ polling=false; pollMs=Date.now()-lastPoll; }
   }
