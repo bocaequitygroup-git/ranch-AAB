@@ -200,6 +200,14 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .cal-insight{background:color-mix(in srgb,var(--ok) 10%,var(--paper));border:1px solid color-mix(in srgb,var(--ok) 35%,var(--line));color:var(--ink);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;margin-bottom:12px;}
 .cal-nav{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
 .cal-nav .ttl{flex:1;}
+.mp-panel{background:var(--paper,#fff);border:1.5px solid var(--line);border-radius:10px;padding:10px;margin:-4px 0 10px;max-width:340px;box-shadow:0 4px 14px rgba(0,0,0,.08);}
+.mp-yr{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-weight:800;}
+.mp-yr button{border:1.5px solid var(--line);background:var(--paper,#fff);border-radius:8px;padding:4px 12px;font:inherit;font-weight:800;cursor:pointer;}
+.mp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+.mp-grid button{border:1.5px solid var(--line);background:var(--sand);border-radius:8px;padding:9px 0;font:inherit;font-size:13px;font-weight:700;cursor:pointer;color:var(--ink);}
+.mp-grid button:hover{border-color:var(--forest);}
+.mp-grid button.cur{background:var(--forest);color:#fff;border-color:var(--forest);}
+.mp-grid button.now{border-color:var(--forest);}
 .cal-nav .ttl b{font-size:18px;font-weight:800;display:block;}
 .cal-nav .ttl span{font-size:12px;color:var(--ink-soft);}
 .cal-nav button{background:var(--paper);border:1.5px solid var(--line);border-radius:8px;padding:6px 12px;font-family:inherit;font-weight:700;font-size:14px;color:var(--ink);cursor:pointer;}
@@ -694,14 +702,14 @@ async function fetchTodayView(){
   if(d && d.timings) console.log('[today-view] round trip '+(Date.now()-t0)+' ms; server stages (ms):', d.timings);
   return d||{};
 }
-function applyTodayView(d){
+function applyTodayView(d,skipReview){
   state.beds = d.beds||[]; state.sessions=d.sessions||[]; state.exceptions=d.exceptions||[];
   state.verification = d.verification||null;   /* server snapshot (VerificationSnapshot.gs): the one source for every 'waiting for verification' count */
   state.harvestReady=d.harvestReady||[]; state.queueByBed=d.queueByBed||{}; state.workers=d.workers||[];
   state.activityCatalog=d.activityCatalog||[]; state.overrides=d.overrides||[];
   state.todayById={}; state.beds.forEach(b=>{ state.todayById[b.id]=b; });
   state.todayError=''; state.lastSync=new Date();
-  rbLoad(false);   /* review board: at most once per 20 s (a forced reload after every board change overloaded the server) */
+  if(!skipReview&&!_loadRun) rbLoad(false);   /* review board: at most once per 20 s; during a full load it waits until the main data is in (see loadTodayOnce) */
 }
 /* Assignment confirmation: a window the manager closes with OK, so a completed assignment cannot pass unnoticed. */
 function assignDialog(title, lines){
@@ -732,6 +740,7 @@ async function loadTodayOnce(){
   const [today, board, aq] = await Promise.allSettled([ todayP, loadCohortBoard(), loadAssignmentQueue() ]);
   ui.loading=false;
   setConn(IS_DEMO?'demo':'online'); render();
+  setTimeout(function(){ rbLoad(false); },400);   /* review board + zone queue start only after the bed, cohort and queue data are in */
   if(today.status==='rejected') toast(today.reason.message);
   else if(board.status==='rejected') toast('Cohort board: '+board.reason.message);
   else if(aq.status==='rejected') toast('Assignment queue: '+aq.reason.message);
@@ -5533,6 +5542,18 @@ function calEvents(tab){
 }
 function calSetTab(t){ ui.calTab=t; ui.calMonth=null; ui.calDay=null; render(); }
 function calSetLoc(l){ ui.calLoc=l; ui.calDay=null; render(); }
+/* Month picker: click the month name (or "Month") on any calendar, pick the year and month directly instead of stepping with the arrows. */
+const MP_={ open:null, year:0 };
+const MP_NAMES_=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function mpToggle(kind,cur){ if(MP_.open===kind){ MP_.open=null; } else { MP_.open=kind; MP_.year=+String(cur||'').slice(0,4)||new Date().getFullYear(); } render(); }
+function mpYear(d){ MP_.year+=d; render(); }
+function mpPick(kind,ym){ MP_.open=null; if(kind==='cal'){ ui.calMonth=ym; ui.calDay=null; render(); } else irrGoMonth(ym); }
+function mpPanel(kind,cur){
+  if(MP_.open!==kind) return '';
+  const now=new Date().toISOString().slice(0,7);
+  return `<div class="mp-panel cal-noprint" role="dialog" aria-label="Choose a month"><div class="mp-yr"><button onclick="mpYear(-1)" aria-label="Previous year">\u2039</button><span>${MP_.year}</span><button onclick="mpYear(1)" aria-label="Next year">\u203A</button></div>
+    <div class="mp-grid">${MP_NAMES_.map((n,i)=>{ const ym=MP_.year+'-'+String(i+1).padStart(2,'0'); return `<button class="${ym===cur?'cur':ym===now?'now':''}" onclick="mpPick('${kind}','${ym}')">${n}</button>`; }).join('')}</div></div>`;
+}
 function calNav(n){ const [y,m]=ui.calMonth.split('-').map(Number), d=new Date(Date.UTC(y,m-1+n,1)); ui.calMonth=d.toISOString().slice(0,7); ui.calDay=null; render(); }
 function calGoToday(){ ui.calMonth=calToday().slice(0,7); ui.calDay=calToday(); render(); }
 function calPick(d){ ui.calDay=d; render(); }
@@ -5581,7 +5602,7 @@ function calScreen(){
   <div class="cal-legend" style="margin-bottom:10px">${leg}</div>
   ${coverSop}${tab==='cover'?'':calAlignHTML()}
   ${insight?`<div class="cal-insight">${insight}</div>`:''}
-  <div class="cal-nav"><button class="cal-noprint" onclick="calNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b>${mname}</b><span>${nOpen} ${lead}</span></div><button class="cal-noprint" onclick="calNav(1)" aria-label="Next month">›</button><button class="cal-noprint" onclick="calGoToday()">Today</button></div>
+  <div class="cal-nav"><button class="cal-noprint" onclick="calNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b onclick="mpToggle('cal','${ui.calMonth}')" style="cursor:pointer;" title="Pick a month">${mname} \u25BE</b><span>${nOpen} ${lead}</span></div><button class="cal-noprint" onclick="calNav(1)" aria-label="Next month">›</button><button class="cal-noprint" onclick="mpToggle('cal','${ui.calMonth}')">Month \u25BE</button><button class="cal-noprint" onclick="calGoToday()">Today</button></div>${mpPanel('cal',ui.calMonth)}
   ${view==='agenda'?agendaBody:monthBody}
   <div class="cal-note">${tab==='cover'?'These are bed-turnover windows from the Cover Crop SOP, keyed to the date the cohort is terminated. They are not plantings and are not read from Open Field Operation.':'Read live from the workbook. Every entry comes from Open Field Operation, the plan for planting dates; where a cohort has been planted (or its planting is scheduled on another day) the actual date is shown instead and the plan date is noted. Sow date = planting date minus pre-DOB days (germination + nursery + harden-off + establish). Harvest window = planting date plus Days to First Harvest (min to max).'}${tab!=='cover'&&calState.missing&&calState.missing.length?` <b style="color:var(--danger)">${calState.missing.length} Open Field Operation planting(s) are missing from the calendar feed: ${esc(calState.missing.slice(0,6).join(', '))}${calState.missing.length>6?'…':''}.</b>`:''}${tab!=='cover'&&!IS_DEMO&&!calState.ofoSet?' <b style="color:var(--warn)">Could not re-read Open Field Operation to verify; showing the feed\'s open-field plantings.</b>':''}${tab!=='cover'&&calState.hidden&&calState.hidden.length?` ${calState.hidden.length} Master Calendar slot(s) not in Open Field Operation are not shown.`:''} ${tab!=='cover'&&IS_DEMO?' <b>Demo mode: showing the open-field snapshot only.</b>':''}</div>`);
 }
@@ -5598,11 +5619,11 @@ function irrRange(){ const [y,m]=irr.month.split('-').map(Number); return {from:
 async function irrLoad(force){
   if(!irr.month) irr.month=irrToday().slice(0,7);
   if(irr.busy||(!force&&irr.loaded===irr.month&&irr.data)) return;
-  irr.busy=true; irr.error=null; render();
+  irr.busy=true; irr.error=null; const mo=irr.month; render();
   try{
     if(IS_DEMO){ irr.data={items:[],activeCohorts:0,waitingForVerification:0,noSchedule:[],demo:true}; }
-    else{ irr.data=await apiCall('get-irrigation-calendar',irrRange()); irr.pick={}; }
-    irr.loaded=irr.month;
+    else{ const d=await apiCall('get-irrigation-calendar',irrRange()); irr.cache=irr.cache||{}; irr.cache[mo]={data:d,t:Date.now()}; if(irr.month===mo){ irr.data=d; irr.pick={}; } }
+    if(irr.month===mo) irr.loaded=mo;
   }catch(err){ irr.error=err.message||'Could not load the irrigation calendar.'; }
   irr.busy=false; render();
 }
@@ -5612,8 +5633,15 @@ async function irrWorkers(){
   if(!list.length&&!IS_DEMO){ try{ const r=await apiCall('list-workers'); list=(r.workers||r||[]).filter(u=>String(u.Status||'ACTIVE').toUpperCase()==='ACTIVE').map(u=>({id:u.Worker_ID,name:u.Name,role:u.Role})); }catch(e){} }
   irr.workers=list.filter(w=>!/^(manager|founder)$/i.test(w.role||'')); render(); return irr.workers;
 }
-function irrNav(n){ const [y,m]=irr.month.split('-').map(Number); irr.month=new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7); irr.day=null; irrLoad(true); }
-function irrGoToday(){ irr.month=irrToday().slice(0,7); irr.day=irrToday(); irrLoad(true); }
+/* Months already read are kept for the session: moving to one shows it at once and refreshes it in the background only when it is over a minute old. */
+irr.cache=irr.cache||{};
+function irrGoMonth(ym,day){
+  irr.month=ym; irr.day=day||null; const c=irr.cache[ym];
+  if(c&&!IS_DEMO){ irr.data=c.data; irr.loaded=ym; irr.pick={}; render(); if(Date.now()-c.t>60000) irrLoad(true); }
+  else irrLoad(true);
+}
+function irrNav(n){ const [y,m]=irr.month.split('-').map(Number); irrGoMonth(new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7)); }
+function irrGoToday(){ irrGoMonth(irrToday().slice(0,7),irrToday()); }
 function irrPickDay(d){ irr.day=d; irrWorkers(); render(); }
 function irrWorst(it){ const o=['OVERDUE','DUE','IN_PROGRESS','ASSIGNED','UPCOMING','COMPLETED']; return o.find(s=>it.beds.some(b=>b.status===s))||'UPCOMING'; }
 const irrItemOpen=it=>it.assignable!==false;   // false once the cohort is HarvestReady (irrigation closed)
@@ -5739,7 +5767,7 @@ function irrScreen(){
   const empty=!d.activeCohorts?`<div class="cal-insight">${d.demo?'Irrigation needs the live workbook.':'No cohort has a verified planting yet. A cohort\'s irrigation calendar switches on as soon as its planting is verified.'}</div>`:'';
   const leg=Object.values(IRR_ST).map(([l,c])=>`<span><i style="background:${c}"></i>${l}</span>`).join('');
   return shell(`<div class="cal-cards">${cards}</div>${empty}${ns}${etBan}${wnHTML}<div class="cal-legend" style="margin-bottom:10px">${leg}</div>
-  <div class="cal-nav"><button onclick="irrNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b>${mname}</b><span>${items.length} irrigation${items.length===1?'':'s'} scheduled${irr.busy?' · updating…':''}</span></div><button onclick="irrNav(1)" aria-label="Next month">›</button><button onclick="irrGoToday()">Today</button></div>
+  <div class="cal-nav"><button onclick="irrNav(-1)" aria-label="Previous month">‹</button><div class="ttl"><b onclick="mpToggle('irr','${irr.month}')" style="cursor:pointer;" title="Pick a month">${mname} \u25BE</b><span>${items.length} irrigation${items.length===1?'':'s'} scheduled${irr.busy?' · updating…':''}</span></div><button onclick="irrNav(1)" aria-label="Next month">›</button><button onclick="mpToggle('irr','${irr.month}')">Month \u25BE</button><button onclick="irrGoToday()">Today</button></div>${mpPanel('irr',irr.month)}
   <div class="irr-tabs seg"><button class="${irr.view==='month'?'active':''}" onclick="irrSetView('month')">Calendar month</button><button class="${irr.view==='matrix'?'active':''}" onclick="irrSetView('matrix')">Bed matrix</button></div>
   <div class="irr-key">${Array.from(new Set(items.map(x=>irrCat(x.cropId).cat))).sort().map(c=>`<span><i style="background:${IRR_CAT[c]||'#6B6B5E'}"></i>${esc(c)}</span>`).join('')}</div>
   ${irr.view==='matrix'?irrMatrixHTML(items,dim,t):`<div class="cal-grid">${cells}</div>`}${dayBody}
@@ -7190,7 +7218,7 @@ function ztBanner_(){
 }
 /* Background check of the sign-off queue (read-only get-zone-trace-queue). Updates the badge / banner / tab title, and shows a
    toast when a NEW trace arrives. Repaints only when the queue changed and the manager is not typing or mid-action. */
-const ZT_POLL_MS=15000, ZT_TITLE0_=document.title;
+const ZT_POLL_MS=30000, ZT_TITLE0_=document.title;
 function ztPoll_(){
   if(!state.token||ui.screen==='login'||ZT_.loading||ZT_.polling) return;
   ZT_.polling=true; ZT_.last=Date.now();
@@ -7210,7 +7238,7 @@ ZT_.anyBusy_=function(){
   const busy=Object.keys(ZT_.drafts).some(function(k){return ZT_.drafts[k].busy;});
   return typing||busy||(ui.modal&&ui.modal!=='zone-trace')||ui.loading;
 };
-setInterval(function(){ if(document.visibilityState==='hidden') return; if(Date.now()-(ZT_.last||0)>=(ZT_.loaded?ZT_POLL_MS:0)) ztPoll_(); },3000);
+setInterval(function(){ if(document.visibilityState==='hidden'||ui.loading||_loadRun) return; if(Date.now()-(ZT_.last||0)>=(ZT_.loaded?ZT_POLL_MS:0)) ztPoll_(); },3000);
 document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible') ztPoll_(); });
 async function openZoneTrace(){ openModal('zone-trace',{}); await ztLoad(); }
 async function ztLoad(){
@@ -8687,7 +8715,7 @@ async function mockBackend(action, p){
     try{
       const c=JSON.parse(sessionStorage.getItem(CACHE_KEY)||'null'); if(!c||c.u!==state.managerId||!c.m) return false;
       const t=c.m['get-manager-today-view']; if(!t||!t.d) return false;
-      cacheMem=c.m; applyTodayView(t.d);
+      cacheMem=c.m; applyTodayView(t.d,true);
       const b=c.m['get-cohort-board']; if(b&&b.d&&b.year===ui.year){ const cohorts=b.d.cohorts||[], byKey={}, unplaced=[];
         cohorts.forEach(function(x){ const p=parseLocationId(x.locationId); if(!p){ unplaced.push(x); return; } (byKey[locKey(p)]=byKey[locKey(p)]||[]).push(x); });
         state.board={ error:'', loaded:true, year:b.year, beds:b.d.beds||[], cohorts:cohorts, byKey:byKey, unplaced:unplaced, stats:b.d.stats||{} }; }
@@ -8695,7 +8723,7 @@ async function mockBackend(action, p){
       state.fromCache=true; return true;
     }catch(e){ return false; }
   };
-  let epoch=0, active=0, writes=0, writeFails=0, toasts=0, lastPoll=0, lastCtx='';
+  let pollMs=0, epoch=0, active=0, writes=0, writeFails=0, toasts=0, lastPoll=0, lastCtx='';
   let clickCtx=null, dirty=false, polling=false, tick=0, failStreak=0; const lastSig={t:'',b:'',q:''}, lastRef={}, inflightReads=new Map();
   const inflight=new Set(), busyBtns=new Map();
 
@@ -8942,7 +8970,7 @@ async function mockBackend(action, p){
       if(changed) paint();
       refreshVisible(false);
     }catch(e){ failStreak++; /* background refresh is silent; apiCall already updates the connection indicator */ }
-    finally{ polling=false; }
+    finally{ polling=false; pollMs=Date.now()-lastPoll; }
   }
   /* ---------- the page being looked at refreshes its own data (planning pages cache theirs for the whole session) ---------- */
   function editing(){ try{ return !!(ui.modal||ui.pModifying||ui.ppBedModify||ui.pEditingRotation||ui.ppBusy||(ui.ppSel&&ui.ppSel.length)||(ui.pSelBeds&&ui.pSelBeds.length)||repaintBlocked()); }catch(e){ return true; } }
@@ -8954,8 +8982,8 @@ async function mockBackend(action, p){
   function refreshVisible(force){
     if(!state.token||ui.screen!=='planning'||editing()) return;
     const m=ui.pMode, Y=ui.pYear, B=ui.pBlock;
-    if(m==='calendar') quiet('cal',20000,function(){ return loadCalendar(true); },force);
-    else if(m==='irrigation') quiet('irr',15000,function(){ return irrLoad(true); },force);
+    if(m==='calendar') quiet('cal',90000,function(){ return loadCalendar(true); },force);
+    else if(m==='irrigation') quiet('irr',60000,function(){ return irrLoad(true); },force);
     else if(m==='infra') quiet('inf'+Y,45000,function(){ return infraLoad(true); },force);
     else if(m==='rotation') quiet('rot',30000,function(){ return loadRotationPlan(); },force);
     else if(m==='smart'||m==='plan') quiet('pp'+Y+B,20000,function(){ return loadPlanningContext(true); },force);
@@ -8972,7 +9000,7 @@ async function mockBackend(action, p){
   window.addEventListener('focus',function(){ if(Date.now()-lastPoll>MIN_GAP) pollTick(); });
   window.addEventListener('online',function(){ pollTick(); });
   document.addEventListener('focusout',function(){ if(dirty) setTimeout(flushIfIdle,300); },true);
-  (function loop(){ setTimeout(function(){ Promise.resolve(pollTick()).catch(function(){}).then(loop); }, Math.min(60000, POLL_MS*(1+Math.min(failStreak,4)))); })();   /* backs off while the server is unreachable */
+  (function loop(){ setTimeout(function(){ Promise.resolve(pollTick()).catch(function(){}).then(loop); }, Math.min(60000, Math.max(POLL_MS*(1+Math.min(failStreak,4)), pollMs*4))); })();   /* backs off while the server is unreachable */
   window.refreshLive=pollTick;
 })();
 
