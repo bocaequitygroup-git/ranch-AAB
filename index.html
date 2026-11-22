@@ -6713,7 +6713,7 @@ function rbPanel(){
   if(IS_DEMO||rb.hide) return '';
   const d=rb.data;
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
-  const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>!r.pending).length, nZone=ztCount_(), total=pend('multi')+pend('single')+nZone;
+  const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>!r.pending).length, nZone=ztCount_(), total=pend('multi')+pend('single');   /* Zone sign-off keeps its own count (nZone, shown on its tab); it is not part of the review total */
   const v=rbView(rb.tab==='zone'?'single':rb.tab,rows);
   const tabs=[['zone','Zone sign-off (ACT_013)',nZone,'chip-warn'],['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['history','Activity history',nHist,'chip-neutral']];
   /* Policy text (what Checked/Verified mean, what never changes) moves behind a "?" hint; the visible line is just the
@@ -6995,7 +6995,6 @@ function bbScreen(){
   const navBtns=SECS.map(x=>`<button class="${x[0]===bb.sec?'on':''}" aria-current="${x[0]===bb.sec?'page':'false'}" onclick="bbSec('${x[0]}')"><span>${esc(x[1])}</span>${x[2]?`<span class="chip chip-warn">${x[2]}</span>`:''}</button>`).join('');
   /* left list = one card per block (like the crop cards on Bed layout); the map in the middle shows ONE block at a time */
   const rvc={}; if(bb.sec==='review'&&rb.data) rbRows(rb.data).forEach(r=>{ if(r.pending&&r.block) rvc[r.block]=(rvc[r.block]||0)+1; });
-  if(bb.sec==='review') ZT_.items.forEach(t=>{ const k=pvBlockOf(String(t.Bed_ID||'')); if(k) rvc[k]=(rvc[k]||0)+1; });
   const blockCards=PLAN_BLOCKS.map(b=>{
     const d=bb.data[b];
     if(!d) return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span class="chip chip-neutral">${bb.busy?'Loading\u2026':'Not loaded'}</span></div></div>`;
@@ -7302,8 +7301,10 @@ function ztDropItem_(id){ ZT_.items=ZT_.items.filter(x=>String(x.Trace_ID)!==Str
    missing a destination. The current screen is highlighted. Zone sign-off carries a live count of ACT_013 traces waiting for the
    manager and turns red; a banner repeats it under the bar, because an unsigned zone holds irrigation on that bed. */
 function mgrCurrent_(){ return ui.screen==='planning' ? (ui.pMode==='operation'?'operation':(ui.pMode==='bedboard'&&bb.sec==='review'?'review':'planning')) : ui.screen; }
-/* Manager review: everything waiting on the manager = routine/verify items from the review board + ACT_013 zone traces. */
-function rvCount_(){ const d=rb.data, n=(!IS_DEMO&&!rb.hide&&d)?((d.toCheck||[]).length+(d.toVerify||[]).length+rbCrewList(d).length):0; return n+ztCount_(); }
+/* Manager review: ordinary activity oversight only = checks, verifications and multi-worker approvals from the review board.
+ * Pending ACT_013 zone traces are NOT counted here: Zone sign-off owns that badge and warning (ztCount_ / ztBanner_), so one trace never raises two alarms.
+ * Finished ACT_013 sessions still show in Activity history. */
+function rvCount_(){ const d=rb.data; return (!IS_DEMO&&!rb.hide&&d)?((d.toCheck||[]).length+(d.toVerify||[]).length+rbCrewList(d).length):0; }
 /* One jump to the Manager review section of the Bed status board, from any screen. tab: 'zone' opens the ACT_013 zone-trace tab. */
 function goManagerReview(tab){
   ui.modal=null; ui.screen='planning'; ui.pMode='bedboard'; bb.sec='review';
@@ -7311,10 +7312,10 @@ function goManagerReview(tab){
   render(); bbLoad(true); loadToday(); rbLoad(true);
   if(rb.tab==='zone') ztEnsureReview_();
 }
-function reviewButton(){ const n=rvCount_(); return `<button class="btn btn-outline btn-cta" style="width:auto;margin:0;" onclick="goManagerReview()" title="Checks, verifications and zone traces waiting for you">Manager review${n?` (${n})`:''}</button>`; }
+function reviewButton(){ const n=rvCount_(); return `<button class="btn btn-outline btn-cta" style="width:auto;margin:0;" onclick="goManagerReview()" title="Checks and verifications waiting for you">Manager review${n?` (${n})`:''}</button>`; }
 function rvBanner_(){
   const n=rvCount_(); if(!n||(ui.screen!=='board'&&ui.screen!=='ranch')) return '';
-  return `<div class="zt-banner" role="status"><span>${n} item${n>1?'s are':' is'} waiting in Manager review (checks, verifications and ACT_013 zone traces).</span><button onclick="goManagerReview()">Open Manager review</button></div>`;
+  return `<div class="zt-banner" role="status"><span>${n} item${n>1?'s are':' is'} waiting in Manager review (checks and verifications awaiting your attention).</span><button onclick="goManagerReview()">Open Manager review</button></div>`;
 }
 function mgrRefreshBtn_(){
   const s=ui.screen;
