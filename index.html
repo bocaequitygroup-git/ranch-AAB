@@ -7379,7 +7379,7 @@ function ztHistHtml_(){
    Shows real run outcomes only. A run with no calendar row is NOT an error and is never flagged as off-schedule.
    Data: get-irrigation-calendar (season budget, seasonBudget) and get-activity-history (ACT_031 log rows).
    Active minutes = Elapsed_Minutes stored on the completed row (pause time already removed by computeElapsedMinutes_).
-   Writes: review-activity only (CHECK / VERIFY, enforced server-side). Manager notes stay in this window (not saved yet). */
+   Writes: review-activity (CHECK, CLEAR_OUTLIER) and verify-irrigation-run (VERIFY, irrigation-only), both enforced server-side. Manager notes stay in this window (not saved yet). */
 const IR2={loaded:false,busy:false,err:'',rows:[],budget:null,budgetErr:'',fZone:'',fStatus:'ALL',q:'',open:'',note:{},at:0};
 const IR2_ZONES=['IRR-Z01','IRR-Z02','IRR-Z03','IRR-Z04','IRR-Z05','IRR-Z06','IRR-Z07'];
 /* Zone from the bed ID, using the reference layout in IrrigationLayoutGate.gs (display and filter only; BED_MASTER.Zone is not used). */
@@ -7458,7 +7458,8 @@ function openIrrReview(){
 function irrOpen_(id){ IR2.open=id; ir2Redraw_(); }
 function irrClose_(){ IR2.open=''; ir2Redraw_(); }
 function irrNote_(id,v){ IR2.note[id]=v; }
-/* Verify or check one run through review-activity. The manager note in the drawer is sent with it and saved to the sheet. */
+/* Check one run through review-activity (CHECKED class). Verify goes through the irrigation-only route verify-irrigation-run, so the shared
+   governance sign-off is never used for ACT_031. The manager note in the drawer is sent with either and saved to the sheet. */
 async function irrReview_(logId,decision){
   if(IR2.busy) return;
   if(decision==='VERIFY'&&!confirm('Verify this irrigation run? It is logged with your name and the time.')) return;
@@ -7466,13 +7467,16 @@ async function irrReview_(logId,decision){
   IR2.busy=true; ir2Redraw_();
   let msg='', ok=false;
   try{
-    const r=await apiCall('review-activity',{logIds:[logId],decision,note:note||undefined});
-    const bad=(r&&r.results||[]).filter(x=>!x.ok).length;
-    ok=!bad; msg=(decision==='CHECK'?'Marked checked':'Verified')+(bad?' ('+bad+' could not be recorded)':'')+'.';
-  }catch(e){ msg=e.message||'Could not record that review.'; }
+    const r=decision==='VERIFY'
+      ? await apiCall('verify-irrigation-run',{logIds:[logId],note:note||undefined})
+      : await apiCall('review-activity',{logIds:[logId],decision:'CHECK',note:note||undefined});
+    const res=(r&&r.results)||[], bad=res.filter(x=>!x.ok);
+    ok=!bad.length; msg=(decision==='CHECK'?'Marked checked':'Verified')+(bad.length?' ('+bad.length+' could not be recorded: '+(bad[0].message||bad[0].errorCode||'refused')+')':'')+'.';
+    if(ok&&decision==='VERIFY'&&res[0]&&res[0].countsTowardBudget===false) msg+=' Its gallons are not usable ('+(res[0].gallonsIssue||'check the gallons')+'), so it does not add to the season total.';
+  }catch(e){ msg=(e.message||'Could not record that review.')+(e.code?' ['+e.code+']':''); }
   IR2.busy=false;
   if(ok&&note) delete IR2.note[logId];
-  toast(msg);
+  toast(msg,ok?undefined:8000);
   await ir2Load(true);
 }
 /* Clears a false-positive outlier flag. Requires a reason. The flag as shown and the run's status are recorded server-side. */
@@ -7528,9 +7532,10 @@ function ir2SeasonHtml_(){
     case 'APPROVED_NO_DATES': return box(head+`<div class="note">Approved budget ${ir2N(b.approvedGal)} gal, but the season dates are not set, so verified gallons cannot be counted.</div>`);
     case 'APPROVED': {
       const q=b.quality, pct=Math.min(b.percentUsed,100);
-      const qual=`<div class="sub">Verified runs counted: ${b.qualifyingIds.length}. Excluded for bad data: ${q.exceptions.length}. Duplicates skipped: ${q.duplicates}. Possible duplicates to review: ${q.ambiguous}. Long recorded runs flagged: ${q.longRuns.length}.</div>`;
-      return box(head+`<div class="irr-season-n"><span><b>${ir2N(b.verifiedGal,1)}</b> gal verified applied</span><span>of <b>${ir2N(b.approvedGal)}</b> gal approved</span>
+      const qual=`<div class="sub">Runs counted: ${q.checkedRuns+q.verifiedRuns} (${q.verifiedRuns} verified, ${q.checkedRuns} checked only). Not yet checked or verified: ${q.unreviewed}. Excluded for bad data: ${q.exceptions.length}. Duplicates dropped: ${q.duplicates}. Incomplete or cancelled: ${q.incomplete+q.cancelled}. Long recorded runs flagged: ${q.longRuns.length}.</div>`;
+      return box(head+`<div class="irr-season-n"><span><b>${ir2N(b.appliedGal,1)}</b> gal applied (checked or verified)</span><span>of <b>${ir2N(b.approvedGal)}</b> gal approved</span>
         <span>${b.overBudget?`<b class="irr-over">${ir2N(-b.remainingGal,1)} gal over budget</b>`:`<b>${ir2N(b.remainingGal,1)}</b> gal remaining`}</span><span>${ir2N(b.percentUsed,1)}% used</span></div>
+        <div class="sub">${ir2N(b.verifiedGal,1)} gal verified, ${ir2N(b.checkedOnlyGal,1)} gal checked only.</div>
         <div class="irr-bar${b.overBudget?' over':''}"><i style="width:${pct.toFixed(1)}%"></i></div>${qual}`);
     }
     default: return box(head+`<div class="note">Budget status ${esc(b.status||'')} is not recognized.</div>`);
