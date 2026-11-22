@@ -758,6 +758,35 @@ function assignDialog(title, lines){
   document.body.appendChild(e);
   document.getElementById('assign-ok-btn').onclick=function(){ e.remove(); };
 }
+
+/* ==================== IRRIGATION READINESS (ACT_031): which beds finished the zone check (ACT_013) ====================
+ * Read-only 'get-irrigation-readiness' (managers). Shown wherever Irrigation (ACT_031) is assigned: One Worker to Many Beds, multi-assign,
+ * single dispatch and the irrigation calendar. It only labels beds; the server's ZONE_UNVERIFIED gate is unchanged. */
+const IRRR={ at:0, map:null, busy:false, err:'' };
+function irrIsAct_(n){ return /^ACT_031\b/i.test(String(n||'').trim())||/^Irrigation$/i.test(String(n||'').replace(/^ACT_\d+:\s*/,'').trim()); }
+async function irrReadyLoad_(force){
+  if(IRRR.busy||(!force&&IRRR.map&&Date.now()-IRRR.at<60000)) return;
+  IRRR.busy=true;
+  try{ const r=await apiCall('get-irrigation-readiness',{},30000); const m={}; ((r&&r.beds)||[]).forEach(b=>{ m[String(b.bedId||'').toUpperCase()]=b; }); IRRR.map=m; IRRR.at=Date.now(); IRRR.err=''; }
+  catch(e){ IRRR.err=(e&&e.message)||'Could not load'; if(!IRRR.map) IRRR.map={}; }
+  IRRR.busy=false;
+  try{ if(document.getElementById('ow-beds')) owRefresh(); else if(document.getElementById('ma-acts')) maRefresh(); else if(document.getElementById('md-worker')||document.getElementById('dp-root')||document.querySelector('.irr-bed')) render(); }catch(e){}
+}
+function irrReadyOf_(bedId){ if(!IRRR.map) return null; return IRRR.map[String(bedId||'').toUpperCase()]||{ bedId:bedId, zoneVerified:false, checkDone:false, awaitingSignoff:false }; }
+/* ['READY'|'AWAITING'|'NOT_READY'|'LOADING', short label, chip class, tooltip] */
+function irrReadyState_(bedId){
+  const r=irrReadyOf_(bedId); if(!r) return ['LOADING','','',''];
+  if(r.zoneVerified) return ['READY','\u2713 Ready'+(r.checkDone?' \u00b7 ACT_013 done':'')+' \u00b7 '+String(r.zoneId||'').replace('IRR-',''),'chip-ok','Zone '+(r.zoneId||'')+' is verified'+(r.checkDone?' and the zone check (ACT_013) is complete':'')+'. Irrigation can be assigned normally.'];
+  if(r.checkDone||r.awaitingSignoff) return ['AWAITING',(r.awaitingSignoff?'ACT_013 done \u00b7 awaiting sign-off':'ACT_013 done \u00b7 zone not signed off'),'chip-warn','The zone check is complete but the zone is not signed off yet. Approve it under Zone sign-off, then assign irrigation normally.'];
+  return ['NOT_READY','Zone not verified','chip-neutral','No zone check (ACT_013) has been completed for this bed. Send one first, or assign anyway with a written reason.'];
+}
+function irrReadyChip_(bedId){ const s=irrReadyState_(bedId); if(s[0]==='LOADING'){ irrReadyLoad_(); return ''; } return `<span class="chip ${s[2]}" title="${esc(s[3])}">${esc(s[1])}</span>`; }
+/* Boxed note for single-bed screens (multi-assign card, single dispatch). */
+function irrReadyBox_(bedId){
+  const s=irrReadyState_(bedId); if(s[0]==='LOADING'){ irrReadyLoad_(); return `<div class="note" style="margin:6px 0 0;">Checking whether this bed has completed its zone check (ACT_013)\u2026</div>`; }
+  const col=s[0]==='READY'?'var(--ok,#2f7d4f)':s[0]==='AWAITING'?'var(--warn)':'var(--ink-soft)';
+  return `<div class="note" style="margin:6px 0 0;font-weight:600;color:${col};"><span class="chip ${s[2]}">${esc(s[1])}</span> ${esc(s[3])}</div>`;
+}
 /* Overlapping loads are coalesced: while one is running, any further loadToday() call (a Refresh tap, or a write action
  * that wants fresh data afterwards) queues exactly ONE follow-up run and awaits it, so callers still get data read after
  * their change, but the server never has several of these heavy requests running at once. */
@@ -3099,6 +3128,7 @@ function dispatchModal(){
 
   </div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)"><option value="">Select a worker…</option>${state.workers.map(w=>`<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
+  ${irrIsAct_(d.activity)?irrReadyBox_(d.bedId):''}
   <p style="font-size:12px;color:var(--ink-soft);">Dispatched to the worker as Pending. Their timer starts when they tap Start.</p>
   <p style="font-size:12px;color:var(--ink-soft);">Only activities this bed's current state allows are listed.${d.hasCohort?' Post-harvest steps open after the cohort is terminated.':''}</p>
   <button class="btn btn-primary" ${d.activity&&d.workerId?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Assign activity</button>
@@ -3162,7 +3192,7 @@ function maPlanHTML(){
   const cards=d.acts.map(a=>{ const ws=d.map[a]||[];
     return `<div class="ma-pcard ${ws.length?'':'need'}"><div class="ma-ptop"><span>${esc(actLabel(a))}</span><button title="Remove activity" onclick="maToggleAct(this.dataset.v,false)" data-v="${esc(a)}">×</button></div>
       ${ws.length?`<div class="ma-chips" style="margin:6px 0 0;">${ws.map(w=>`<span class="ma-chip" style="background:#E4F1E5;">${esc(maWName(w))}${open[String(w).toUpperCase()+'|'+a]?' <span style="color:var(--warn);font-size:10.5px;">(already open)</span>':''}<button title="Remove" onclick="maDelWorker(this.dataset.a,this.dataset.w)" data-a="${esc(a)}" data-w="${esc(w)}">×</button></span>`).join('')}</div>`:`<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">No worker yet</div>`}
-      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select>${isFertAct(a)?fertBox('ma',a):''}${dsIsAct(a)?dsPreBox(d.bedId):''}</div>`; }).join('');
+      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select>${isFertAct(a)?fertBox('ma',a):''}${dsIsAct(a)?dsPreBox(d.bedId):''}${irrIsAct_(a)?irrReadyBox_(d.bedId):''}</div>`; }).join('');
   return bulk+`<div class="ma-plan" style="padding-top:8px;">${cards}</div>`;
 }
 function maCatTabs(){ const d=maD(), list=maList(), cnt=k=>k==='ALL'?list.length:list.filter(a=>actCatOf(a)===k).length;
@@ -3302,7 +3332,7 @@ function owBedsHTML(d){
     const v=owViewOf(b.id), on=d.beds.includes(b.id), [lab,cls]=owStatus(v);
     return `<label class="ma-row ow-row ${on?'on':''}" data-id="${esc(b.id)}" onmouseenter="owTip(this,true)" onmouseleave="owTip(this,false)"><input type="checkbox" ${on?'checked':''} data-v="${esc(b.id)}" onchange="owToggleBed(this.dataset.v,this.checked)">
       <span class="ow-main"><b style="font-weight:700;">${esc(b.id)}</b>${v.cropName?` <span class="d" style="display:inline;">\u00b7 ${esc(v.cropName)}</span>`:''}${v.shortfall?' <span class="chip chip-warn">Shortfall</span>':''}${v.cohortId?` <span class="chip chip-neutral ow-code">${esc(v.cohortId)}</span>`:''}${owCadChip(v,d.activity)}</span>
-      <span class="ow-end"><span class="chip ${cls}">${esc(lab)}</span><button type="button" class="ow-pvb" data-v="${esc(b.id)}" onclick="event.preventDefault();event.stopPropagation();owPreview(this.dataset.v)">Preview \uD83D\uDD0D</button></span></label>`;
+      <span class="ow-end">${irrIsAct_(d.activity)?irrReadyChip_(b.id):''}<span class="chip ${cls}">${esc(lab)}</span><button type="button" class="ow-pvb" data-v="${esc(b.id)}" onclick="event.preventDefault();event.stopPropagation();owPreview(this.dataset.v)">Preview \uD83D\uDD0D</button></span></label>`;
   }).join('');
 }
 function owBlockSelHTML(d){
@@ -3316,8 +3346,10 @@ function owBlockHeadHTML(d){
   if(!ids.length) return '';
   const all=ids.every(i=>d.beds.includes(i));
   const od=ids.filter(i=>{ const c=owCad(owViewOf(i),d.activity); return c&&c.overdue; }), odAll=od.length&&od.every(i=>d.beds.includes(i));
+  const rdy=irrIsAct_(d.activity)?ids.filter(i=>irrReadyState_(i)[0]==='READY'):[], rdyAll=rdy.length&&rdy.every(i=>d.beds.includes(i));
+  const rdyBtn=irrIsAct_(d.activity)?(IRRR.map?(rdy.length?`<button class="gt-link" data-ids="${esc(rdy.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!rdyAll})">${rdyAll?'Clear ready':'Select ready ('+rdy.length+')'}</button>`:`<span style="color:var(--ink-soft);">No bed here is ready</span>`):'<span style="color:var(--ink-soft);">Checking ACT_013\u2026</span>'):'';
   const odBtn=od.length?`<button class="gt-link" data-ids="${esc(od.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!odAll})">${odAll?'Clear overdue':'Select overdue ('+od.length+')'}</button>`:'';
-  return `<div class="ma-grp" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;"><span>${esc(BLOCK_LABELS[blk]||blk)} \u00b7 ${ids.length} bed${ids.length===1?'':'s'}${q?' shown':''}${od.length?` \u00b7 <b style="color:var(--danger);">${od.length} overdue</b>`:''}</span><span style="display:flex;gap:12px;">${odBtn}<button class="gt-link" data-ids="${esc(ids.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!all})">${all?'Clear shown':'Select all shown'}</button></span></div>`;
+  return `<div class="ma-grp" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;"><span>${esc(BLOCK_LABELS[blk]||blk)} \u00b7 ${ids.length} bed${ids.length===1?'':'s'}${q?' shown':''}${od.length?` \u00b7 <b style="color:var(--danger);">${od.length} overdue</b>`:''}</span><span style="display:flex;gap:12px;">${rdyBtn}${odBtn}<button class="gt-link" data-ids="${esc(ids.join(','))}" onclick="owToggleBlock(this.dataset.ids,${!all})">${all?'Clear shown':'Select all shown'}</button></span></div>`;
 }
 function owToggleBed(id,on){ const d=owD(), i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); d.result=null; if(!d.dateTouched) d.date=owDobDate(d); owRefresh(); }
 function owToggleBlock(csv,on){ const d=owD(); csv.split(',').forEach(id=>{ const i=d.beds.indexOf(id); if(on&&i<0) d.beds.push(id); if(!on&&i>=0) d.beds.splice(i,1); }); d.result=null; if(!d.dateTouched) d.date=owDobDate(d); owRefresh(); }
@@ -3361,13 +3393,20 @@ function owRefresh(){
   const n=g('ow-n'); if(n) n.textContent=d.beds.length;
   owPvPaint();
 }
+function owReadyNote_(d){
+  if(!irrIsAct_(d.activity)||!IRRR.map) return '';
+  const st=d.beds.map(id=>[id,irrReadyState_(id)[0]]), notReady=st.filter(x=>x[1]!=='READY').map(x=>x[0]);
+  if(!d.beds.length) return '';
+  return notReady.length?` <span style="color:var(--warn);font-weight:600;">${notReady.length} not ready (zone not verified): ${esc(notReady.slice(0,8).join(', '))}${notReady.length>8?'\u2026':''}.</span>`
+    :` <span style="color:var(--ok,#2f7d4f);font-weight:600;">All ready.</span>`;
+}
 function owFootHTML(){
   const d=owD(), n=d.beds.length, ok=!!d.workerId&&!!d.activity&&n>0&&!d.busy;
   const per={}; d.beds.forEach(id=>{ const k=owBlockOf(owBed(id)); per[k]=(per[k]||0)+1; });
   const spread=Object.keys(per).length>1?` <span style="color:var(--ink-soft);">(${Object.keys(per).sort().map(k=>esc(BLOCK_LABELS[k]||k)+': '+per[k]).join(', ')})</span>`:'';
   const sum=!d.workerId||!d.activity?`<span style="color:var(--ink-soft);">Pick a worker and an activity.</span>`
     : !n?`<span style="color:var(--ink-soft);">Tick the beds this worker should do.</span>`
-    : `<b>${esc(maWName(d.workerId))}</b> \u2192 <b>${esc(actLabel(d.activity))}</b> on <b>${n}</b> bed${n===1?'':'s'}.${spread}`;
+    : `<b>${esc(maWName(d.workerId))}</b> \u2192 <b>${esc(actLabel(d.activity))}</b> on <b>${n}</b> bed${n===1?'':'s'}.${spread}${owReadyNote_(d)}`;
   const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>\u2713 ${r.created.length} bed${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} already open (skipped).</div>`:''}${r.failed.filter(f=>!zoneShownInBox_(f)).map(f=>`<div class="bad">\u2717 ${esc(f.bedId)}: ${esc(propErrText(f)||f.errorCode||'not assigned')}</div>`).join('')}${zoneOvBox(r.failed,'ow')}</div>`;
   return `<div class="ma-sum">${sum}</div>${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitOneWorker()">${d.busy?'<span class="vp-spin"></span>Assigning\u2026':(ok?`Assign ${n} Bed${n===1?'':'s'}`:'Assign')}</button><button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
@@ -3408,7 +3447,13 @@ async function submitOneWorker(){
   d.result=out; d.busy=false;
   busyShow('Assigned – refreshing…');
   try{ await loadToday(); } finally{ busyHide(); }
-  if(out.created.length) toast(out.created.length+' bed'+(out.created.length===1?'':'s')+' assigned.');
+  if(out.created.length){
+    const nm=maWName(d.workerId), act=actLabel(d.activity), n=out.created.length;
+    assignDialog(n+' bed'+(n===1?'':'s')+' assigned',
+      [nm+' \u2192 '+act+' on '+out.created.join(', ')+'.', 'Each task shows as Pending until the worker taps Start.']
+      .concat(out.skipped.length?[out.skipped.length+' already open (skipped): '+out.skipped.join(', ')+'.']:[])
+      .concat(out.failed.length?[out.failed.length+' could not be assigned: '+out.failed.map(f=>f.bedId).join(', ')+'. Those beds stay ticked below.']:[]));
+  }
   owRefresh();
 }
 function multiAssignModal(){
@@ -5767,7 +5812,7 @@ function irrCardHTML(it,i){
   const st=irrWorst(it), c=IRR_ST[st], sel=irrSel(it), canAssign=irrItemOpen(it)&&it.beds.some(irrAssignable), workers=irr.workers||[];
   const fmt=n=>n==null?'—':Number(n).toLocaleString('en-US');
   const beds=it.beds.map(b=>{ const a=irrItemOpen(it)&&irrAssignable(b), x=IRR_ST[b.status];
-    return `<label class="irr-bed">${a?`<input type="checkbox" ${sel.beds.includes(b.bedId)?'checked':''} onchange="irrToggle(${i},'beds','${esc(b.bedId)}')">`:''}<b>${esc(b.bedId)}</b>${b.plan&&b.plan.displaced?bedStickers({plan:b.plan},''):''}${b.zoneId?`<span class="irr-z">${esc(b.zoneId.replace('IRR-',''))}${b.shiftWindow?' · shift '+esc(b.shiftWindow):''}</span>`:''}${(b.gallons!=null||b.minutes!=null)?`<span class="irr-z">${b.gallons!=null?fmt(b.gallons)+' gal':''}${b.gallons!=null&&b.minutes!=null?' · ':''}${b.minutes!=null?b.minutes+' min':''}</span>`:''}<span class="irr-st" style="--c:${x[1]}">${x[0]}${b.workerName?' · '+esc(b.workerName):''}</span></label>`; }).join('');
+    return `<label class="irr-bed">${a?`<input type="checkbox" ${sel.beds.includes(b.bedId)?'checked':''} onchange="irrToggle(${i},'beds','${esc(b.bedId)}')">`:''}<b>${esc(b.bedId)}</b>${a?irrReadyChip_(b.bedId):''}${b.plan&&b.plan.displaced?bedStickers({plan:b.plan},''):''}${b.zoneId?`<span class="irr-z">${esc(b.zoneId.replace('IRR-',''))}${b.shiftWindow?' · shift '+esc(b.shiftWindow):''}</span>`:''}${(b.gallons!=null||b.minutes!=null)?`<span class="irr-z">${b.gallons!=null?fmt(b.gallons)+' gal':''}${b.gallons!=null&&b.minutes!=null?' · ':''}${b.minutes!=null?b.minutes+' min':''}</span>`:''}<span class="irr-st" style="--c:${x[1]}">${x[0]}${b.workerName?' · '+esc(b.workerName):''}</span></label>`; }).join('');
   const zk=it.cohortId+'|'+it.date, zn=irr.zoneNeed&&irr.zoneNeed[zk];
   const zflag=(irr.zoneFlag&&irr.zoneFlag[zk])?zoneFlagBox_(irr.zoneFlag[zk].message,irr.zoneFlag[zk].beds):'';
   const zbox=(zn&&canAssign)?`<div class="pw-box warn"><div class="pw-t">${zn.code==='OVERRIDE_LOG_FAILED'?'Zone override was not recorded':'Irrigation zone not verified'}</div><div>${esc(zn.message||'')}</div>${(zn.beds||[]).length?`<div>Beds: ${esc(zn.beds.join(', '))}</div>`:''}
@@ -6422,7 +6467,8 @@ async function rbReview(m){
   rb.busy=true; rbSync();
   try{ const r=await apiCall('review-activity',{logIds:ids,decision:m==='check'?'CHECK':'VERIFY'});
     const bad=(r.results||[]).filter(x=>!x.ok).length;
-    toast((m==='check'?'Checked ':'Verified ')+r.done+(bad?' ('+bad+' could not be recorded)':'')+'.'); }
+    const word=m==='check'?'Checked ':'Verified ', msg=word+r.done+(r.done===1?' activity':' activities')+'.';
+    if(r.done) assignDialog('Completed',[msg].concat(bad?[bad+' could not be recorded.']:[])); else toast(bad?bad+' could not be recorded.':'Nothing was recorded.'); }
   catch(e){ toast(e.message); }
   rb.busy=false; if(m==='check') rb.sel={}; else rb.selV={}; await rbLoad(true);
 }
@@ -7476,7 +7522,7 @@ async function irrReview_(logId,decision){
   }catch(e){ msg=(e.message||'Could not record that review.')+(e.code?' ['+e.code+']':''); }
   IR2.busy=false;
   if(ok&&note) delete IR2.note[logId];
-  toast(msg,ok?undefined:8000);
+  if(ok) assignDialog('Completed',[msg]); else toast(msg,8000);
   await ir2Load(true);
 }
 /* Clears a false-positive outlier flag. Requires a reason. The flag as shown and the run's status are recorded server-side. */
