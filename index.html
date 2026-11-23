@@ -120,6 +120,51 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .rb-bulk{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0;}
 .btn.rb-mini{width:auto;margin:0;padding:6px 12px;font-size:12px;} .rb-btns{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;}
 .rb-pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;font-size:12px;color:var(--ink-soft);margin:8px 0 0;}
+/* ---- Manager Review Board redesign: title block, icon tabs, grouped rows, right-hand review panel ---- */
+.rb-ico{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px;}
+.rbx-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+.rbx-title{font-size:19px;font-weight:800;color:var(--ink);line-height:1.15;} .rbx-sub{font-size:12.5px;color:var(--ink-soft);margin-top:3px;}
+.rb-tabs button{border-radius:10px 10px 0 0;} .rb-tabs button.on{background:color-mix(in srgb,var(--forest) 9%,var(--paper));}
+.rb-tabs .chip{padding:1px 8px;}
+.rb-in{border-radius:10px;}
+.rb-tbl td.wrap{display:table-cell;flex:none;}   /* the global .wrap{display:flex} rule was turning these cells into flex boxes, which pushed Location / Worker / Action out of their columns */
+.rb-sw{position:relative;display:inline-flex;align-items:center;} .rb-sw .rb-ico{position:absolute;left:10px;color:var(--ink-soft);pointer-events:none;} .rb-sw .rb-in{padding-left:32px;min-width:220px;}
+.rb-fc{display:inline-flex;align-items:center;gap:5px;}
+.rb-split{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;}
+.rb-main{flex:3 1 560px;min-width:0;} .rb-side{flex:1 1 300px;min-width:280px;max-width:100%;position:sticky;top:8px;}
+.rbx-tbl tr.rbx td{background:var(--paper);}
+.rbx-tbl tr.rbx.pending td{background:color-mix(in srgb,var(--warn) 5%,var(--paper));}
+.rbx-tbl tr.rbx.done td,.rbx-tbl tr.rbx.done:hover td{background:color-mix(in srgb,var(--ok) 9%,var(--paper));}
+.rbx-tbl tr.rbx.focus td{background:color-mix(in srgb,var(--forest) 9%,var(--paper));}
+.rbx-tbl tr.rbx-h td{border-bottom:0;padding:10px 8px 2px;}
+.rbx-tbl tr.rbx-b td{padding:2px 8px 10px;vertical-align:top;}
+.rbx-tbl td.rbx-stc{vertical-align:middle;border-left:4px solid var(--rbc);padding-left:10px;width:1%;}
+.rbx-tbl tr.rbx.pending td.rbx-stc{border-left-width:5px;}
+.rbx-bed{display:inline-block;padding:1px 9px;border-radius:99px;font-size:11px;font-weight:700;background:var(--line);color:var(--ink-soft);}
+.rbx-st{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border-radius:12px;font-size:12px;font-weight:700;line-height:1.15;white-space:nowrap;}
+.rbx-st.warn{background:#FBEBD6;color:var(--warn);} .rbx-st.info{background:#E3EDF9;color:#2b6cb0;} .rbx-st.ok{background:#E4F1E5;color:var(--ok);}
+.rbx-st .rb-ico{width:18px;height:18px;}
+.rbx-who{font-size:13px;font-weight:600;color:var(--ink);} .rbx-prog{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;font-size:12px;color:var(--ink-soft);}
+.rbx-tbl tr.rbx-b td:first-child{min-width:260px;} .rbx-prog>span{white-space:nowrap;}
+.rbx-need{color:var(--warn);} .rbx-dotsep{color:var(--warn);}
+.rbx-link{border:0;background:none;font:inherit;font-size:12px;font-weight:700;color:var(--ok);cursor:pointer;padding:0 0 0 4px;}
+.rbx-review{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:10px;border:1.5px solid var(--ok);background:var(--paper);color:var(--ok);font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+.rbx-review:hover,.rbx-review.on{background:var(--forest);border-color:var(--forest);color:#fff;}
+.rbs{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--paper);box-shadow:0 4px 18px rgba(0,0,0,.08);}
+.rbs-h{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--forest);color:#fff;padding:12px 14px;font-size:14px;font-weight:800;}
+.rbs-h>span:first-child{display:inline-flex;align-items:center;gap:8px;min-width:0;}
+.rbs-badge{flex:none;padding:3px 12px;border-radius:99px;font-size:12px;font-weight:800;background:#F6DDA8;color:#7A4B00;} .rbs-badge.ok{background:#CFE8D2;color:#1B5E20;}
+.rbs-facts{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);}
+.rbs-f{display:flex;flex-direction:column;gap:3px;font-size:13px;min-width:0;overflow-wrap:anywhere;} .rbs-l{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-soft);}
+.rbs-box{margin:12px 14px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+.rbs-bh{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:var(--forest);padding:8px 12px;background:color-mix(in srgb,var(--ok) 10%,var(--paper));}
+.rbs-req{display:flex;align-items:center;gap:10px;padding:9px 12px;font-size:13.5px;} .rbs-req+.rbs-req{border-top:1px solid var(--line);} .rbs-req em{margin-left:auto;font-size:11.5px;color:var(--ink-soft);font-style:normal;} .rbs-req.off{opacity:.55;}
+.rbs-cb{flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--ink-soft);background:var(--paper);display:inline-flex;align-items:center;justify-content:center;padding:0;}
+.rbs-cb.on{background:var(--ok);border-color:var(--ok);color:#fff;} .rbs-cb .rb-ico{width:12px;height:12px;stroke-width:3;}
+.rbs-cb.tap{cursor:pointer;border-color:var(--warn);} .rbs-cb.tap:hover{background:#FBEBD6;}
+.rbs-note{margin:12px 14px 0;padding:0 0 10px;border-radius:10px;background:color-mix(in srgb,var(--forest) 6%,var(--paper));font-size:13px;color:var(--ink);} .rbs-note>div:last-child{padding:2px 12px 0;} .rbs-note .rbs-bh{background:none;}
+.rbs-actions{display:flex;gap:10px;padding:14px;} .rbs-actions button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px;border-radius:10px;font:inherit;font-size:14px;font-weight:700;cursor:pointer;}
+.rbs-close{background:var(--paper);color:var(--forest);border:1.5px solid var(--forest);} .rbs-go{background:var(--forest);color:#fff;border:1.5px solid var(--forest);} .rbs-go:disabled{opacity:.45;cursor:not-allowed;}
 .ow-sec{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 10px;} .ow-sec h3{font-size:12.5px;margin:0 0 8px;}
 .ow-row{align-items:center;flex-wrap:wrap;gap:6px 9px;} .ow-main{flex:1;min-width:150px;} .ow-end{display:flex;gap:8px;align-items:center;margin-left:auto;}
 .ow-pvb{border:1px solid var(--line);background:var(--paper);color:#1D4ED8;font:inherit;font-size:11px;font-weight:700;border-radius:99px;padding:3px 10px;cursor:pointer;white-space:nowrap;} .ow-pvb:hover{background:var(--sand);}
@@ -6438,7 +6483,7 @@ function bbTasksPanel(){
  * CHECKED = routine work. Tapping Check records your oversight (Checked_By / Checked_Date) and does nothing else: no bed, cohort, calendar or dispatch change.
  * VERIFIED custom activities get a Verify stamp here. Planting, post-harvest and bed-release verification keep their own panel above. */
 const rb={ data:null, busy:false, err:'', hide:false, sel:{}, selV:{}, last:0, loadedDays:0,
-  tab:'multi', fBlock:'', fDomain:'', fWorker:'', q:'', dFrom:'', dTo:'', sortK:'', sortDir:1, page:{multi:0,single:0,history:0}, open:{} };
+  tab:'multi', fBlock:'', fDomain:'', fWorker:'', q:'', dFrom:'', dTo:'', sortK:'', sortDir:1, page:{multi:0,single:0,history:0}, open:{}, focus:'' };
 const RB_PAGE=25, RB_ACTIVE_DAYS=7, RB_HISTORY_DAYS=30;
 /* How many days the server is asked for: 7 normally; 30 on the History tab or when a date filter reaches back past 7 days. */
 function rbWantDays(){ if(rb.tab==='history') return RB_HISTORY_DAYS; return (rb.dFrom&&rb.dFrom<owIso(-RB_ACTIVE_DAYS))?RB_HISTORY_DAYS:RB_ACTIVE_DAYS; }   /* active tabs: last 7 days; the History tab asks the server for 30 only when it is opened */
@@ -6548,7 +6593,10 @@ function rbView(tab,rows){
   const all=tab==='history'?rows.filter(r=>!r.pending):rows.filter(r=>r.tab===tab&&(r.pending||dated||!r.old)), f=rbSortRows(rbFilter(all)), pages=Math.max(1,Math.ceil(f.length/RB_PAGE)), p=Math.min(rb.page[tab]||0,pages-1);
   return { all, f, pages, p, rows:f.slice(p*RB_PAGE,(p+1)*RB_PAGE) };
 }
-function rbResetView(){ rb.page={multi:0,single:0,history:0}; rb.sel={}; rb.selV={}; }
+function rbResetView(){ rb.page={multi:0,single:0,history:0}; rb.sel={}; rb.selV={}; rb.focus=''; }
+function rbFocus(k){ rb.focus=(rb.focus===k)?'':k; render(); }
+/* Approve one single-worker row from the side panel: same server call as the bulk bar, for exactly one log entry. */
+function rbOne(k,m){ const s=m==='check'?rb.sel:rb.selV; Object.keys(s).forEach(z=>delete s[z]); s[k]=true; rbReview(m); }
 function rbTab(t){ rb.tab=t; rbResetView(); render(); rbLoad(false); if(t==='zone') ztEnsureReview_(); }
 /* ACT_013 zone traces inside Manager review: pending ones are processed here (same approve / reject as Zone sign-off), reviewed ones list below. */
 async function ztLoadHist_(){
@@ -6589,10 +6637,28 @@ function rbSortBy(k){ if(rb.sortK===k) rb.sortDir=-rb.sortDir; else{ rb.sortK=k;
 function rbPage(tab,dlt){ rb.page[tab]=Math.max(0,(rb.page[tab]||0)+dlt); render(); }
 function rbToggle(k){ if(rb.open[k]) delete rb.open[k]; else rb.open[k]=true; render(); }
 
+/* Small inline icons (stroke = currentColor) for the review board's tabs, status badges and side panel. */
+const RB_ICO={
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c2.6 0 4.5 1.8 4.5 4.5"/>',
+  wrench:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  checkc:'<circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/>',
+  sprout:'<path d="M7 20h10M10 20c5.5-2.5.8-6.4 3-10M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8zM14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/>',
+  doc:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h8"/>',
+  cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>'
+};
+function rbIco(n){ return `<svg class="rb-ico" viewBox="0 0 24 24" aria-hidden="true">${RB_ICO[n]||''}</svg>`; }
 function rbStatusChip(r){
-  return ({ ready:`<span class="chip chip-warn">${r.planting?'Ready to verify planting':'Ready to verify'}</span>`, waiting:'<span class="chip chip-neutral">Waiting for checks</span>',
-    tocheck:'<span class="chip chip-warn">To check</span>', toverify:'<span class="chip chip-warn">To verify</span>',
-    checked:'<span class="chip chip-info">Checked \u26A1</span>', verified:'<span class="chip chip-ok">Verified \u2713</span>' })[r.state]||'';
+  /* waiting: orange when every portion is sitting with the manager (nothing left for a worker to finish), blue while some portions are still open */
+  const attn=r.crew&&r.total>0&&r.need===r.total;
+  const st=(cls,ico,t)=>`<span class="rbx-st ${cls}">${rbIco(ico)}<span>${t}</span></span>`;
+  return ({ ready:st('warn','clock',r.planting?'Ready to verify<br>planting':'Ready to<br>verify'), waiting:st(attn?'warn':'info','clock','Waiting<br>for checks'),
+    tocheck:st('warn','clock','To check'), toverify:st('warn','clock','To verify'),
+    checked:st('ok','checkc','Checked'), verified:st('ok','checkc','Verified') })[r.state]||'';
 }
 function rbSub(r){   /* quantity, fertilizer and notes on their own line, below the activity name+duration: what the manager needs before checking */
   const x=r.item; if(!x) return ''; const bits=[];
@@ -6630,16 +6696,26 @@ function rbLocCell(r,prev){
   const rep=!!(prev&&r.bedId&&prev.bedId===r.bedId&&prev.cohortId===r.cohortId);
   return `<td class="wrap${rep?' rb-loc-rep':''}" ${rep?'title="Same bed &amp; cohort as the row above"':''}>${inner}</td>`;
 }
+/* Middle cell under the activity title: who did the work and how far the checks are (multi-worker), or the finished time / notes (single). */
+function rbBodyCell(r){
+  const x=r.item||{};
+  if(r.crew){
+    const prog=`${r.done} of ${r.total} checked${r.need?` <span class="rbx-dotsep">\u00b7</span> <b class="rbx-need">${r.need} need${r.need===1?'s':''} your check</b>`:''}`;
+    return `<div class="rbx-who">${esc(r.workers.join(', '))||'\u2014'}</div><div class="rbx-prog">${rbIco('checkc')}<span>${prog}</span><button class="rbx-link" data-k="${esc(r.key)}" onclick="rbToggle(this.dataset.k)">${rb.open[r.key]?'Hide portions \u25B4':'Check portions \u25BE'}</button></div>`;
+  }
+  const fin=(r.state==='tocheck'||r.state==='toverify')?`<div class="rbx-who">Finished ${esc(rbWhen(x.endTime))||'\u2014'}</div>`:'';
+  return fin+rbSub(r);
+}
+function rbWorkerCell(r){
+  const w=r.workers; if(!w.length) return '\u2014';
+  return esc(w[0])+(w.length>1?` <span class="chip chip-neutral" title="${esc(w.join(', '))}">+${w.length-1}</span>`:'')+(r.multi?' <span class="chip chip-neutral">shared</span>':'');
+}
 function rbActCell(r){
   const x=r.item||{}, w=v=>esc(rbWhen(v));
-  if(r.crew){
-    const i=r.crew, ready=r.state==='ready';
-    const prog=`${r.done} of ${r.total} checked${r.need?` \u00b7 <b>${r.need} need${r.need===1?'s':''} your check</b>`:''}`;
-    const btn=ready?(r.planting?`<button class="btn btn-primary rb-mini" onclick="openModal('verify-planting',{cohortId:'${esc(i.cohortId)}',bedId:'${esc(i.bedId)}'})">Verify planting</button>`
-      :`<button class="btn btn-primary rb-mini" data-b="${esc(i.bedId)}" data-a="${esc(i.activity)}" onclick="rbVerifyCrew(this)">Verify activity</button>`):'';
-    return `<div>${prog}</div><div class="rb-btns">${btn}<button class="dc-mini" data-k="${esc(r.key)}" onclick="rbToggle(this.dataset.k)">${rb.open[r.key]?'Hide portions \u25B4':'Check portions \u25BE'}</button></div>`;
+  if(r.pending){
+    const on=rb.focus===r.key;
+    return `<button class="rbx-review ${on?'on':''}" data-k="${esc(r.key)}" aria-pressed="${on}" onclick="rbFocus(this.dataset.k)">${rbIco('check')}<span>Review</span></button>`;
   }
-  if(r.state==='tocheck'||r.state==='toverify') return `Finished ${w(x.endTime)||'\u2014'}`;
   if(r.state==='verified'){
     const same=!x.checkedBy||!x.verifiedBy||x.checkedBy===x.verifiedBy;
     return same?`Checked &amp; verified by ${esc(x.verifiedBy||x.checkedBy)} (${w(x.verifiedDate||x.checkedDate)})`
@@ -6654,12 +6730,58 @@ function rbTRow(r,prev){
   const name=(x.logId&&!r.pending)?`<button class="rb-actl" data-k="${esc(x.logId)}" title="Open activity profile" onclick="rbOpenActivity(this.dataset.k)">${label}</button>`:`<b>${label}</b>`;
   let detail='';
   if(r.crew&&rb.open[r.key]){ let h=''; try{ const s=rbCrewS(r.crew); h=avLines(s)+avPortionLines(s); }catch(e){ h='<div class="empty">Could not show the portions.</div>'; }
-    detail=`<tr class="rb-detail" style="--rbc:${c};"><td colspan="6">${h}</td></tr>`; }
-  return `<tr class="rb-r ${r.pending?'pending':'done'}" style="--rbc:${c};"><td class="c">${sel}</td><td>${rbStatusChip(r)}</td>
-    <td class="wrap"><div class="rb-actrow"><span class="rb-dot"></span>${name}${rbDurBadge(x)}</div>${rbSub(r)}</td>
-    ${rbLocCell(r,prev)}
-    <td class="wrap">${esc(r.workers.join(', '))||'\u2014'}${r.multi?' <span class="chip chip-neutral">shared</span>':''}</td>
-    <td class="wrap">${rbActCell(r)}</td></tr>${detail}`;
+    detail=`<tr class="rb-detail" style="--rbc:${c};"><td colspan="5">${h}</td></tr>`; }
+  /* Each item is a two-line group: title line (checkbox, dot, activity, bed badge, duration) over a body line (workers + progress, location, worker, action). */
+  const cls=`rbx ${r.pending?'pending':'done'} ${r.state}${rb.focus===r.key?' focus':''}`;
+  const bed=r.bedId?`<span class="rbx-bed">${esc(r.bedId)}</span>`:'';
+  return `<tr class="${cls} rbx-h" style="--rbc:${c};"><td class="rbx-stc" rowspan="2">${rbStatusChip(r)}</td>
+    <td colspan="4"><div class="rb-actrow">${sel}<span class="rb-dot"></span>${name}${bed}${rbDurBadge(x)}</div></td></tr>
+    <tr class="${cls} rbx-b" style="--rbc:${c};"><td class="wrap">${rbBodyCell(r)}</td>${rbLocCell(r,prev)}
+    <td class="wrap">${rbWorkerCell(r)}</td><td class="wrap">${rbActCell(r)}</td></tr>${detail}`;
+}
+/* ---- Right-hand review panel: opens from a row's Review button ----
+ * Multi-worker: each worker portion is a requirement (tap the circle to check it: same avPortionCheck as before), then Approve verifies the activity once they are all checked.
+ * Single-worker: one requirement (check or verify). There is no Reject: the server has no reject path for these, so the panel offers Close instead. */
+function rbSidePanel(rows){
+  const r=rb.focus&&rows.find(z=>z.key===rb.focus); if(!r) return '';
+  const x=r.item||{}, F=(ico,l,v)=>`<div class="rbs-f"><span class="rbs-l">${rbIco(ico)}${l}</span><b>${v||'\u2014'}</b></div>`;
+  const crop=x.cropId||String(r.cohortId||'').split('-')[0];
+  const wk=r.workers.length>2?r.workers.length+' workers':r.workers.join(', ');
+  const lbl=actLabel(r.activity).replace(/:\s*/,' \u2013 ');
+  let badge, req='', note='', approve='';
+  const cb=(on,inner)=>`<span class="rbs-cb ${on?'on':''}">${on?rbIco('check'):''}</span>`;
+  if(r.crew){
+    const s=rbCrewS(r.crew), ready=r.state==='ready';
+    badge=ready?'<span class="rbs-badge ok">Ready</span>':'<span class="rbs-badge">Pending</span>';
+    req=s.portions.map(p=>{
+      const busy=!!pcBusy[pcKey(s.bedId,s.name,p.workerId)], done=p.status==='CHECKED', can=p.status==='AWAITING_CHECK'&&!busy, nm=esc(p.name||p.workerId);
+      const hint=busy?'Saving\u2026':done?'Checked':p.status==='OPEN'?esc(avOpenLabel(p.openStatus)):'';
+      const circle=can?`<button class="rbs-cb tap" aria-label="Check portion for ${nm}" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}')"></button>`:cb(done);
+      return `<div class="rbs-req ${done?'done':''}">${circle}<span>Check portion: ${nm}</span>${hint?`<em>${hint}</em>`:''}</div>`;
+    }).join('')+`<div class="rbs-req ${ready?'':'off'}">${cb(false)}<span>Verify the activity</span></div>`;
+    note=ready?'Every portion is checked. Approve to verify this activity. It does not release the bed.'
+      :(s.blockReason||'Verify unlocks when every worker is done and checked. Tap a circle to check that worker\u2019s portion.')+(s.promoted?' More than one worker is assigned, so this activity needs verification as well as checks.':'');
+    approve=ready?(r.planting?`<button class="rbs-go" onclick="openModal('verify-planting',{cohortId:'${esc(r.crew.cohortId)}',bedId:'${esc(r.crew.bedId)}'})">${rbIco('check')}Approve</button>`
+      :`<button class="rbs-go" data-b="${esc(r.crew.bedId)}" data-a="${esc(r.crew.activity)}" onclick="rbVerifyCrew(this)">${rbIco('check')}Approve</button>`)
+      :`<button class="rbs-go" disabled>${rbIco('check')}Approve</button>`;
+  } else if(r.pending){
+    const m=r.state==='tocheck'?'check':'verify', w=m==='check'?'Check this work':'Verify this work';
+    badge='<span class="rbs-badge">Pending</span>';
+    req=`<div class="rbs-req">${cb(false)}<span>${w}</span></div>`;
+    note=(x.notes?esc(x.notes)+' \u00b7 ':'')+(m==='check'?'Checking only logs your review. It does not change any bed, cohort, schedule or assignment.':'Verifying is logged with your name and the time.');
+    approve=`<button class="rbs-go" ${rb.busy?'disabled':''} onclick="rbOne('${esc(x.logId)}','${m}')">${rbIco('check')}${m==='check'?'Mark checked':'Verify'}</button>`;
+  } else {
+    badge=`<span class="rbs-badge ok">${r.state==='verified'?'Verified':'Checked'}</span>`;
+    req=`<div class="rbs-req done">${cb(true)}<span>${r.state==='verified'?'Verified':'Checked'} by ${esc(x.verifiedBy||x.checkedBy)||'\u2014'}</span><em>${esc(rbWhen(x.verifiedDate||x.checkedDate))}</em></div>`;
+    note=x.notes?esc(x.notes):'Nothing more is needed on this item.';
+  }
+  return `<aside class="rbs" aria-label="Review ${esc(lbl)}">
+    <div class="rbs-h"><span>${rbIco('sprout')}<span>${esc(lbl)}</span></span>${badge}</div>
+    <div class="rbs-facts">${F('sprout','Crop',esc(crop))}${F('pin','Location',esc(r.bedId))}${F('users','Worker',esc(wk))}${F('clock','Finished',esc(rbWhen(r.when)))}</div>
+    <div class="rbs-box"><div class="rbs-bh">${rbIco('sprout')}What\u2019s required?</div>${req}</div>
+    <div class="rbs-note"><div class="rbs-bh">${rbIco('doc')}Notes</div><div>${note}</div></div>
+    <div class="rbs-actions"><button class="rbs-close" onclick="rbFocus('${esc(r.key)}')">${rbIco('x')}Close</button>${approve}</div>
+  </aside>`;
 }
 function rbTh(k,label){ const on=rb.sortK===k; return `<th class="sortable" onclick="rbSortBy('${k}')" title="Sort">${label}${on?(rb.sortDir>0?' \u25B2':' \u25BC'):''}</th>`; }
 function rbFilterBar(all){
@@ -6672,14 +6794,14 @@ function rbFilterBar(all){
   /* Row 1: who/what (search, worker, activity group) + reset. Row 2: scope/time (block left, date right). */
   return `<div class="rb-filters">
     <div class="rb-frow">
-      <input id="rb-search" class="rb-in" type="search" placeholder="Search activity, bed, cohort or worker\u2026" value="${esc(rb.q)}" oninput="rbSearch(this.value)" aria-label="Search the review board">
+      <span class="rb-sw">${rbIco('search')}<input id="rb-search" class="rb-in" type="search" placeholder="Search activity, bed, crop\u2026" value="${esc(rb.q)}" oninput="rbSearch(this.value)" aria-label="Search the review board"></span>
       <select class="rb-in" style="min-width:140px;" aria-label="Filter by worker" onchange="rbSetF('fWorker',this.value,true)"><option value="">All workers</option>${wk.map(w=>`<option value="${esc(w)}" ${rb.fWorker===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
       ${doms.length?`<span class="rb-seg">${allChip('fDomain')}${doms.map(g=>chip('fDomain',g,g)).join('')}</span>`:''}
       ${any?'<button class="dc-mini" style="margin-left:auto;" onclick="rbClearF()">Reset</button>':''}
     </div>
     <div class="rb-frow" style="justify-content:space-between;">
       <span class="rb-seg">${allChip('fBlock')}${PLAN_BLOCKS.map(b=>chip('fBlock',b,BLOCK_LABELS[b]||b)).join('')}</span>
-      <span class="rb-seg">${pre('null','Any date',nodate)}${pre(0,'Today',rb.dFrom===owIso(0)&&rb.dTo===owIso(0))}${pre(7,'7d',rb.dFrom===owIso(-7)&&!rb.dTo)}${pre(30,'30d',rb.dFrom===owIso(-30)&&!rb.dTo)}
+      <span class="rb-seg">${pre('null',rbIco('cal')+' Any date',nodate)}${pre(0,'Today',rb.dFrom===owIso(0)&&rb.dTo===owIso(0))}${pre(7,'7d',rb.dFrom===owIso(-7)&&!rb.dTo)}${pre(30,'30d',rb.dFrom===owIso(-30)&&!rb.dTo)}
         <label class="qsub" style="margin:0 0 0 6px;text-transform:none;letter-spacing:0;">From <input type="date" class="rb-in" style="min-width:0;padding:4px 6px;" value="${esc(rb.dFrom)}" onchange="rbSetDate('dFrom',this.value)"></label>
         <label class="qsub" style="margin:0;text-transform:none;letter-spacing:0;">To <input type="date" class="rb-in" style="min-width:0;padding:4px 6px;" value="${esc(rb.dTo)}" onchange="rbSetDate('dTo',this.value)"></label></span>
     </div>
@@ -6730,14 +6852,19 @@ function rbPanel(){
   const histWait=rbWantDays()>rb.loadedDays;
   const empty=histWait?'Loading history\u2026':v.all.length?'No items match the filters. <button class="dc-mini" onclick="rbClearF()">Clear filters</button>'
     :({ multi:'No multi-worker activities need review.', single:'Nothing to review. Completed Checked activities from the last '+RB_ACTIVE_DAYS+' days appear here.', history:'No checked or verified work in the last '+RB_HISTORY_DAYS+' days.' })[rb.tab];
-  const table=v.f.length?`<div class="rb-wrap"><table class="bb-t rb-tbl"><thead><tr><th class="c"></th>${rbTh('status','Status')}${rbTh('activity','Activity')}${rbTh('bed','Location & Cohort')}${rbTh('worker','Worker')}${rbTh('when','Manager action \u00b7 time')}</tr></thead>
+  const table=v.f.length?`<div class="rb-wrap"><table class="bb-t rb-tbl rbx-tbl"><thead><tr>${rbTh('status','Status')}${rbTh('activity','Activity')}${rbTh('bed','Location & Cohort')}${rbTh('worker','Worker')}${rbTh('when','Manager action \u00b7 time')}</tr></thead>
     <tbody>${v.rows.map((r,i)=>rbTRow(r,v.rows[i-1])).join('')}</tbody></table></div>${rbPager(rb.tab,v)}`:`<div class="empty" style="padding:10px 0;">${empty}</div>`;
-  return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Manager review board</b></span>
-      <span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></span></div>
+  const subtitle={ multi:'Review and approve multi-worker activities', single:'Check and verify single-worker work and maintenance', zone:'Decide on worker zone traces (ACT_013)', history:'Everything checked or verified, newest first' }[rb.tab]||'';
+  const ICO={ zone:'pin', multi:'users', single:'wrench', history:'clock' };
+  const side=rb.tab==='zone'||rb.tab==='history'?'':rbSidePanel(rows);
+  const body=rb.tab==='zone'?rbZoneBody()
+    :rbFilterBar(rows)+`<div class="rb-split"><div class="rb-main">${rbBulk(v)}${table}</div>${side?`<div class="rb-side">${side}</div>`:''}</div>`;
+  return `<div class="card rbx-card" style="margin:12px 0;"><div class="rbx-head"><div><div class="rbx-title">Manager Review Board</div><div class="rbx-sub">${esc(subtitle)}</div></div>
+      <span class="chip ${total?'chip-warn':'chip-ok'}" title="Waiting for your review">${total}</span></div>
     ${rb.err?`<div class="error">${esc(rb.err)}</div>`:''}
-    <div class="rb-tabs" role="tablist">${tabs.map(t=>`<button role="tab" aria-selected="${rb.tab===t[0]}" class="${rb.tab===t[0]?'on':''}" onclick="rbTab('${t[0]}')">${esc(t[1])}${t[2]?`<span class="chip ${t[3]}">${t[2]}</span>`:''}</button>`).join('')}</div>
+    <div class="rb-tabs" role="tablist">${tabs.map(t=>`<button role="tab" aria-selected="${rb.tab===t[0]}" class="${rb.tab===t[0]?'on':''}" onclick="rbTab('${t[0]}')">${rbIco(ICO[t[0]])}<span>${esc(t[1])}</span>${t[2]?`<span class="chip ${t[3]}">${t[2]}</span>`:''}</button>`).join('')}</div>
     <div class="qsub" style="text-transform:none;letter-spacing:0;margin-bottom:6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;">${esc(scopeLine)}${help}</div>
-    ${rb.tab==='zone'?rbZoneBody():rbFilterBar(rows)+rbBulk(v)+table}</div>`;
+    ${body}</div>`;
 }
 /* ADD NEW ACTIVITY. The form follows the ACTIVITY_REFERENCE tab column by column (Activity_ID ... Is_Fertilizer) and the
  * "Row preview" at the bottom shows the row exactly as it will be appended. Saved through 'create-activity' {full:true}
