@@ -161,7 +161,9 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .rbs-req{display:flex;align-items:center;gap:10px;padding:9px 12px;font-size:13.5px;} .rbs-req+.rbs-req{border-top:1px solid var(--line);} .rbs-req em{margin-left:auto;font-size:11.5px;color:var(--ink-soft);font-style:normal;} .rbs-req.off{opacity:.55;}
 .rbs-cb{flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--ink-soft);background:var(--paper);display:inline-flex;align-items:center;justify-content:center;padding:0;}
 .rbs-cb.on{background:var(--ok);border-color:var(--ok);color:#fff;} .rbs-cb .rb-ico{width:12px;height:12px;stroke-width:3;}
-.rbs-cb.tap{cursor:pointer;border-color:var(--warn);} .rbs-cb.tap:hover{background:#FBEBD6;}
+.rbs-cb.tap{border-color:var(--warn);} .rbs-cb.tap.on{border-color:var(--forest);background:var(--forest);color:#fff;}
+.rbs-req.pick{cursor:pointer;} .rbs-req.pick:hover{background:#FFF8EE;} .rbs-req.pick.sel{background:color-mix(in srgb,var(--forest) 7%,var(--paper));} .rbs-req.pick:focus-visible{outline:2px solid var(--forest);outline-offset:-2px;}
+.rbs-selbar{display:flex;justify-content:flex-end;padding:4px 12px;border-bottom:1px solid var(--line);} .rbs-selbar .rbx-link{padding:0;}
 .rbs-note{margin:12px 14px 0;padding:0 0 10px;border-radius:10px;background:color-mix(in srgb,var(--forest) 6%,var(--paper));font-size:13px;color:var(--ink);} .rbs-note>div:last-child{padding:2px 12px 0;} .rbs-note .rbs-bh{background:none;}
 .rbs-actions{display:flex;gap:10px;padding:14px;} .rbs-actions button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px;border-radius:10px;font:inherit;font-size:14px;font-weight:700;cursor:pointer;}
 .rbs-close{background:var(--paper);color:var(--forest);border:1.5px solid var(--forest);} .rbs-go{background:var(--forest);color:#fff;border:1.5px solid var(--forest);} .rbs-go:disabled{opacity:.45;cursor:not-allowed;}
@@ -606,6 +608,7 @@ button.vp-busy-btn:disabled{opacity:.82;}
 .irr-bar>i{display:block;height:100%;background:#2E7D32;}
 .irr-bar.over>i{background:#B3261E;}
 .irr-over{color:#B3261E;}
+.irr-drawer .irr-cmp th{text-align:left;font-size:10.5px;text-transform:uppercase;color:#64748B;padding:5px 6px;border-bottom:1px solid #E2E8F0;} .irr-drawer .irr-cmp td{padding:6px;border-bottom:1px solid #E2E8F0;vertical-align:top;}
 .irr-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0;}
 .irr-kpi>div{border:1px solid #E2E8F0;border-radius:10px;padding:8px 10px;}
 .irr-kpi b{display:block;font-size:20px;}
@@ -2244,8 +2247,8 @@ function avPortionLines(s){
   const total=s.portions.length, done=s.portions.filter(p=>p.status==='CHECKED').length;
   const rows=s.portions.map(p=>{
     const saving = !!pcBusy[pcKey(s.bedId,s.name,p.workerId)];
-    const cls = saving ? 'saving' : p.status==='CHECKED' ? 'checked' : p.status==='OPEN' ? 'open' : 'await';
-    const chip = saving ? '<span class="chip chip-warn"><span class="pc-spin"></span>Saving\u2026</span>'
+    const cls = saving ? 'checked' : p.status==='CHECKED' ? 'checked' : p.status==='OPEN' ? 'open' : 'await';
+    const chip = saving ? '<span class="chip chip-ok">Checked</span>'
                : p.status==='CHECKED' ? '<span class="chip chip-ok">Checked</span>'
                : p.status==='OPEN'    ? `<span class="chip chip-neutral">${esc(avOpenLabel(p.openStatus))}</span>`
                : '<span class="chip chip-warn">Needs your check</span>';
@@ -2253,8 +2256,8 @@ function avPortionLines(s){
     if(p.status!=='OPEN'&&p.completedAt) bits.push('Done '+esc(avWhen(p.completedAt))+(p.minutes?' \u00b7 '+esc(p.minutes)+' min':''));
     if(p.status==='CHECKED') bits.push('Checked by '+esc(p.checkedByName||p.checkedBy)+' \u00b7 '+esc(avWhen(p.checkedAt)));
     if(saving) bits.push('Saving to the sheet. This can take several seconds.');
-    const btn = saving ? '<button class="btn btn-outline" disabled><span class="pc-spin"></span>Checking\u2026</button>'
-      : p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}')">Check</button>` : '';
+    const btn = saving ? '<span class="pc-meta"><span class="pc-spin"></span> Saving\u2026</span>'
+      : p.status==='AWAITING_CHECK' ? `<button class="btn btn-outline" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}','${esc(p.name||p.workerId)}')">Check</button>` : '';
     return `<div class="pc-row ${cls}"><div class="pc-main"><div class="pc-top"><span class="pc-name">${esc(p.name||p.workerId)}</span>${chip}</div>${bits.length?`<div class="pc-meta">${bits.join('<br>')}</div>`:''}</div>${btn}</div>`;
   }).join('');
   const why = s.promoted ? `<div class="pc-note">Normally this activity is only checked. More than one worker is assigned, so it also needs verification once every portion is checked.</div>` : '';
@@ -2302,18 +2305,32 @@ function avTog(name,on){ const d=ui.av; if(!d) return; if(on) d.sel[name]=true; 
 function avAll(on){ const b=dpBed(), d=avS(b); d.sel={}; if(on) avStepsOf(b,true).filter(s=>s.verifiable!==false).forEach(s=>{ d.sel[s.name]=true; }); dpRefresh(); }
 
 /* Check one worker's portion of a multi-worker activity. Does not verify and does not touch the single-worker check. */
-async function avPortionCheck(bedId, activity, workerId, cohortId){
-  const k=pcKey(bedId,activity,workerId); if(pcBusy[k]) return;
-  pcBusy[k]=true; render();
-  const slowTimer=setTimeout(()=>{ if(pcBusy[k]) toast('Still saving. The sheet is busy, please wait.',6000); },8000);
+function avPortionCheck(bedId, activity, workerId, cohortId, name){
+  return pcRun([{ bedId, activity, workerId, cohortId:cohortId||'', name:name||workerId }]);
+}
+/* Check one or MANY worker portions in a single request (portion-check already takes a list). While it saves, the portions show as Checked
+ * straight away (pcBusy = checked, saving to the sheet) instead of looking untouched; the fresh data then replaces that. When it finishes a
+ * dialog with an OK button says what was recorded. Nothing is verified here: Approve / Verify stays a separate step. */
+async function pcRun(items){
+  items=(items||[]).filter(i=>!pcBusy[pcKey(i.bedId,i.activity,i.workerId)]); if(!items.length) return;
+  const keys=items.map(i=>pcKey(i.bedId,i.activity,i.workerId)), names=items.map(i=>i.name||i.workerId);
+  keys.forEach(k=>{ pcBusy[k]=true; }); render();
+  const slowTimer=setTimeout(()=>{ if(keys.some(k=>pcBusy[k])) toast('Still saving. The sheet is busy, please wait.',6000); },8000);
+  let failed='', skipped=[];
   try{
-    await apiCall('portion-check',{ items:[{ bedId, activity, workerId, cohortId:cohortId||'' }] },60000);
-    toast('Portion checked.');
-  } catch(e){ toast((e&&e.message)||'Could not check this portion.',9000); }
+    const res=await apiCall('portion-check',{ items:items.map(i=>({ bedId:i.bedId, activity:i.activity, workerId:i.workerId, cohortId:i.cohortId||'' })) },120000);
+    skipped=(res&&res.skipped)||[];
+  } catch(e){ failed=(e&&e.message)||'Could not check this portion.'; }
   clearTimeout(slowTimer);
-  /* Reload whatever happened: after a timeout the check may still have been saved. The spinner stays until the fresh data is in. */
+  /* Reload whatever happened: after a timeout the check may still have been saved. The "saving" state stays until the fresh data is in. */
   try{ await loadToday(); await rbLoad(true); } catch(e2){ /* the next refresh will catch up */ }
-  delete pcBusy[k]; render();
+  keys.forEach(k=>{ delete pcBusy[k]; }); render();
+  if(failed){ toast(failed,9000); return; }
+  const n=items.length-skipped.length;
+  const lines=[n===1?'1 portion was checked and saved:':n+' portions were checked and saved:', names.join(', ')+'.'];
+  if(skipped.length) lines.push(skipped.length+' could not be checked: '+skipped.map(x=>x.reason).filter(Boolean).join(' '));
+  lines.push('Checking does not verify the activity. Approve it once every portion is checked.');
+  if(n>0) assignDialog('Completed',lines); else toast(skipped.map(x=>x.reason).join(' ')||'Nothing was recorded.',8000);
 }
 
 async function avVerifySelected(){
@@ -6595,6 +6612,15 @@ function rbView(tab,rows){
 }
 function rbResetView(){ rb.page={multi:0,single:0,history:0}; rb.sel={}; rb.selV={}; rb.focus=''; }
 function rbFocus(k){ rb.focus=(rb.focus===k)?'':k; render(); }
+/* Multi-worker portion selection in the side panel: rb.pcSel[rowKey] = { workerId:true }. */
+function rbPcRow_(k){ return rb.data?rbRows(rb.data).find(z=>z.key===k):null; }
+function rbPcAwaiting_(r){ const s=rbCrewS(r.crew); return { s, list:s.portions.filter(p=>p.status==='AWAITING_CHECK'&&!pcBusy[pcKey(s.bedId,s.name,p.workerId)]) }; }
+function rbPcTog(k,w){ rb.pcSel=rb.pcSel||{}; const m=rb.pcSel[k]=rb.pcSel[k]||{}; if(m[w]) delete m[w]; else m[w]=true; render(); }
+function rbPcAll(k){ const r=rbPcRow_(k); if(!r||!r.crew) return; const a=rbPcAwaiting_(r).list; rb.pcSel=rb.pcSel||{};
+  const all=a.length&&a.every(p=>(rb.pcSel[k]||{})[p.workerId]); rb.pcSel[k]={}; if(!all) a.forEach(p=>{ rb.pcSel[k][p.workerId]=true; }); render(); }
+function rbPcGo(k){ const r=rbPcRow_(k); if(!r||!r.crew) return; const a=rbPcAwaiting_(r), sel=(rb.pcSel&&rb.pcSel[k])||{};
+  const items=a.list.filter(p=>sel[p.workerId]).map(p=>({ bedId:a.s.bedId, activity:a.s.name, workerId:p.workerId, cohortId:a.s.cohortId||'', name:p.name||p.workerId }));
+  if(!items.length) return; if(rb.pcSel) delete rb.pcSel[k]; return pcRun(items); }
 /* Approve one single-worker row from the side panel: same server call as the bulk bar, for exactly one log entry. */
 function rbOne(k,m){ const s=m==='check'?rb.sel:rb.selV; Object.keys(s).forEach(z=>delete s[z]); s[k]=true; rbReview(m); }
 function rbTab(t){ rb.tab=t; rbResetView(); render(); rbLoad(false); if(t==='zone') ztEnsureReview_(); }
@@ -6753,16 +6779,23 @@ function rbSidePanel(rows){
   if(r.crew){
     const s=rbCrewS(r.crew), ready=r.state==='ready';
     badge=ready?'<span class="rbs-badge ok">Ready</span>':'<span class="rbs-badge">Pending</span>';
+    /* Tick any number of workers (or Select all), then press Check selected: one request, one OK dialog at the end. */
+    const sel=(rb.pcSel&&rb.pcSel[r.key])||{}, awaiting=s.portions.filter(p=>p.status==='AWAITING_CHECK'&&!pcBusy[pcKey(s.bedId,s.name,p.workerId)]);
+    const nSel=awaiting.filter(p=>sel[p.workerId]).length, allOn=awaiting.length>0&&nSel===awaiting.length;
     req=s.portions.map(p=>{
-      const busy=!!pcBusy[pcKey(s.bedId,s.name,p.workerId)], done=p.status==='CHECKED', can=p.status==='AWAITING_CHECK'&&!busy, nm=esc(p.name||p.workerId);
+      const busy=!!pcBusy[pcKey(s.bedId,s.name,p.workerId)], done=p.status==='CHECKED'||busy, can=p.status==='AWAITING_CHECK'&&!busy, nm=esc(p.name||p.workerId);
       const hint=busy?'Saving\u2026':done?'Checked':p.status==='OPEN'?esc(avOpenLabel(p.openStatus)):'';
-      const circle=can?`<button class="rbs-cb tap" aria-label="Check portion for ${nm}" onclick="avPortionCheck('${esc(s.bedId)}','${esc(s.name)}','${esc(p.workerId)}','${esc(s.cohortId||'')}')"></button>`:cb(done);
-      return `<div class="rbs-req ${done?'done':''}">${circle}<span>Check portion: ${nm}</span>${hint?`<em>${hint}</em>`:''}</div>`;
+      if(can){ const on=!!sel[p.workerId];
+        return `<div class="rbs-req pick ${on?'sel':''}" role="checkbox" aria-checked="${on}" tabindex="0" data-k="${esc(r.key)}" data-w="${esc(p.workerId)}" onclick="rbPcTog(this.dataset.k,this.dataset.w)" onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();rbPcTog(this.dataset.k,this.dataset.w);}"><span class="rbs-cb tap ${on?'on':''}">${on?rbIco('check'):''}</span><span>Check portion: ${nm}</span></div>`; }
+      return `<div class="rbs-req ${done?'done':''}">${cb(done)}<span>Check portion: ${nm}</span>${hint?`<em>${hint}</em>`:''}</div>`;
     }).join('')+`<div class="rbs-req ${ready?'':'off'}">${cb(false)}<span>Verify the activity</span></div>`;
+    if(awaiting.length>1) req=`<div class="rbs-selbar"><button class="rbx-link" data-k="${esc(r.key)}" onclick="rbPcAll(this.dataset.k)">${allOn?'Clear selection':'Select all ('+awaiting.length+')'}</button></div>`+req;
     note=ready?'Every portion is checked. Approve to verify this activity. It does not release the bed.'
-      :(s.blockReason||'Verify unlocks when every worker is done and checked. Tap a circle to check that worker\u2019s portion.')+(s.promoted?' More than one worker is assigned, so this activity needs verification as well as checks.':'');
-    approve=ready?(r.planting?`<button class="rbs-go" onclick="openModal('verify-planting',{cohortId:'${esc(r.crew.cohortId)}',bedId:'${esc(r.crew.bedId)}'})">${rbIco('check')}Approve</button>`
-      :`<button class="rbs-go" data-b="${esc(r.crew.bedId)}" data-a="${esc(r.crew.activity)}" onclick="rbVerifyCrew(this)">${rbIco('check')}Approve</button>`)
+      :awaiting.length?'Tick the workers whose portions you have reviewed (or Select all), then press Check selected. Approve unlocks once every portion is checked.'
+      :(s.blockReason||'Verify unlocks when every worker is done and checked.')+(s.promoted?' More than one worker is assigned, so this activity needs verification as well as checks.':'');
+    approve=awaiting.length?`<button class="rbs-go" data-k="${esc(r.key)}" ${nSel?'':'disabled'} onclick="rbPcGo(this.dataset.k)">${rbIco('check')}${allOn?'Check all':'Check selected'}${nSel?' ('+nSel+')':''}</button>`
+      :ready?(r.planting?`<button class="rbs-go" onclick="openModal('verify-planting',{cohortId:'${esc(r.crew.cohortId)}',bedId:'${esc(r.crew.bedId)}'})">${rbIco('check')}Approve</button>`
+        :`<button class="rbs-go" data-b="${esc(r.crew.bedId)}" data-a="${esc(r.crew.activity)}" onclick="rbVerifyCrew(this)">${rbIco('check')}Approve</button>`)
       :`<button class="rbs-go" disabled>${rbIco('check')}Approve</button>`;
   } else if(r.pending){
     const m=r.state==='tocheck'?'check':'verify', w=m==='check'?'Check this work':'Verify this work';
@@ -7629,7 +7662,45 @@ function openIrrReview(){
   if(!zoneOvCan()){ toast('Irrigation runs are for managers and founders.'); return; }
   openModal('irr-review',{}); IR2.open=''; ir2Load(true);
 }
-function irrOpen_(id){ IR2.open=id; ir2Redraw_(); }
+/* ---- Target vs actual (read only) ----
+ * The planned numbers are never stored on the run, so they are read from the irrigation calendar for the run's day (same numbers the worker card showed:
+ * bed gallons, zone run minutes, net depth). Nothing here writes: the original target is only displayed next to what the worker recorded. A run with no
+ * calendar entry (off-schedule) simply shows "No calendar target". IR2.tgt[logId] = {st:'loading'|'ok'|'none'|'err', ...}. */
+IR2.tgt={}; IR2.calDay={};
+function ir2LocalDay_(v){ const d=new Date(v); if(isNaN(d)) return ''; const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function ir2ShiftDay_(day,n){ const d=new Date(day+'T12:00:00'); d.setDate(d.getDate()+n); return ir2LocalDay_(d); }
+async function ir2LoadTarget_(logId){
+  const d=IR2_D.find(x=>x.r.Activity_Log_ID===logId); if(!d||IR2.tgt[logId]) return;
+  const day=ir2LocalDay_(d.r.Start_Time), bed=String(d.r.Bed_ID||'').trim(); if(!day||!bed){ IR2.tgt[logId]={st:'none'}; return; }
+  IR2.tgt[logId]={st:'loading'}; ir2Redraw_();
+  try{
+    if(!IR2.calDay[day]) IR2.calDay[day]=apiCall('get-irrigation-calendar',{from:ir2ShiftDay_(day,-1),to:ir2ShiftDay_(day,1)},60000);
+    const cal=await IR2.calDay[day];
+    const hits=((cal&&cal.items)||[]).filter(it=>(it.beds||[]).some(b=>String(b.bedId||'').trim()===bed)&&(!d.r.Cohort_ID||!it.cohortId||it.cohortId===d.r.Cohort_ID));
+    hits.sort((a,b)=>(a.date===day?0:1)-(b.date===day?0:1));   /* the run's own day first, then the neighbouring days */
+    const it=hits[0], b=it&&(it.beds||[]).find(x=>String(x.bedId||'').trim()===bed);
+    IR2.tgt[logId]=b?{st:'ok',date:it.date,gal:b.gallons!=null?Number(b.gallons):null,min:b.minutes!=null?Number(b.minutes):null,
+      depth:it.water&&it.water.netInches!=null?Number(it.water.netInches):null,estimated:!!(it.water&&it.water.source&&it.water.source!=='ET')}:{st:'none'};
+  }catch(e){ delete IR2.calDay[day]; IR2.tgt[logId]={st:'err',msg:e.message||'Could not read the calendar.'}; }
+  ir2Redraw_();
+}
+function ir2CompareHtml_(d){
+  const r=d.r, t=IR2.tgt[r.Activity_Log_ID];
+  if(!t||t.st==='loading') return `<div class="sub irr-sec">Target vs actual</div><div class="sub">Loading the planned values…</div>`;
+  if(t.st==='err') return `<div class="sub irr-sec">Target vs actual</div><div class="sub">Planned values could not be read (${esc(t.msg)}). <button class="dc-mini" onclick="delete IR2.tgt['${esc(r.Activity_Log_ID||'')}'];ir2LoadTarget_('${esc(r.Activity_Log_ID||'')}')">Try again</button></div>`;
+  if(t.st==='none') return `<div class="sub irr-sec">Target vs actual</div><div class="sub">No calendar target for this run (it was not on the irrigation calendar for that bed and day). The recorded values above stand on their own.</div>`;
+  const diff=(act,tgt,unit,dp)=>{ if(act==null||tgt==null) return '<span class="sub">—</span>'; const x=act-tgt, pct=tgt?x/tgt*100:null, big=pct!=null&&Math.abs(pct)>10;
+    return `<b${big?' class="irr-over"':''}>${x>0?'+':''}${ir2N(x,dp)} ${unit}${pct!=null?' ('+(x>0?'+':'')+ir2N(pct,1)+'%)':''}</b>`; };
+  const long=d.act.min!=null&&d.act.min>IR2_LONG_MIN;
+  const rows=`<tr><td>Water</td><td>${t.gal!=null?ir2N(t.gal,1)+' gal':'—'}</td><td>${d.gal!=null?ir2N(d.gal,1)+' gal':'—'}</td><td>${diff(d.gal,t.gal,'gal',1)}</td></tr>
+    <tr><td>Runtime</td><td>${t.min!=null?t.min+' min':'—'}</td><td>${d.act.min!=null?d.act.min+' min':'—'}</td><td>${long?'<span class="sub">not compared: over '+IR2_LONG_MIN+' min usually means the session was left open</span>':diff(d.act.min,t.min,'min',0)}</td></tr>`;
+  return `<div class="sub irr-sec">Target vs actual</div>
+    <table class="irr-cmp"><thead><tr><th></th><th>Planned</th><th>Recorded</th><th>Difference</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="sub">${t.depth!=null?'Target depth '+esc(t.depth)+' in net. ':''}Planned values are from the irrigation calendar for ${esc(t.date)}${t.estimated?' (estimated depth)':''} and are never changed by this review. The zone runtime is the whole zone's valve run, not only this bed.</div>
+    <div class="sub"><b>Worker explanation:</b> ${r.Notes?esc(r.Notes):'none given'}</div>
+    <div class="sub">Verifying confirms the work record is acceptable. It does not mean the planned amount was used.</div>`;
+}
+function irrOpen_(id){ IR2.open=id; ir2Redraw_(); ir2LoadTarget_(id); }
 function irrClose_(){ IR2.open=''; ir2Redraw_(); }
 function irrNote_(id,v){ IR2.note[id]=v; }
 /* Check one run through review-activity (CHECKED class). Verify goes through the irrigation-only route verify-irrigation-run, so the shared
@@ -7769,6 +7840,7 @@ function ir2DrawerHtml_(id){
   return `<aside class="irr-drawer" role="dialog" aria-label="Irrigation run detail">
     <div class="irr-hd"><h2>${esc(r.Bed_ID||'')}</h2><button onclick="irrClose_()">Close</button></div>
     ${facts}
+    ${ir2CompareHtml_(d)}
     <div class="sub irr-sec">Issues &amp; outliers</div>${issues}
     ${cleared}
     <div class="sub irr-sec">Worker notes</div><div class="sub">${r.Notes?esc(r.Notes):'No notes from the worker.'}</div>
