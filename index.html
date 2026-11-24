@@ -6259,6 +6259,17 @@ function bhChips(scope,group,req,extra){
     +(group?`<span class="chip chip-neutral" title="Activity group">${esc(group)}</span>`:'')
     +(req?`<span class="chip chip-warn" title="${esc(req)}">Required</span>`:`<span class="chip chip-neutral" title="Not required for this bed">Optional</span>`)+(extra||'');
 }
+/* Separated cards (proposed UI): the queued ACT_013 check is a worker task; the zone link is a manager gate. Shown only when relevant to the bed. */
+function actCheckZoneCards(live,d){
+  const all=[...(live.live||[]),...(live.assigned||[])];
+  const chk=all.find(o=>/IrrigationCheck|ACT_013/i.test(String(o.name||'')+' '+String(o.id||'')));
+  const zone=String(((d&&d.prof)||{}).Zone||'').trim();
+  if(!chk&&!zone) return '';
+  const q=chk?`<div class="dp-box" style="border-left:4px solid var(--forest);"><div class="qsub" style="margin:0 0 4px;font-weight:700;">Task queued</div><b>${esc(chk.name||'')}</b><div class="note" style="margin:4px 0 0;">Assigned to ${esc(chk.worker||'Not assigned')}</div></div>`:'';
+  const z=zone?`<div class="dp-box" style="border-left:4px solid #1E6B2E;"><div class="qsub" style="margin:0 0 4px;font-weight:700;">Zone status: verified</div><b>${esc(zone)}</b><div class="note" style="margin:4px 0 0;">Confirmed by ACT_013 sign-off.</div></div>`
+    :`<div class="dp-box" style="border-left:4px solid #B7791F;background:#FFF8E6;"><div class="qsub" style="margin:0 0 4px;font-weight:700;">Zone status: unverified</div><b>Complete ACT_013, then approve the zone link</b><div class="note" style="margin:4px 0 0;">Awaiting the field check before zone trace verification can proceed (Zone sign-off).</div></div>`;
+  return `<div style="display:flex;flex-direction:column;gap:8px;margin:8px 0;">${q}${z}</div>`;
+}
 function bhRow(o){
   return `<div class="bh-row ${o.req?'req':''}"><div class="bh-top"><span class="bh-id">${esc(o.id||'No ID')}</span><b>${esc(o.name)}</b>${o.chips||''}</div>
     ${o.desc?`<div class="bh-desc">${esc(o.desc)}</div>`:''}
@@ -6364,6 +6375,7 @@ function bedActivitiesPanel(d,st,cohort,part){
   return `<div id="bed-acts"><h2 style="font-size:13px;margin:12px 0 2px;">Activities on this bed</h2>
     <div class="qsub" style="margin:0 0 4px;text-transform:none;letter-spacing:0;">${esc(sum)}</div>
     <div class="note" style="margin:0 0 4px;"><b>${esc(ds.sc==='CROP'?'Crop domain':'Bed domain')}.</b> ${esc(ds.text.replace(/^(Crop|Bed) domain is active: /,''))} Required = a post-harvest reset step still to do, or the planting step of a cohort waiting to be planted.</div>
+    ${actCheckZoneCards(live,d)}
     ${bhSec('In progress',live.n.live,live.live.map(bhRow).join(''),'No activity is running on this bed.')}
     ${bhSec('Assigned, not started',live.n.assigned,live.assigned.map(bhRow).join(''),'No activity is waiting for a worker to start.')}
     ${bhSec('Can be assigned now',can.length,bhByScope(can,assignRow),st==='BLOCKED'?'This bed is blocked. Clear the block and verify it first.':'Nothing can be assigned to this bed right now.')}
@@ -6397,7 +6409,7 @@ function bbPanelHTML(){
   if(cohort) tabs.push(['harvest','Harvest']);
   const tab=tabs.some(t=>t[0]===bb.tab)?bb.tab:'overview';
   const meta=cohort?`${esc(blockLabel)} \u00b7 ${esc(cropName||'Cohort')} \u00b7 ${esc(cohort)}`:`${esc(blockLabel)} \u00b7 ${esc((locType||'field').toLowerCase())} bed \u00b7 ${esc(short)}`;
-  const head=`<div class="panelhead"><div><h2>${esc(id)}</h2><div class="meta">${meta}</div></div><button onclick="bbClosePanel()" aria-label="Close bed panel">\u2715</button></div>
+  const head=`<div class="panelhead bb-ctx" style="position:sticky;top:0;z-index:3;background:var(--card,#fff);"><div><h2>${esc(id)} <span class="chip chip-neutral" style="font-size:11px;">${esc(short)}</span></h2><div class="meta">${meta}${b&&b.plantingDate?' · Planted '+esc(b.plantingDate):''}</div></div><button onclick="bbClosePanel()" aria-label="Close bed panel">\u2715</button></div>
     <div class="tabs">${tabs.map(t=>`<button class="${tab===t[0]?'active':''}" onclick="bbSetTab('${t[0]}')">${esc(t[1])}</button>`).join('')}</div>`;
   let body='';
   if(bb.act&&bb.act.bedId===id) body=bbActBody();
@@ -7172,7 +7184,7 @@ function pvPanel(){
     <button class="btn btn-primary" style="width:auto;margin:8px 0 0;padding:10px 18px;" data-pvgo="" ${n?'':'disabled'} onclick="pvVerify('')">${n?'Verify selected ('+n+')':'Verify selected'}</button>`:'';
   const plHtml=plant.length?`<h2 style="font-size:13px;margin:14px 0 6px;">Plantings to confirm (${plant.length})</h2>`+plant.map(b=>`<div class="row"><span><b>Bed ${esc(b.id)}</b> \u00b7 ${esc(b.cropName||'')} <span class="qsub" style="display:inline;">${esc(b.cohortId)}</span></span>
       <button class="dc-mini" onclick="openModal('verify-planting',{cohortId:'${esc(b.cohortId)}',bedId:'${esc(b.id)}'})">Verify planting</button></div>`).join(''):'';
-  const rdHtml=ready.length?`<h2 style="font-size:13px;margin:14px 0 6px;">Beds ready to release (${ready.length})</h2>`+ready.map(b=>{ const ph=b.postHarvest, scope=ph.bedLevel?'BED:'+b.id:b.cohortId; return `<div class="row"><span><b>Bed ${esc(b.id)}</b> <span class="qsub" style="display:inline;">every reset activity is done</span></span>
+  const rdHtml=ready.length?`<h2 style="font-size:13px;margin:14px 0 6px;">Beds ready to release (${ready.length})</h2>`+ready.map(b=>{ const ph=b.postHarvest, scope=ph.bedLevel?'BED:'+b.id:b.cohortId; return `<div class="row"><span><b>Bed ${esc(b.id)}</b> <span class="chip" style="background:#F5C86A;color:#5a3d00;border-color:#E0A93B;">Reset Complete · Ready to Release</span></span>
       <button class="dc-mini" onclick="doVerifyTurnover('${esc(scope)}','${esc(b.id)}')">Verify bed ready</button></div>`; }).join(''):'';
   return `<div class="card" style="margin:12px 0;"><div class="row"><span><b style="color:var(--ink);">Waiting for your verification</b></span><span class="chip ${total?'chip-warn':'chip-ok'}">${total}</span></div>
     ${total?'':`<div class="empty" style="padding:8px 0;">Nothing is waiting. Finished activities, plantings and ready beds appear here.</div>`}${actHtml}${plHtml}${rdHtml}</div>`;
@@ -7227,7 +7239,7 @@ function bbScreen(){
     return `<div class="card" onclick="bbSelect('${b}')" style="cursor:pointer;${(bb.sec==='review'?rb.fBlock===b:b===bb.sel)?'outline:2px solid var(--forest);':''}"><div class="row"><span><b style="color:var(--ink);">${esc(BLOCK_LABELS[b])}</b></span><span>${d.beds.length} beds${(bb.sec==='review'&&rvc[b])?` <span class="chip chip-warn" title="Waiting for your review">${rvc[b]} to review</span>`:''}${pvc[b]?` <span class="chip chip-warn" title="Waiting for your verification">${pvc[b]}</span>`:''}</span></div>${lines}</div>`;
   }).join('');
   const secHtml=(SECS.find(x=>x[0]===bb.sec)||SECS[0])[3];
-  return `<div class="leftpanel"><nav class="bb-nav" aria-label="Bed status board sections" style="position:static;margin-bottom:12px;">${navBtns}</nav>${blockCards}</div>
+  return `<div class="leftpanel"><div class="qsub" style="margin:0 0 6px;font-weight:700;letter-spacing:.06em;">MANAGER APPROVALS</div><nav class="bb-nav" aria-label="Bed status board sections" style="position:static;margin-bottom:14px;">${navBtns}</nav><div class="qsub" style="margin:0 0 6px;font-weight:700;letter-spacing:.06em;">START OF OPERATIONS</div>${blockCards}</div>
     <div class="mapcol">
     <div class="toolbar" style="justify-content:flex-end;">
       ${bb.sec==='review'?'':reviewButton()}
