@@ -1328,10 +1328,10 @@ function busyShow(msg){ let e=document.getElementById('vp-busy'); if(!e){ e=docu
   busyShow._t=setTimeout(()=>{ e.querySelector('.msg').lastChild.textContent+=' (still working – the server is slow, please wait)'; },8000); }
 function busyHide(){ clearTimeout(busyShow._t); const e=document.getElementById('vp-busy'); if(e) e.style.display='none'; }
 function busyLock(on){ document.querySelectorAll('.overlay .sheet .btn').forEach(b=>{ if(on){ b.dataset.wasDis=b.disabled?'1':''; b.disabled=true; } else if(b.dataset.wasDis!==undefined){ b.disabled=b.dataset.wasDis==='1'; delete b.dataset.wasDis; } }); }
-async function startSessionFor(bedId, activity, workerId){
+async function startSessionFor(bedId, activity, workerId, mode){
   if(_assignBusy) return;   /* a double-tap used to send two identical requests -> two identical Pending tasks */
   _assignBusy=true; busyShow('Assigning '+activity+'… please wait'); busyLock(true);
-  try{ await apiCall('start-session', { bedId, activity, workerId }, 60000); busyShow('Assigned – refreshing…'); assignDialog('Task assigned', [activity+' for bed '+bedId+'.','Shows as Pending until the worker taps Start.']); closeModal(); await loadToday(); }
+  try{ await apiCall('start-session', Object.assign({ bedId, activity, workerId }, irrIsAct_(activity)?{operatingMode:mode||''}:{}), 60000); busyShow('Assigned – refreshing…'); assignDialog('Task assigned', [activity+' for bed '+bedId+'.','Shows as Pending until the worker taps Start.']); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); pselLoadFor(bedId); }
   finally{ _assignBusy=false; busyHide(); busyLock(false); }
 }
@@ -3661,13 +3661,17 @@ async function submitMultiAssign(){
     d.busy=false; busyShow('Assigned – refreshing…'); await loadToday(); busyHide(); maRefresh();
   }catch(e){ d.busy=false; busyHide(); toast(e.message); maRefresh(); }
 }
+/* ACT_031/Irrigation can reach this modal via the Bed Status Board's per-row quick-assign button (bhAssign -> openModal('dispatch',{fixedActivity:...})),
+ * which also calls start-session like the calendar and multi-assign modals - so it needs the same explicit, no-default Mode A/B gate before Assign is enabled. */
+function fxSetMode(v){ ui.modalDraft.mode=v; render(); }
 function fixedDispatchModal(d){
-  const opt=d.fixedRequired===false;
+  const opt=d.fixedRequired===false, isIrr=irrIsAct_(d.fixedActivity), modeOk=!isIrr||!!d.mode;
   return `<h2 style="font-size:15px;">${opt?'Assign activity':'Assign next required activity'}</h2>
   <div class="note" style="margin-top:0;">${opt?'Optional activity for this bed.':'Post-harvest turnover step. Steps can be done in any order; you verify the bed at the end.'}</div>
   <div class="field"><label>Activity</label><div style="font-weight:700;">${esc(d.fixedActivity)}</div></div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)"><option value="">Select a worker…</option>${state.workers.map(w=>`<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
-  <button class="btn btn-primary" ${d.workerId?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.fixedActivity)}', document.getElementById('md-worker').value)">Assign</button>
+  ${isIrr?irrModeRadios_('fx-'+d.bedId,d.mode||'','fxSetMode'):''}
+  <button class="btn btn-primary" ${(d.workerId&&modeOk)?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.fixedActivity)}', document.getElementById('md-worker').value, '${esc(d.mode||'')}')">Assign</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 function reassignModal(){
