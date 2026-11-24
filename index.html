@@ -2532,7 +2532,7 @@ function gateModel(b){
   const pending=rows.filter(r=>r.done&&!r.verified);   /* completed but not verified: a CHECK does not change this */
   /* RULE R_D01: a DIRECT_SEED cohort's bed also needs ACT_060/061/062 completed and manager-verified before ACT_007. They are added to the DISPLAY counters
    * (reqTotal / reqDone / reqVerified: 12 -> 15) only; m.total / m.done / m.verified stay the 12-step bed-release logic, which is unaffected. */
-  const dsOn=!!b.cohortId&&method==='DirectSeeding', dsE=dsOn?dsPreEntry(b.id):null, dsWaived=!!(dsE&&dsE.overrideOnFile&&!dsE.ready);
+  const dsOn=!!b.cohortId&&method==='DirectSeeding'&&!planted, dsE=dsOn?dsPreEntry(b.id):null, dsWaived=!!(dsE&&dsE.overrideOnFile&&!dsE.ready);
   const dsItems=dsOn?DS_PREREQS.map(p=>{ const it=((dsE&&dsE.items)||[]).find(x=>x.id===p[0]||x.name===p[1])||{}, st=it.status||'', ok=st==='VERIFIED'||dsWaived;
     return { id:p[0], name:p[1], status:st, verified:ok, done:ok||st==='AWAITING_VERIFICATION',
       text:st==='VERIFIED'?'verified':dsWaived?'waived by manager override':(it.text||(dsE&&dsE.error?'status unavailable (the server still enforces it)':'checking…')) }; }):[];
