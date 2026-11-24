@@ -6177,7 +6177,7 @@ function bbBlockTabs(){
     return `<button role="tab" aria-selected="${b===bb.sel}" class="${b===bb.sel?'on':''}" onclick="bbSelect('${b}')"><span>${esc(BLOCK_LABELS[b])}</span><small>${n===null?(d&&d.error?'error':'\u2026'):n+' beds'}</small>${w?`<span class="chip chip-warn">${w}</span>`:''}</button>`;
   }).join('')}</div>`;
 }
-function bbSec(k){ bb.sec=k; render(); }
+function bbSec(k){ bb.sec=k; if(k==='review'){ rb.autoPick=true; rbPickBlockForTab_(rb.tab); } render(); }
 function bbSelect(b){ bb.sel=b; bb.dry=null; bb.res=null; bb.confirm=false; if(bb.sec==='review'){ rb.fBlock=b; rbResetView(); } render(); }   /* on Manager review the left-hand block list filters the review board */
 function bbForget(){ Object.keys(state.pp).forEach(k=>delete state.pp[k]); }
 /* Click a bed on the Bed Status Board -> Bed profile side panel (same layout as the Daily board's bed panel). */
@@ -6586,7 +6586,7 @@ async function rbLoad(force){
   rb.busy=true;
   try{ rb.data=await apiCall('get-review-board',{days:days},60000); rb.loadedDays=days; rb.err=''; rb.last=Date.now(); }
   catch(e){ if(e&&e.code==='FORBIDDEN') rb.hide=true; else if(!rb.data) rb.err=e.message; /* a failed background refresh keeps the last good board instead of showing an error over it */ }
-  rb.busy=false; render();
+  rb.busy=false; if(rb.autoPick&&rb.data){ rb.autoPick=false; rbPickBlockForTab_(rb.tab); } render();
 }
 function rbWhen(iso){ const d=new Date(iso); return isNaN(d)?'':d.toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
 function rbTog(k,m,on){ const s=m==='check'?rb.sel:rb.selV; if(on) s[k]=true; else delete s[k]; rbSync(); }
@@ -6698,7 +6698,16 @@ function rbPcGo(k){ const r=rbPcRow_(k); if(!r||!r.crew) return; const a=rbPcAwa
   if(!items.length) return; if(rb.pcSel) delete rb.pcSel[k]; return pcRun(items); }
 /* Approve one single-worker row from the side panel: same server call as the bulk bar, for exactly one log entry. */
 function rbOne(k,m){ const s=m==='check'?rb.sel:rb.selV; Object.keys(s).forEach(z=>delete s[z]); s[k]=true; rbReview(m); }
-function rbTab(t){ rb.tab=t; rbResetView(); render(); rbLoad(false); if(t==='zone') ztEnsureReview_(); }
+/* Auto-load: when a review tab opens, if the block the filter is on has no waiting work for that tab, select the first block that does.
+   Runs once per open (rb.autoPick), never on ordinary re-renders, so a manual block choice is kept. */
+function rbPickBlockForTab_(t){
+  if(!rb.data||!rb.fBlock||t==='zone'||t==='history') return;
+  const waiting=rbRows(rb.data).filter(r=>r.pending&&r.tab===t);
+  if(!waiting.length||waiting.some(r=>r.block===rb.fBlock)) return;
+  const first=PLAN_BLOCKS.find(b=>waiting.some(r=>r.block===b));
+  if(first){ rb.fBlock=first; rbSyncBlock(first); rb.sel={}; rb.selV={}; }
+}
+function rbTab(t){ rb.tab=t; rbResetView(); rb.autoPick=true; rbPickBlockForTab_(t); render(); rbLoad(false); if(t==='zone') ztEnsureReview_(); }
 /* ACT_013 zone traces inside Manager review: pending ones are processed here (same approve / reject as Zone sign-off), reviewed ones list below. */
 async function ztLoadHist_(){
   if(ZT_.hLoading) return; ZT_.hLoading=true; render();
@@ -6875,7 +6884,9 @@ function rbSidePanel(rows){
   } else if(r.pending){
     const m=r.state==='tocheck'?'check':'verify', w=m==='check'?'Check this work':'Verify this work';
     badge='<span class="rbs-badge">Pending</span>';
-    req=`<div class="rbs-req">${cb(false)}<span>${w}</span></div>`;
+    const onSel=!!((m==='check'?rb.sel:rb.selV)[x.logId]), nextOn=!onSel;
+    /* Tickable: the same selection as the row checkbox (rb.sel / rb.selV). Mark checked still submits this item. */
+    req=`<div class="rbs-req pick ${onSel?'sel':''}" role="checkbox" aria-checked="${onSel}" tabindex="0" data-k="${esc(x.logId)}" data-m="${m}" onclick="rbTog(this.dataset.k,this.dataset.m,${nextOn});render();" onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();this.click();}"><span class="rbs-cb ${onSel?'on':''}">${onSel?rbIco('check'):''}</span><span>${w}</span></div>`;
     note=(x.notes?esc(x.notes)+' \u00b7 ':'')+(m==='check'?'Checking only logs your review. It does not change any bed, cohort, schedule or assignment.':'Verifying is logged with your name and the time.');
     approve=`<button class="rbs-go" ${rb.busy?'disabled':''} onclick="rbOne('${esc(x.logId)}','${m}')">${rbIco('check')}${m==='check'?'Mark checked':'Verify'}</button>`;
   } else {
@@ -7549,7 +7560,7 @@ function mgrCurrent_(){ return ui.screen==='planning' ? (ui.pMode==='operation'?
 function rvCount_(){ const d=rb.data; return (!IS_DEMO&&!rb.hide&&d)?((d.toCheck||[]).length+(d.toVerify||[]).length+rbCrewList(d).length):0; }
 /* One jump to the Manager review section of the Bed status board, from any screen. tab: 'zone' opens the ACT_013 zone-trace tab. */
 function goManagerReview(tab){
-  ui.modal=null; ui.screen='planning'; ui.pMode='bedboard'; bb.sec='review';
+  ui.modal=null; ui.screen='planning'; ui.pMode='bedboard'; bb.sec='review'; rb.autoPick=true;
   if(tab){ rb.tab=tab; rbResetView(); }
   render(); bbLoad(true); loadToday(); rbLoad(true);
   if(rb.tab==='zone') ztEnsureReview_();
