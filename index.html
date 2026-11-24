@@ -1329,6 +1329,7 @@ function busyShow(msg){ let e=document.getElementById('vp-busy'); if(!e){ e=docu
 function busyHide(){ clearTimeout(busyShow._t); const e=document.getElementById('vp-busy'); if(e) e.style.display='none'; }
 function busyLock(on){ document.querySelectorAll('.overlay .sheet .btn').forEach(b=>{ if(on){ b.dataset.wasDis=b.disabled?'1':''; b.disabled=true; } else if(b.dataset.wasDis!==undefined){ b.disabled=b.dataset.wasDis==='1'; delete b.dataset.wasDis; } }); }
 async function startSessionFor(bedId, activity, workerId, mode){
+  if(irrIsAct_(activity) && !mode){ toast('Choose Mode A (Whole-Zone) or Mode B (Individual Bed) first.'); return; }
   if(_assignBusy) return;   /* a double-tap used to send two identical requests -> two identical Pending tasks */
   _assignBusy=true; busyShow('Assigning '+activity+'… please wait'); busyLock(true);
   try{ await apiCall('start-session', Object.assign({ bedId, activity, workerId }, irrIsAct_(activity)?{operatingMode:mode||''}:{}), 60000); busyShow('Assigned – refreshing…'); assignDialog('Task assigned', [activity+' for bed '+bedId+'.','Shows as Pending until the worker taps Start.']); closeModal(); await loadToday(); }
@@ -3048,8 +3049,9 @@ function activityGroups(){
 }
 /* The picker lists EVERY activity from ACTIVITY_REFERENCE, grouped by Activity_Domain. It does not hide or disable anything
  * (no cohort / crop / stage / bed-status gating here). The server (validateActivity_) applies each activity's own rules. */
-function setDispatchActivity(name){ ui.modalDraft.activity=name; render(); }
+function setDispatchActivity(name){ ui.modalDraft.activity=name; if(!irrIsAct_(name)) ui.modalDraft.mode=''; render(); }
 function setDispatchWorker(id){ ui.modalDraft.workerId=id; render(); }
+function dispatchSetMode(v){ ui.modalDraft.mode=v; render(); }
 /* Controlled bed turnover (Post-Harvest, ACTIVITY_REFERENCE.Post_Harvest_Sequence). steps can be done in any order.
  * Time-based buffers are confirmed, not assigned. */
 const PH_STEPS={};   /* cohortId -> postHarvest view, set while rendering so the override modal can list the remaining steps */
@@ -3208,10 +3210,11 @@ function dispatchModal(){
 
   </div>
   <div class="field"><label>Assign to worker</label><select id="md-worker" onchange="setDispatchWorker(this.value)"><option value="">Select a worker…</option>${state.workers.map(w=>`<option value="${esc(w.workerId)}" ${d.workerId===w.workerId?'selected':''}>${esc(w.workerId)} · ${esc(w.name)}</option>`).join('')}</select></div>
+  ${irrIsAct_(d.activity)?irrModeRadios_('dsp',d.mode||'','dispatchSetMode'):''}
   ${irrIsAct_(d.activity)?irrReadyBox_(d.bedId):''}
   <p style="font-size:12px;color:var(--ink-soft);">Dispatched to the worker as Pending. Their timer starts when they tap Start.</p>
   <p style="font-size:12px;color:var(--ink-soft);">Only activities this bed's current state allows are listed.${d.hasCohort?' Post-harvest steps open after the cohort is terminated.':''}</p>
-  <button class="btn btn-primary" ${d.activity&&d.workerId?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value)">Assign activity</button>
+  <button class="btn btn-primary" ${d.activity&&d.workerId&&(!irrIsAct_(d.activity)||d.mode)?'':'disabled'} onclick="startSessionFor('${esc(d.bedId)}', '${esc(d.activity||'')}', document.getElementById('md-worker').value, '${esc(d.mode||'')}')">Assign activity</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
 }
 
