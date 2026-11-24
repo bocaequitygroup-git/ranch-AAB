@@ -7227,7 +7227,14 @@ function bbScreen(){
   const SECS=[['overview','Block map',0,overview],['verify','Waiting for verification',nVerify,pvPanel()],['review','Manager review',nReview,rbPanel()],['tasks','Open tasks',nTasks,bbTasksPanel()],['release','Start of operations',0,relPanel]]
     .filter(x=>x[0]!=='review'||(!IS_DEMO&&!rb.hide));
   if(!SECS.some(x=>x[0]===bb.sec)) bb.sec='overview';
-  const navBtns=SECS.map(x=>`<button class="${x[0]===bb.sec?'on':''}" aria-current="${x[0]===bb.sec?'page':'false'}" onclick="bbSec('${x[0]}')"><span>${esc(x[1])}</span>${x[2]?`<span class="chip chip-warn">${x[2]}</span>`:''}</button>`).join('');
+  /* Sidebar view only (proposed UI): colored rows with counts. Same sections and click handlers as before (bbSec). */
+  const showRev=!IS_DEMO&&!rb.hide, zc=(showRev&&typeof ztCount_==='function')?ztCount_():0, rdyN=pvReadyBeds().length;
+  const rowBtn=(k,label,cnt,bg)=>`<button class="${bb.sec===k?'on':''}" aria-current="${bb.sec===k?'page':'false'}" onclick="bbSec('${k}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 6px;padding:10px 12px;border:1px solid ${bb.sec===k?'var(--forest)':'var(--line)'};border-radius:8px;background:${bg};text-align:left;cursor:pointer;font-weight:600;"><span>${esc(label)}</span>${cnt?`<span class="chip chip-warn">${cnt}</span>`:''}</button>`;
+  const navBtns=[rowBtn('overview','Block map',0,'#fff'),
+    rowBtn('verify','Bed Release Approvals',rdyN,'#FBF1D3'),
+    ...(showRev?[rowBtn('review','Zone Trace Approvals',zc,'#EEF0EC')]:[]),
+    rowBtn('tasks','Open Tasks',nTasks,'#FBF1D3'),
+    rowBtn('release','Start of operations',0,'#fff')].join('');
   /* left list = one card per block (like the crop cards on Bed layout); the map in the middle shows ONE block at a time */
   const rvc={}; if(bb.sec==='review'&&rb.data) rbRows(rb.data).forEach(r=>{ if(r.pending&&r.block) rvc[r.block]=(rvc[r.block]||0)+1; });
   const blockCards=PLAN_BLOCKS.map(b=>{
