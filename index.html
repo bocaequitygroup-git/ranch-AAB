@@ -667,7 +667,7 @@ const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v==null?'':v).replace(
 /* Rule R01: readable text for PROPAGATION_NOT_VERIFIED (server message names the nursery batch); any other code is returned unchanged. */
 /* Manager-facing text: strips the internal error-code prefix (e.g. PROPAGATION_NOT_VERIFIED:) from server messages. */
 const plainMsg_=m=>String(m==null?'':m).replace(/^[A-Z_]+:\s*/,'').trim();
-const propErrText=f=>f&&f.errorCode==='PROPAGATION_NOT_VERIFIED'?(plainMsg_(f.message)||'Transplanting is blocked until propagation is verified for this cohort. Confirm the propagated crop is ready to transplant.'):f&&f.errorCode==='PLANTING_OUTSIDE_WINDOW'?'blocked: the planned planting date is outside the allowable window (see the warning below)':f&&f.errorCode==='PLANTING_WINDOW_DATA_PROBLEM'?'blocked: the planting window cannot be checked (see the warning below)':zoneOvIs(f)?(plainMsg_(f.message)||'blocked: this bed has no verified irrigation zone yet'):null;
+const propErrText=f=>f&&f.errorCode==='PROPAGATION_NOT_VERIFIED'?(plainMsg_(f.message)||'Transplanting is blocked until propagation is verified for this cohort. Confirm the propagated crop is ready to transplant.'):f&&f.errorCode==='PLANTING_OUTSIDE_WINDOW'?'blocked: the planned planting date is outside the allowable window (see the warning below)':f&&f.errorCode==='PLANTING_WINDOW_DATA_PROBLEM'?'blocked: the planting window cannot be checked (see the warning below)':zoneOvIs(f)?(plainMsg_(f.message)||'blocked: this bed has no verified irrigation zone yet'):(f&&f.errorCode==='ZONE_BUSY')?(plainMsg_(f.message)||'blocked: this zone is already reserved by another irrigation operation'):(f&&f.errorCode==='ZONE_RECORD_INCONSISTENT')?(plainMsg_(f.message)||'blocked: this bed\u2019s zone record is inconsistent with its ACT_013 approval'):null;
 /* ZONE OVERRIDE (ZONE_UNVERIFIED). A bed with no verified irrigation zone (BED_MASTER.Zone stays blank until pipe tracing) refuses an Irrigation task.
  * A Manager or Founder can assign anyway with a written reason in its OWN field, zoneOverrideReason (routes start-sessions and assign-irrigation).
  * It is NOT overrideReason: that one answers the planting / calendar gates and is sent on its own. The server logs every use to IRRIGATION_OVERRIDE_LOG and
@@ -1189,7 +1189,7 @@ function zoneSwapToCheck_(){
   if(!zc){ toast('The zone check (ACT_013) is not available for this bed. Assign it from the bed panel.'); return; }
   d.acts.filter(zoneIrrName_).forEach(n=>{ const i=d.acts.indexOf(n); if(i>=0) d.acts.splice(i,1); delete d.map[n]; });
   if(!d.acts.includes(zc.name)){ d.acts.push(zc.name); d.map[zc.name]=d.map[zc.name]||[]; }
-  d.result=null; maAutoDate(); maRefresh();
+  d.mode=''; d.result=null; maAutoDate(); maRefresh();
   toast('Zone check added. The irrigation task was removed until the zone is confirmed. Choose a worker for the zone check, then assign.',6000);
 }
 function zoneBedOf_(kind,rows){
@@ -3220,7 +3220,10 @@ function dispatchModal(){
  * Every (activity, worker) pair is its own ASSIGNED session validated by validateActivity_(). Post-harvest turnover is NOT here:
  * it stays a controlled one-step-at-a-time sequence (turnoverBlock / fixedDispatchModal). */
 function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.fert) d.fert={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=defaultSchedDate(d.bedId); return d; }
+function maD(){ const d=ui.modalDraft; if(!d.acts) d.acts=[]; if(!d.map) d.map={}; if(!d.fert) d.fert={}; if(!d.cat) d.cat='ALL'; if(d.q==null) d.q=''; if(!d.date) d.date=defaultSchedDate(d.bedId); if(d.mode==null) d.mode=''; return d; }
+/* Operating mode (MODE_A whole-zone | MODE_B individual-bed): manager-selected only, never defaulted or inferred. Cleared the moment
+ * Irrigation is no longer among the selected activities, so a stale choice can never ride along on a later, unrelated assignment. */
+function maSetMode(v){ maD().mode=v; maRefresh(); }
 /* Required-workflow steps this bed can be given right now (any order): not complete, not an automatic buffer, window open. */
 /* Any order: every unfinished step that is not an automatic wait / closed window can be assigned. The bed is released only by the manager's Verify Bed Ready. */
 function phNextStep(p){ return p?(p.steps||[]).find(x=>x.status!=='COMPLETE')||null:null; }
@@ -3243,14 +3246,14 @@ function maOpenSet(){ const o={}; bedSessions(maD().bedId).forEach(s=>{ o[String
 function maWName(id){ return ((state.workers||[]).find(w=>w.workerId===id)||{}).name||id; }
 function workerLoad(id){ return (state.sessions||[]).filter(s=>s.workerId===id && String(s.status||'').toUpperCase()!=='COMPLETED').length; }
 function maToggleAct(name,on){ maToggleActCore(name,on); maRecordPickedDate({popup:!!on&&/^(transplanting|direct ?seeding)$/i.test(String(name).replace(/^ACT_\d+:\s*/,'').trim())}); }
-function maToggleActCore(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0&&dsIsAct(name)) dsPreFetch(d.bedId); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } d.result=null; maAutoDate(); maRefresh(); }
-function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0){ d.acts.push(a.name); d.map[a.name]=d.map[a.name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[a.name]; } }); d.result=null; maRefresh(); }
+function maToggleActCore(name,on){ const d=maD(), i=d.acts.indexOf(name); if(on&&i<0&&dsIsAct(name)) dsPreFetch(d.bedId); if(on&&i<0){ d.acts.push(name); d.map[name]=d.map[name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[name]; } if(!d.acts.some(irrIsAct_)) d.mode=''; d.result=null; maAutoDate(); maRefresh(); }
+function maSelectVisible(on){ const d=maD(); maVisible().forEach(a=>{ const i=d.acts.indexOf(a.name); if(on&&i<0){ d.acts.push(a.name); d.map[a.name]=d.map[a.name]||[]; } if(!on&&i>=0){ d.acts.splice(i,1); delete d.map[a.name]; } }); if(!d.acts.some(irrIsAct_)) d.mode=''; d.result=null; maRefresh(); }
 function maAddWorker(act,id){ if(!id) return; const l=maD().map[act]=maD().map[act]||[]; if(!l.includes(id)) l.push(id); maD().result=null; maRefresh(); }
 function maDelWorker(act,id){ const l=maD().map[act]||[], i=l.indexOf(id); if(i>=0) l.splice(i,1); maD().result=null; maRefresh(); }
 function maBulkAdd(id){ if(!id) return; const d=maD(); d.acts.forEach(a=>{ const l=d.map[a]=d.map[a]||[]; if(!l.includes(id)) l.push(id); }); d.result=null; maRefresh(); }
 function maSetCat(k){ maD().cat=k; maRefresh(); }
 function maSearch(v){ maD().q=v; maRefresh(); }
-function maClear(){ const d=maD(); d.acts=[]; d.map={}; d.result=null; maRefresh(); }
+function maClear(){ const d=maD(); d.acts=[]; d.map={}; d.mode=''; d.result=null; maRefresh(); }
 function maWorkerOpts(act,placeholder){
   const open=maOpenSet(), have=(maD().map[act]||[]);
   return `<option value="">${esc(placeholder)}</option>`+(state.workers||[]).filter(w=>!have.includes(w.workerId)).map(w=>{ const n=workerLoad(w.workerId), dup=act&&open[String(w.workerId).toUpperCase()+'|'+act];
@@ -3272,7 +3275,7 @@ function maPlanHTML(){
   const cards=d.acts.map(a=>{ const ws=d.map[a]||[];
     return `<div class="ma-pcard ${ws.length?'':'need'}"><div class="ma-ptop"><span>${esc(actLabel(a))}</span><button title="Remove activity" onclick="maToggleAct(this.dataset.v,false)" data-v="${esc(a)}">×</button></div>
       ${ws.length?`<div class="ma-chips" style="margin:6px 0 0;">${ws.map(w=>`<span class="ma-chip" style="background:#E4F1E5;">${esc(maWName(w))}${open[String(w).toUpperCase()+'|'+a]?' <span style="color:var(--warn);font-size:10.5px;">(already open)</span>':''}<button title="Remove" onclick="maDelWorker(this.dataset.a,this.dataset.w)" data-a="${esc(a)}" data-w="${esc(w)}">×</button></span>`).join('')}</div>`:`<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">No worker yet</div>`}
-      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select>${isFertAct(a)?fertBox('ma',a):''}${dsIsAct(a)?dsPreBox(d.bedId):''}${irrIsAct_(a)?irrReadyBox_(d.bedId):''}</div>`; }).join('');
+      <select onchange="maAddWorker(this.dataset.a,this.value)" data-a="${esc(a)}">${maWorkerOpts(a, ws.length?'+ Add another worker…':'Choose worker…')}</select>${isFertAct(a)?fertBox('ma',a):''}${dsIsAct(a)?dsPreBox(d.bedId):''}${irrIsAct_(a)?irrReadyBox_(d.bedId)+irrModeRadios_('ma-'+d.bedId,d.mode,'maSetMode'):''}</div>`; }).join('');
   return bulk+`<div class="ma-plan" style="padding-top:8px;">${cards}</div>`;
 }
 function maCatTabs(){ const d=maD(), list=maList(), cnt=k=>k==='ALL'?list.length:list.filter(a=>actCatOf(a)===k).length;
@@ -3290,9 +3293,11 @@ function maFootHTML(){
     : `<b>${d.acts.length}</b> activit${d.acts.length===1?'y':'ies'} → <b>${c.fresh}</b> task${c.fresh===1?'':'s'} to create${c.dup?` <span style="color:var(--warn);">(${c.dup} already open on this bed, will be skipped)</span>`:''}`;
   const r=d.result, res=!r?'':`<div class="ma-res">${r.created.length?`<div>✓ ${r.created.length} task${r.created.length===1?'':'s'} assigned.</div>`:''}${r.skipped.length?`<div>${r.skipped.length} skipped (already open).</div>`:''}${r.failed.filter(f=>!zoneShownInBox_(f)).map(f=>`<div class="bad">✗ ${esc(f.activity)} → ${esc(maWName(f.workerId))}: ${esc(propErrText(f)||(f.errorCode==='PLANTING_NOT_VERIFIED'?'planting is not verified yet (verify planting first)':f.errorCode==='BED_NOT_RELEASED'?'this bed has not been released (finish the reset and Verify Bed Ready first)':f.errorCode==='WRONG_PLANTING_METHOD'?'this crop uses the other planting method (reopen the bed and assign the planting activity it offers)':f.errorCode==='PLANTING_METHOD_UNKNOWN'?'this crop has no planting method on CROP_REFERENCE yet':(f.errorCode==='NOT_MANAGER_EXECUTABLE'||f.errorCode==='NOT_WORKER_EXECUTABLE')?'that activity is switched off (Planting and Seeding are now DirectSeeding or Transplanting, chosen by the crop)':f.errorCode))}</div>`).join('')}${pwWarnHTML(r.failed,'ma')}</div>`;
   const dsHold=dsPreBlocked(d.bedId,d.acts);
-  const ok=d.acts.length&&!c.missing&&!c.fertMissing&&c.fresh>0&&!d.busy&&!dsHold;
+  const modeHold=d.acts.some(irrIsAct_)&&!d.mode;
+  const ok=d.acts.length&&!c.missing&&!c.fertMissing&&c.fresh>0&&!d.busy&&!dsHold&&!modeHold;
   const dsNote=dsHold?`<div style="font-size:12px;color:var(--warn);font-weight:600;margin:4px 0;">Direct Seeding is on hold: Pre-Seed Tillage, Bed Shaping &amp; Crown Firming and Pre-Plant Moisture Check must be verified first (see the box under Direct Seeding), or write an override reason.</div>`:'';
-  return `<div class="ma-sum">${sum}</div>${dsNote}${res}
+  const modeNote=modeHold?`<div style="font-size:12px;color:var(--warn);font-weight:600;margin:4px 0;">Choose Mode A (Whole-Zone) or Mode B (Individual Bed) for Irrigation before assigning (see the box under Irrigation).</div>`:'';
+  return `<div class="ma-sum">${sum}</div>${dsNote}${modeNote}${res}
     <div class="qbtns"><button class="btn btn-primary" ${ok?'':'disabled'} onclick="submitMultiAssign()">${d.busy?'<span class="vp-spin"></span>Assigning…':(ok?`Assign ${c.fresh} task${c.fresh===1?'':'s'}`:'Assign')}</button>
     <button class="btn btn-outline" style="width:auto;padding:11px 16px;" onclick="maClear()">Clear</button>
     <button class="btn btn-ghost" style="width:auto;padding:11px 16px;" onclick="closeModal()">Close</button></div>
@@ -3641,11 +3646,13 @@ function dsOvInput(v){ ui.mgrOvReason=v; const f=document.getElementById('ma-foo
 
 async function submitMultiAssign(){
   const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||!c.fresh) return;
+  if(d.acts.some(irrIsAct_)&&!d.mode){ toast('Choose Mode A (Whole-Zone) or Mode B (Individual Bed) for Irrigation first.'); return; }
   if(d.acts.some(dsIsAct)){ await dsPreFetch(d.bedId,true); if(dsPreBlocked(d.bedId,d.acts)){ toast('Direct Seeding needs Pre-Seed Tillage, Bed Shaping & Crown Firming and Pre-Plant Moisture Check verified first, or an override reason.'); maRefresh(); return; } }
   d.busy=true; d.result=null; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
   try{
     const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]);
-    const r=await apiCall('start-sessions',Object.assign({ bedId:d.bedId, assignments, scheduledDate:d.date, overrideReason:(String(ui.mgrOvReason||'').trim()||undefined) }, zoneOvPayload('bed:'+d.bedId)), 60000); ui.mgrOvReason='';
+    const modePayload=d.acts.some(irrIsAct_)?{operatingMode:d.mode}:{};
+    const r=await apiCall('start-sessions',Object.assign({ bedId:d.bedId, assignments, scheduledDate:d.date, overrideReason:(String(ui.mgrOvReason||'').trim()||undefined) }, modePayload, zoneOvPayload('bed:'+d.bedId)), 60000); ui.mgrOvReason='';
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] }; zoneOvDone('bed:'+d.bedId,d.result.failed); pselLoadFor(d.bedId);
     if(d.result.created.length) assignDialog(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' assigned', ['Bed '+d.bedId+'. Each task shows as Pending until the worker taps Start.'].concat(d.result.failed.length?[d.result.failed.length+' could not be assigned. Those rows are still open below.']:[]));
     /* keep only pairs that FAILED so the manager can adjust them; drop everything that went through or was already open */
@@ -5777,7 +5784,28 @@ function calScreen(){
  * The manager then assigns workers: 'assign-irrigation' starts Irrigation sessions through the same path as start-sessions.
  * Crops with no irrigation profile are listed, never guessed. */
 const IRR_ST={OVERDUE:['Overdue','#B3261E'],DUE:['Due today','#C77700'],UPCOMING:['Upcoming','#6B6B5E'],ASSIGNED:['Assigned','#3A78C9'],IN_PROGRESS:['In progress','#2E7D32'],COMPLETED:['Done','#5B3F8C']};
-const irr={view:'month',dayWorkers:[],data:null,busy:false,error:null,month:null,day:null,loaded:null,pick:{},workers:null,sending:false,zoneNeed:{}};
+const irr={view:'month',dayWorkers:[],dayMode:'',data:null,busy:false,error:null,month:null,day:null,loaded:null,pick:{},workers:null,sending:false,zoneNeed:{}};
+/* OPERATING MODE (MODE_A whole-zone | MODE_B individual-bed): the manager must pick one explicitly for every irrigation assignment.
+ * No default, never inferred from bed count or anything else — both radios start unchecked (irrSel / irr.dayMode init to ''). */
+function irrSetMode(i,mode){ const it=irrDayItems()[i]; if(!it) return; irrSel(it).mode=mode; render(); }
+function irrSetDayMode(mode){ irr.dayMode=mode; render(); }
+/* Zone of each bed on an irrigation-calendar item, keyed by bedId (server-supplied b.zoneId; blank = zone not verified yet). */
+function irrBedZoneMap_(it){ const m={}; (it.beds||[]).forEach(b=>{ if(b.zoneId) m[b.bedId]=b.zoneId; }); return m; }
+/* True only when Mode B is selected AND two or more of the TICKED beds (within one card, or across every open card for "Assign all")
+ * share the same verified zone: separate Mode B operations in that zone cannot run concurrently (ZONE_BUSY). Beds in different zones
+ * never trigger this — the backend is still authoritative either way. */
+function irrModeZoneClash_(mode,bedZonePairs){
+  if(mode!=='MODE_B') return false;
+  const counts={}; bedZonePairs.forEach(([,z])=>{ if(z) counts[z]=(counts[z]||0)+1; });
+  return Object.keys(counts).some(z=>counts[z]>1);
+}
+function irrModeRadios_(groupId,mode,onFn){
+  const opt=(v,l)=>`<label class="irr-chip" style="gap:4px;"><input type="radio" name="irrmode-${esc(groupId)}" ${mode===v?'checked':''} onchange="${onFn}('${v}')">${esc(l)}</label>`;
+  return `<div class="irr-mode" style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0;">${opt('MODE_A','Mode A — Whole-Zone')}${opt('MODE_B','Mode B — Individual Bed')}</div>`;
+}
+function irrModeWarnBox_(clash){
+  return clash?`<div class="pw-box warn" style="margin:6px 0;"><div class="pw-t">Separate Mode B operations in the same zone</div><div class="pw-why">Two or more ticked beds share a hydraulic zone. Separate Mode B (individual-bed) operations cannot run concurrently in that zone — only the first will be accepted until it finishes (ZONE_BUSY). Use Mode A for a whole-zone run, or assign these beds one at a time.</div></div>`:'';
+}
 const irrToday=()=>calToday();
 function irrRange(){ const [y,m]=irr.month.split('-').map(Number); return {from:`${irr.month}-01`,to:`${irr.month}-${String(new Date(Date.UTC(y,m,0)).getUTCDate()).padStart(2,'0')}`}; }
 async function irrLoad(force){
@@ -5806,11 +5834,11 @@ function irrGoMonth(ym,day){
 }
 function irrNav(n){ const [y,m]=irr.month.split('-').map(Number); irrGoMonth(new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7)); }
 function irrGoToday(){ irrGoMonth(irrToday().slice(0,7),irrToday()); }
-function irrPickDay(d){ irr.day=d; irrWorkers(); render(); }
+function irrPickDay(d){ irr.day=d; irr.dayMode=''; irrWorkers(); render(); }
 function irrWorst(it){ const o=['OVERDUE','DUE','IN_PROGRESS','ASSIGNED','UPCOMING','COMPLETED']; return o.find(s=>it.beds.some(b=>b.status===s))||'UPCOMING'; }
 const irrItemOpen=it=>it.assignable!==false;   // false once the cohort is HarvestReady (irrigation closed)
 const irrAssignable=b=>b.status==='OVERDUE'||b.status==='DUE'||b.status==='UPCOMING';
-function irrSel(it){ const k=it.cohortId+'|'+it.date; return irr.pick[k]=irr.pick[k]||{beds:(irrItemOpen(it)?it.beds.filter(irrAssignable):[]).map(b=>b.bedId),workers:[]}; }
+function irrSel(it){ const k=it.cohortId+'|'+it.date; return irr.pick[k]=irr.pick[k]||{beds:(irrItemOpen(it)?it.beds.filter(irrAssignable):[]).map(b=>b.bedId),workers:[],mode:''}; }
 function irrToggle(i,kind,v){ const it=irrDayItems()[i]; if(!it) return; const s=irrSel(it), a=s[kind], at=a.indexOf(v); if(at<0) a.push(v); else a.splice(at,1); render(); }
 function irrDayItems(){ return ((irr.data&&irr.data.items)||[]).filter(x=>x.date===irr.day); }
 /* ZONE_UNVERIFIED on the irrigation calendar. irr.zoneNeed[cohort|date] = {code, message, beds}: the beds the server refused, so the card can ask a manager for a
@@ -5836,8 +5864,9 @@ async function irrAssign(i){
   const it=irrDayItems()[i]; if(!it||irr.sending) return; const s=irrSel(it), key=it.cohortId+'|'+it.date;
   if(!s.beds.length){ toast('Choose at least one bed.'); return; }
   if(!s.workers.length){ toast('Choose at least one worker.'); return; }
+  if(!s.mode){ toast('Choose Mode A (Whole-Zone) or Mode B (Individual Bed) first.'); return; }
   irr.sending=true; render();
-  try{ const r=await apiCall('assign-irrigation',Object.assign({cohortId:it.cohortId,date:it.date,bedIds:s.beds,workerIds:s.workers},irrZonePayload(key,s.beds)),60000);
+  try{ const r=await apiCall('assign-irrigation',Object.assign({cohortId:it.cohortId,date:it.date,bedIds:s.beds,workerIds:s.workers,operatingMode:s.mode},irrZonePayload(key,s.beds)),60000);
     const hold=irrZoneTrack(key,s.beds,r);
     toast((r.created?`Irrigation assigned: ${r.created} task${r.created===1?'':'s'}.`+(r.failed&&r.failed.length?` ${r.failed.length} failed.`:''):'Nothing was assigned'+(r.failed&&r.failed.length?` (${r.failed.length} failed).`:'.'))+(hold?' Some beds still need a zone override reason: add it on the card.':''),hold?6000:undefined);
     irr.sending=false; await irrLoad(true);
@@ -5863,20 +5892,26 @@ async function irrAssignAll(){
   const its=irrDayItems().filter(it=>irrItemOpen(it)&&it.beds.some(irrAssignable)); if(!its.length||irr.sending) return;
   if(!irr.dayWorkers.length){ toast('Choose at least one worker.'); return; }
   const jobs=its.map(it=>({it,beds:irrSel(it).beds})).filter(j=>j.beds.length); if(!jobs.length){ toast('No beds are ticked.'); return; }
+  if(!irr.dayMode){ toast('Choose Mode A (Whole-Zone) or Mode B (Individual Bed) first.'); return; }
   const nb=jobs.reduce((n,j)=>n+j.beds.length,0);
   if(!confirm('Assign irrigation on '+irr.day+' for '+jobs.length+' cohort'+(jobs.length===1?'':'s')+' ('+nb+' bed'+(nb===1?'':'s')+')?')) return;
   irr.sending=true; render(); let made=0, bad=0, hold=0;
   for(const j of jobs){ const key=j.it.cohortId+'|'+j.it.date;
-    try{ const r=await apiCall('assign-irrigation',Object.assign({cohortId:j.it.cohortId,date:j.it.date,bedIds:j.beds,workerIds:irr.dayWorkers},irrZonePayload(key,j.beds)),60000); made+=r.created||0; bad+=(r.failed||[]).length; if(irrZoneTrack(key,j.beds,r)) hold++; }
+    try{ const r=await apiCall('assign-irrigation',Object.assign({cohortId:j.it.cohortId,date:j.it.date,bedIds:j.beds,workerIds:irr.dayWorkers,operatingMode:irr.dayMode},irrZonePayload(key,j.beds)),60000); made+=r.created||0; bad+=(r.failed||[]).length; if(irrZoneTrack(key,j.beds,r)) hold++; }
     catch(e){ bad+=j.beds.length; if(irrZoneTrack(key,j.beds,null,e)) hold++; } }
   irr.sending=false; toast('Irrigation assigned: '+made+' task'+(made===1?'':'s')+(bad?'. '+bad+' failed.':'.')+(hold?' '+hold+' cohort'+(hold===1?'':'s')+' need a zone override reason: add it on the card.':''),hold?6000:undefined); await irrLoad(true);
 }
 function irrAllPanel(items){
   const its=items.filter(it=>irrItemOpen(it)&&it.beds.some(irrAssignable)); if(!its.length) return '';
   const nb=its.reduce((n,it)=>n+irrSel(it).beds.length,0), ws=irr.workers||[];
+  // Zone clash check across every ticked bed for the whole day (not just one cohort): Mode B operations on different beds
+  // in the same zone cannot run concurrently, whichever cohort each bed belongs to.
+  const pairs=[]; its.forEach(it=>{ const zmap=irrBedZoneMap_(it); irrSel(it).beds.forEach(id=>pairs.push([id,zmap[id]])); });
+  const clash=irrModeZoneClash_(irr.dayMode,pairs);
   return `<div class="irr-all"><div><b>Assign everything for this day</b> · ${its.length} cohort${its.length===1?'':'s'}, ${nb} bed${nb===1?'':'s'} ticked below</div>
     <div class="irr-w">${ws.length?ws.map(w=>`<label class="irr-chip"><input type="checkbox" ${irr.dayWorkers.includes(w.id)?'checked':''} onchange="irrToggleDayW('${esc(w.id)}')">${esc(w.name||w.id)}</label>`).join(''):'<span class="note">Loading workers…</span>'}</div>
-    <button class="btn" style="width:auto;margin:8px 0 0" ${irr.sending||!nb||!irr.dayWorkers.length?'disabled':''} onclick="irrAssignAll()">${irr.sending?'Assigning…':'Assign all'}</button></div>`;
+    ${irrModeRadios_('day',irr.dayMode,'irrSetDayMode')}${irrModeWarnBox_(clash)}
+    <button class="btn" style="width:auto;margin:8px 0 0" ${irr.sending||!nb||!irr.dayWorkers.length||!irr.dayMode?'disabled':''} onclick="irrAssignAll()">${irr.sending?'Assigning…':'Assign all'}</button></div>`;
 }
 const IRR_SRC={ET:'Depth from the ET you entered',ET_PROJECTED:'Depth projected from recent ET (some days not entered yet)',PROFILE:'Profile depth (no ET data for this watering)'};
 function irrWaterHTML(it){
@@ -5899,8 +5934,11 @@ function irrCardHTML(it,i){
      <div class="pw-why">A manager or founder can assign it anyway. Write why; the override is logged under your name and the bed's zone stays blank.</div>
      <textarea placeholder="Reason for assigning irrigation before the zone is verified (required)" maxlength="300" oninput="zoneOvSet('irr:${esc(zk)}',this.value)">${esc((ui.zoneReasons||{})['irr:'+zk]||'')}</textarea>
      <button class="btn btn-danger" style="width:auto;margin:6px 0 0" onclick="irrAssignZone(${i})">Assign anyway with reason</button></div>`:'';
+  // Mode A/B: required before this card can be assigned. No default - both radios start unchecked (sel.mode starts '').
+  const modeClash=irrModeZoneClash_(sel.mode,sel.beds.map(id=>{ const zmap=irrBedZoneMap_(it); return [id,zmap[id]]; }));
+  const modeBlock=canAssign?`${irrModeRadios_(zk,sel.mode,'irrSetMode.bind(null,'+i+')')}${irrModeWarnBox_(modeClash)}`:'';
   const ws=canAssign?`<div class="irr-w">${workers.length?workers.map(w=>`<label class="irr-chip"><input type="checkbox" ${sel.workers.includes(w.id)?'checked':''} onchange="irrToggle(${i},'workers','${esc(w.id)}')">${esc(w.name||w.id)}</label>`).join(''):'<span class="note">Loading workers…</span>'}</div>
-     ${zflag}${zbox}<button class="btn" style="width:auto;margin:8px 0 0" ${irr.sending?'disabled':''} onclick="irrAssign(${i})">${irr.sending?'Assigning…':'Assign irrigation'}</button>`:'';
+     ${modeBlock}${zflag}${zbox}<button class="btn" style="width:auto;margin:8px 0 0" ${irr.sending||!sel.mode?'disabled':''} onclick="irrAssign(${i})">${irr.sending?'Assigning…':'Assign irrigation'}</button>`:'';
   return `<div class="cal-item" style="--c:${c[1]}"><div class="kind">${c[0]} · irrigation ${it.seq} of ${it.of}</div><div class="nm">${esc(it.cropName)} <span style="font-weight:600;color:var(--ink-soft)">${esc(it.cohortId)}</span></div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0" title="Water depth, Kc, MAD and stage days follow the Active cohort and its verified DOB. The Plan sticker is for review only.">${bedStickers({shortfall:it.shortfall,plantingDate:it.plantingDate},it.cohortId)}</div>
     <div class="sb">Day ${it.dayAfterPlanting} after verified planting (${calFull(it.plantingDate)})${it.depthInches!=null?` · ${it.depthInches} in`:''}${it.reducedDepth?' · <b>reduced depth (pre-harvest dry-down)</b>':''}</div>
