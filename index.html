@@ -798,13 +798,53 @@ function applyTodayView(d,skipReview){
   if(!skipReview&&!_loadRun) rbLoad(false);   /* review board: at most once per 20 s; during a full load it waits until the main data is in (see loadTodayOnce) */
 }
 /* Assignment confirmation: a window the manager closes with OK, so a completed assignment cannot pass unnoticed. */
-function assignDialog(title, lines){
-  let e=document.getElementById('assign-ok'); if(e) e.remove();
-  e=document.createElement('div'); e.id='assign-ok'; e.setAttribute('role','alertdialog');
-  e.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px;';
-  e.innerHTML='<div style="background:#fff;color:#1f2a24;border-radius:10px;max-width:440px;width:100%;padding:20px 22px;box-shadow:0 10px 30px rgba(0,0,0,.3);"><h3 style="margin:0 0 10px;font-size:16px;">'+esc(title)+'</h3>'+lines.map(function(l){ return '<p style="margin:0 0 8px;font-size:13.5px;line-height:1.45;">'+esc(l)+'</p>'; }).join('')+'<div style="text-align:right;margin-top:14px;"><button class="btn btn-primary" id="assign-ok-btn">OK</button></div></div>';
+function assignDialog(title, lines, opts){
+  opts=opts||{};
+  const old=document.getElementById('assign-ok'); if(old) old.remove();
+  const tone=opts.tone||'ok', col=tone==='bad'?'#B3261E':tone==='warn'?'#B26A00':'#1F7A3D', icon=tone==='bad'?'\u2715':tone==='warn'?'!':'\u2713';
+  const e=document.createElement('div'); e.id='assign-ok'; e.setAttribute('role','alertdialog'); e.setAttribute('aria-modal','true');
+  e.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:100000;padding:16px;';
+  e.innerHTML='<div style="background:#fff;color:#1f2a24;border-radius:14px;max-width:480px;width:100%;max-height:88vh;overflow:auto;padding:22px 24px 20px;box-shadow:0 14px 40px rgba(0,0,0,.4);border-top:8px solid '+col+';">'
+    +'<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;"><span style="flex:none;width:44px;height:44px;border-radius:50%;background:'+col+';color:#fff;font-size:26px;font-weight:800;display:grid;place-items:center;">'+icon+'</span><h3 style="margin:0;font-size:21px;line-height:1.25;">'+esc(title)+'</h3></div>'
+    +lines.map(function(l){ return '<p style="margin:0 0 10px;font-size:16.5px;line-height:1.5;">'+esc(l)+'</p>'; }).join('')
+    +'<button class="btn btn-primary" id="assign-ok-btn" style="width:100%;margin-top:10px;min-height:50px;font-size:18px;">OK</button></div>';
   document.body.appendChild(e);
-  document.getElementById('assign-ok-btn').onclick=function(){ e.remove(); };
+  const btn=document.getElementById('assign-ok-btn');
+  btn.onclick=function(){ e.remove(); if(typeof opts.onOk==='function') opts.onOk(); };
+  try{ btn.focus(); }catch(_){}
+}
+/* While an assignment request is running this window covers the screen, so the Assign button cannot be pressed again (a second press
+   is what created duplicate tasks). assignDialog() replaces it with the result. */
+function assignProgress(msg){
+  const old=document.getElementById('assign-ok'); if(old) old.remove();
+  const e=document.createElement('div'); e.id='assign-ok'; e.setAttribute('role','alertdialog'); e.setAttribute('aria-busy','true');
+  e.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:100000;padding:16px;cursor:progress;';
+  e.innerHTML='<div style="background:#fff;color:#1f2a24;border-radius:14px;max-width:440px;width:100%;padding:26px 24px;text-align:center;box-shadow:0 14px 40px rgba(0,0,0,.4);border-top:8px solid #B26A00;">'
+    +'<div style="margin-bottom:12px;"><span class="vp-spin" style="width:34px;height:34px;display:inline-block;"></span></div>'
+    +'<h3 style="margin:0 0 8px;font-size:21px;">'+esc(msg||'Assigning\u2026')+'</h3>'
+    +'<p style="margin:0;font-size:16px;line-height:1.5;">Please wait and do not press Assign again. This can take up to a minute.</p></div>';
+  document.body.appendChild(e);
+}
+var ASSIGN_LOCK_={ on:false };
+async function withAssignLock_(fn){ if(ASSIGN_LOCK_.on) return; ASSIGN_LOCK_.on=true; try{ return await fn(); } finally{ ASSIGN_LOCK_.on=false; } }
+/* Plain-language lines for the result window: who got which activity, what was skipped, what failed and why. */
+function assignOutcomeLines_(res){
+  const lines=[], by={}, nm=id=>{ try{ return maWName(id); }catch(e){ return id; } };
+  (res.created||[]).forEach(c=>{ const a=c&&(c.activity||c.Activity_Name||c.taskType), w=c&&(c.workerId||c.Worker_ID); if(a) (by[a]=by[a]||[]).push(w?nm(w):''); });
+  Object.keys(by).forEach(a=>lines.push(actLabel(a)+': '+by[a].filter(Boolean).join(', ')));
+  if((res.skipped||[]).length) lines.push((res.skipped.length)+' skipped because they were already open.');
+  (res.failed||[]).slice(0,8).forEach(f=>lines.push('Not assigned: '+(f.activity?actLabel(f.activity):'')+(f.workerId?' \u2192 '+nm(f.workerId):'')+(f.bedId?' ('+f.bedId+')':'')+' \u2013 '+(f.message||f.errorCode||'refused')));
+  if((res.failed||[]).length>8) lines.push('\u2026and '+(res.failed.length-8)+' more not assigned.');
+  return lines;
+}
+function assignResultDialog_(res, bedId, what){
+  const n=(res.created||[]).length, bad=(res.failed||[]).length;
+  const title=n?(bad?n+' '+what+(n===1?'':'s')+' assigned, '+bad+' not assigned':n+' '+what+(n===1?'':'s')+' assigned'):(bad?'Nothing was assigned':'Nothing new to assign');
+  const lines=['Bed '+bedId+'. Each task shows as Pending until the worker taps Start.'].concat(assignOutcomeLines_(res));
+  assignDialog(title, n?lines:lines.slice(1), { tone: n?(bad?'warn':'ok'):'bad' });
+}
+function assignNoConfirm_(err){
+  assignDialog('No confirmation from the server',[(err&&err.message)||'The request did not finish.','The tasks may already have been created. Do NOT press Assign again yet: the list is refreshing now, and anything already open will be skipped.'],{ tone:'bad' });
 }
 
 /* ==================== IRRIGATION READINESS (ACT_031): which beds finished the zone check (ACT_013) ====================
@@ -2769,7 +2809,8 @@ function dpUseDefault(a){ delete ui.dp.custom[a]; dpRefresh(); }
 function dpAddCW(a,id){ if(!id) return; const l=ui.dp.custom[a]=ui.dp.custom[a]||[]; if(!l.includes(id)) l.push(id); dpRefresh(); }
 function dpDelCW(a,id){ const l=ui.dp.custom[a]||[], i=l.indexOf(id); if(i>=0) l.splice(i,1); dpRefresh(); }
 function dpDate(n){ const t=new Date(); t.setDate(t.getDate()+n); const v=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); ui.dp.date=v; const e=document.getElementById('dp-date'); if(e) e.value=v;  dpPlantPop(); }
-async function dpSubmit(){
+async function dpSubmit(){ return withAssignLock_(dpSubmit_); }
+async function dpSubmit_(){
   const d=ui.dp; if(d.busy||!d.acts.length) return;
   if(d.acts.some(a=>!dpCrew(a).length)){ toast('Choose a worker for every selected activity.'); return; }
   if(d.acts.some(a=>isFertAct(a)&&!fertDone(fertOf(d,a)))){ toast('Enter the fertilizer type, brand name and quantity first.'); return; }
@@ -2777,15 +2818,15 @@ async function dpSubmit(){
     const e=await dsPreFetch(d.bedId,true);
     if(dsPreBlocked(d.bedId,d.acts)){ d.result={created:[],failed:[{activity:'DirectSeeding',workerId:'',errorCode:'DIRECT_SEED_NOT_READY'}],skipped:[]}; toast('Direct Seeding needs ACT_060, ACT_061 and ACT_062 verified first, or an override reason.'); dpRefresh(); return; }
   }
-  d.busy=true; d.result=null; busyShow('Dispatching '+d.acts.length+' task'+(d.acts.length===1?'':'s')+'… please wait'); dpRefresh();
+  d.busy=true; d.result=null; assignProgress('Dispatching '+d.acts.length+' task'+(d.acts.length===1?'':'s')+'…'); dpRefresh();
   try{
     const r=await apiCall('start-sessions',Object.assign({ bedId:d.bedId, assignments:fertAssignments(d,d.acts,dpCrew), scheduledDate:d.date, overrideReason:(String(ui.mgrOvReason||'').trim()||undefined) }, zoneOvPayload('bed:'+d.bedId)), 60000); ui.mgrOvReason='';
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] }; zoneOvDone('bed:'+d.bedId,d.result.failed); pselLoadFor(d.bedId);
-    if(d.result.created.length) assignDialog(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' dispatched', ['Bed '+d.bedId+'. Each task shows as Pending until the worker taps Start.'].concat(d.result.failed.length?[d.result.failed.length+' could not be dispatched. Those rows are still open.']:[]));
+    assignResultDialog_(d.result, d.bedId, 'task');
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
     d.acts=d.acts.filter(a=>bad[a]); d.custom=d.acts.reduce((m,a)=>{ m[a]=bad[a]; return m; },{});
-    d.busy=false; busyShow('Dispatched – refreshing…'); await loadToday();
-  }catch(e){ d.busy=false; toast(e.message); }
+    d.busy=false; busyShow('Dispatched – refreshing…'); try{ await loadToday(); }catch(_){}
+  }catch(e){ d.busy=false; assignNoConfirm_(e); try{ await loadToday(); }catch(_){} }
   busyHide(); dpRefresh();
 }
 function setAwView(v){ ui.awView=v; render(); }
@@ -3535,10 +3576,11 @@ function oneWorkerModal(){
   <div id="ow-tip" class="ow-tip" hidden></div>
   <div id="ow-pv" class="ow-pv" ${d.pv?'':'hidden'}>${owPvHTML(d)}</div>`;
 }
-async function submitOneWorker(){
+async function submitOneWorker(){ return withAssignLock_(submitOneWorker_); }
+async function submitOneWorker_(){
   const d=owD(); if(d.busy||!d.workerId||!d.activity||!d.beds.length) return;
   const ids=d.beds.slice(), out={created:[],skipped:[],failed:[]};
-  d.busy=true; d.result=null; busyShow('Assigning '+ids.length+' bed'+(ids.length===1?'':'s')+'… please wait'); owRefresh();
+  d.busy=true; d.result=null; assignProgress('Assigning '+ids.length+' bed'+(ids.length===1?'':'s')+'…'); owRefresh();
   for(const bedId of ids){
     try{
       const r=await apiCall('start-sessions',Object.assign({ bedId:bedId, assignments:[{ activity:d.activity, workerIds:[d.workerId] }], scheduledDate:d.date }, (d.zoneBeds||[]).includes(bedId)?zoneOvPayload('ow'):{}), 60000);
@@ -3552,13 +3594,16 @@ async function submitOneWorker(){
   d.zoneBeds=out.failed.filter(zoneOvAsk).map(f=>f.bedId); zoneOvDone('ow',out.failed);
   d.result=out; d.busy=false;
   busyShow('Assigned – refreshing…');
-  try{ await loadToday(); } finally{ busyHide(); }
-  if(out.created.length){
-    const nm=maWName(d.workerId), act=actLabel(d.activity), n=out.created.length;
-    assignDialog(n+' bed'+(n===1?'':'s')+' assigned',
-      [nm+' \u2192 '+act+' on '+out.created.join(', ')+'.', 'Each task shows as Pending until the worker taps Start.']
-      .concat(out.skipped.length?[out.skipped.length+' already open (skipped): '+out.skipped.join(', ')+'.']:[])
-      .concat(out.failed.length?[out.failed.length+' could not be assigned: '+out.failed.map(f=>f.bedId).join(', ')+'. Those beds stay ticked below.']:[]));
+  try{ await loadToday(); }catch(_){} finally{ busyHide(); }
+  {
+    const nm=maWName(d.workerId), act=actLabel(d.activity), n=out.created.length, bad=out.failed.length;
+    const lines=[];
+    if(n) lines.push(nm+' \u2192 '+act+' on '+out.created.join(', ')+'.','Each task shows as Pending until the worker taps Start.');
+    if(out.skipped.length) lines.push(out.skipped.length+' already open (skipped): '+out.skipped.join(', ')+'.');
+    out.failed.slice(0,8).forEach(f=>lines.push('Not assigned: '+f.bedId+' \u2013 '+(f.message||f.errorCode||'refused')));
+    if(bad>8) lines.push('\u2026and '+(bad-8)+' more not assigned.');
+    if(bad) lines.push('Beds that did not go through stay ticked below.');
+    assignDialog(n?(n+' bed'+(n===1?'':'s')+' assigned'+(bad?', '+bad+' not assigned':'')):(bad?'Nothing was assigned':'Nothing new to assign'), lines, { tone:n?(bad?'warn':'ok'):'bad' });
   }
   owRefresh();
 }
@@ -3665,22 +3710,23 @@ function dsPreBox(bedId){
 function maPickPrereq(name){ maToggleActCore(name,true); }
 function dsOvInput(v){ ui.mgrOvReason=v; const f=document.getElementById('ma-foot'); if(f) f.innerHTML=maFootHTML(); }
 
-async function submitMultiAssign(){
+async function submitMultiAssign(){ return withAssignLock_(submitMultiAssign_); }
+async function submitMultiAssign_(){
   const d=maD(), c=maCounts(); if(d.busy||!d.acts.length||c.missing||c.fertMissing||!c.fresh) return;
   if(d.acts.some(irrIsAct_)&&!d.mode){ toast('Choose Mode A (Whole-Zone) or Mode B (Individual Bed) for Irrigation first.'); return; }
   if(d.acts.some(dsIsAct)){ await dsPreFetch(d.bedId,true); if(dsPreBlocked(d.bedId,d.acts)){ toast('Direct Seeding needs Pre-Seed Tillage, Bed Shaping & Crown Firming and Pre-Plant Moisture Check verified first, or an override reason.'); maRefresh(); return; } }
-  d.busy=true; d.result=null; busyShow('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'… please wait'); maRefresh();
+  d.busy=true; d.result=null; assignProgress('Assigning '+d.acts.length+' activit'+(d.acts.length===1?'y':'ies')+'…'); maRefresh();
   try{
     const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]);
     const modePayload=d.acts.some(irrIsAct_)?{operatingMode:d.mode}:{};
     const r=await apiCall('start-sessions',Object.assign({ bedId:d.bedId, assignments, scheduledDate:d.date, overrideReason:(String(ui.mgrOvReason||'').trim()||undefined) }, modePayload, zoneOvPayload('bed:'+d.bedId)), 60000); ui.mgrOvReason='';
     d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] }; zoneOvDone('bed:'+d.bedId,d.result.failed); pselLoadFor(d.bedId);
-    if(d.result.created.length) assignDialog(d.result.created.length+' task'+(d.result.created.length===1?'':'s')+' assigned', ['Bed '+d.bedId+'. Each task shows as Pending until the worker taps Start.'].concat(d.result.failed.length?[d.result.failed.length+' could not be assigned. Those rows are still open below.']:[]));
+    assignResultDialog_(d.result, d.bedId, 'task');
     /* keep only pairs that FAILED so the manager can adjust them; drop everything that went through or was already open */
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
     d.acts=d.acts.filter(a=>bad[a]); d.map=d.acts.reduce((m,a)=>{ m[a]=bad[a]; return m; },{});
-    d.busy=false; busyShow('Assigned – refreshing…'); await loadToday(); busyHide(); maRefresh();
-  }catch(e){ d.busy=false; busyHide(); toast(e.message); maRefresh(); }
+    d.busy=false; busyShow('Assigned – refreshing…'); try{ await loadToday(); }catch(_){} busyHide(); maRefresh();
+  }catch(e){ d.busy=false; busyHide(); assignNoConfirm_(e); try{ await loadToday(); }catch(_){} maRefresh(); }
 }
 /* ACT_031/Irrigation can reach this modal via the Bed Status Board's per-row quick-assign button (bhAssign -> openModal('dispatch',{fixedActivity:...})),
  * which also calls start-session like the calendar and multi-assign modals - so it needs the same explicit, no-default Mode A/B gate before Assign is enabled. */
