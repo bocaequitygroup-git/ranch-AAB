@@ -797,6 +797,22 @@ function applyTodayView(d,skipReview){
   state.todayError=''; state.lastSync=new Date();
   if(!skipReview&&!_loadRun) rbLoad(false);   /* review board: at most once per 20 s; during a full load it waits until the main data is in (see loadTodayOnce) */
 }
+/* Irrigation calendar advisory. The server (start-session calendarAdvisory; start-sessions / assign-irrigation advisories[]) creates the task and reports
+   that the bed is not on the irrigation calendar. This only tells the manager; it never blocks or changes the assignment. One line per bed. */
+function advisoriesOf_(r){
+  const out=[], add=function(a){ if(a&&(a.message||a.bedId)) out.push({ bedId:String(a.bedId||''), date:String(a.date||''), message:String(a.message||'') }); };
+  if(!r||typeof r!=='object') return out;
+  (Array.isArray(r.advisories)?r.advisories:[]).forEach(add);
+  (Array.isArray(r.created)?r.created:[]).forEach(function(c){ add(c&&c.calendarAdvisory); });
+  if(r.calendarAdvisory) add(r.calendarAdvisory);
+  return out;
+}
+function advisoryLines_(list){
+  const seen={}, lines=[];
+  (list||[]).forEach(function(a){ const k=a.bedId+'|'+a.date; if(seen[k]) return; seen[k]=1;
+    lines.push(a.message||('Bed '+a.bedId+' is not on the irrigation calendar'+(a.date?' for '+a.date:'')+'. The task was assigned anyway.')); });
+  return lines;
+}
 /* Assignment confirmation: a window the manager closes with OK, so a completed assignment cannot pass unnoticed. */
 function assignDialog(title, lines, opts){
   opts=opts||{};
@@ -807,6 +823,7 @@ function assignDialog(title, lines, opts){
   e.innerHTML='<div style="background:#fff;color:#1f2a24;border-radius:14px;max-width:480px;width:100%;max-height:88vh;overflow:auto;padding:22px 24px 20px;box-shadow:0 14px 40px rgba(0,0,0,.4);border-top:8px solid '+col+';">'
     +'<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;"><span style="flex:none;width:44px;height:44px;border-radius:50%;background:'+col+';color:#fff;font-size:26px;font-weight:800;display:grid;place-items:center;">'+icon+'</span><h3 style="margin:0;font-size:21px;line-height:1.25;">'+esc(title)+'</h3></div>'
     +lines.map(function(l){ return '<p style="margin:0 0 10px;font-size:16.5px;line-height:1.5;">'+esc(l)+'</p>'; }).join('')
+    +((opts.advisories&&opts.advisories.length)?'<div role="note" style="margin:4px 0 10px;padding:10px 12px;background:#FFF4D6;border:1.5px solid #E8C766;border-left:6px solid #B26A00;border-radius:10px;color:#5C4300;font-size:15.5px;line-height:1.45;"><b>\u26a0 Not on the irrigation calendar</b>'+opts.advisories.map(function(m){ return '<div style="margin-top:6px;">'+esc(m)+'</div>'; }).join('')+'</div>':'')
     +'<button class="btn btn-primary" id="assign-ok-btn" style="width:100%;margin-top:10px;min-height:50px;font-size:18px;">OK</button></div>';
   document.body.appendChild(e);
   const btn=document.getElementById('assign-ok-btn');
@@ -841,7 +858,7 @@ function assignResultDialog_(res, bedId, what){
   const n=(res.created||[]).length, bad=(res.failed||[]).length;
   const title=n?(bad?n+' '+what+(n===1?'':'s')+' assigned, '+bad+' not assigned':n+' '+what+(n===1?'':'s')+' assigned'):(bad?'Nothing was assigned':'Nothing new to assign');
   const lines=['Bed '+bedId+'. Each task shows as Pending until the worker taps Start.'].concat(assignOutcomeLines_(res));
-  assignDialog(title, n?lines:lines.slice(1), { tone: n?(bad?'warn':'ok'):'bad' });
+  assignDialog(title, n?lines:lines.slice(1), { tone: n?(bad?'warn':'ok'):'bad', advisories: advisoryLines_(advisoriesOf_(res)) });
 }
 function assignNoConfirm_(err){
   assignDialog('No confirmation from the server',[(err&&err.message)||'The request did not finish.','The tasks may already have been created. Do NOT press Assign again yet: the list is refreshing now, and anything already open will be skipped.'],{ tone:'bad' });
@@ -1372,7 +1389,7 @@ async function startSessionFor(bedId, activity, workerId, mode){
   if(irrIsAct_(activity) && !mode){ toast('Choose Mode A (Whole-Zone) or Mode B (Individual Bed) first.'); return; }
   if(_assignBusy) return;   /* a double-tap used to send two identical requests -> two identical Pending tasks */
   _assignBusy=true; busyShow('Assigning '+activity+'… please wait'); busyLock(true);
-  try{ await apiCall('start-session', Object.assign({ bedId, activity, workerId }, irrIsAct_(activity)?{operatingMode:mode||''}:{}), 60000); busyShow('Assigned – refreshing…'); assignDialog('Task assigned', [activity+' for bed '+bedId+'.','Shows as Pending until the worker taps Start.']); closeModal(); await loadToday(); }
+  try{ const ssr=await apiCall('start-session', Object.assign({ bedId, activity, workerId }, irrIsAct_(activity)?{operatingMode:mode||''}:{}), 60000); busyShow('Assigned – refreshing…'); assignDialog('Task assigned', [activity+' for bed '+bedId+'.','Shows as Pending until the worker taps Start.'], { advisories: advisoryLines_(advisoriesOf_(ssr)) }); closeModal(); await loadToday(); }
   catch(e){ toast(e.message); pselLoadFor(bedId); }
   finally{ _assignBusy=false; busyHide(); busyLock(false); }
 }
@@ -2821,7 +2838,7 @@ async function dpSubmit_(){
   d.busy=true; d.result=null; assignProgress('Dispatching '+d.acts.length+' task'+(d.acts.length===1?'':'s')+'…'); dpRefresh();
   try{
     const r=await apiCall('start-sessions',Object.assign({ bedId:d.bedId, assignments:fertAssignments(d,d.acts,dpCrew), scheduledDate:d.date, overrideReason:(String(ui.mgrOvReason||'').trim()||undefined) }, zoneOvPayload('bed:'+d.bedId)), 60000); ui.mgrOvReason='';
-    d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] }; zoneOvDone('bed:'+d.bedId,d.result.failed); pselLoadFor(d.bedId);
+    d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[], advisories:r.advisories||[] }; zoneOvDone('bed:'+d.bedId,d.result.failed); pselLoadFor(d.bedId);
     assignResultDialog_(d.result, d.bedId, 'task');
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
     d.acts=d.acts.filter(a=>bad[a]); d.custom=d.acts.reduce((m,a)=>{ m[a]=bad[a]; return m; },{});
@@ -3579,12 +3596,13 @@ function oneWorkerModal(){
 async function submitOneWorker(){ return withAssignLock_(submitOneWorker_); }
 async function submitOneWorker_(){
   const d=owD(); if(d.busy||!d.workerId||!d.activity||!d.beds.length) return;
-  const ids=d.beds.slice(), out={created:[],skipped:[],failed:[]};
+  const ids=d.beds.slice(), out={created:[],skipped:[],failed:[],adv:[]};
   d.busy=true; d.result=null; assignProgress('Assigning '+ids.length+' bed'+(ids.length===1?'':'s')+'…'); owRefresh();
   for(const bedId of ids){
     try{
       const r=await apiCall('start-sessions',Object.assign({ bedId:bedId, assignments:[{ activity:d.activity, workerIds:[d.workerId] }], scheduledDate:d.date }, (d.zoneBeds||[]).includes(bedId)?zoneOvPayload('ow'):{}), 60000);
       if((r.created||[]).length) out.created.push(bedId);
+      out.adv=out.adv.concat(advisoriesOf_(r));
       if((r.skipped||[]).length) out.skipped.push(bedId);
       (r.failed||[]).forEach(f=>out.failed.push(Object.assign({bedId:bedId},f)));
     }catch(e){ out.failed.push({ bedId:bedId, errorCode:(e&&e.message)||'NOT_ASSIGNED' }); }
@@ -3603,7 +3621,7 @@ async function submitOneWorker_(){
     out.failed.slice(0,8).forEach(f=>lines.push('Not assigned: '+f.bedId+' \u2013 '+(f.message||f.errorCode||'refused')));
     if(bad>8) lines.push('\u2026and '+(bad-8)+' more not assigned.');
     if(bad) lines.push('Beds that did not go through stay ticked below.');
-    assignDialog(n?(n+' bed'+(n===1?'':'s')+' assigned'+(bad?', '+bad+' not assigned':'')):(bad?'Nothing was assigned':'Nothing new to assign'), lines, { tone:n?(bad?'warn':'ok'):'bad' });
+    assignDialog(n?(n+' bed'+(n===1?'':'s')+' assigned'+(bad?', '+bad+' not assigned':'')):(bad?'Nothing was assigned':'Nothing new to assign'), lines, { tone:n?(bad?'warn':'ok'):'bad', advisories: advisoryLines_(out.adv) });
   }
   owRefresh();
 }
@@ -3720,7 +3738,7 @@ async function submitMultiAssign_(){
     const assignments=fertAssignments(d,d.acts,a=>d.map[a]||[]);
     const modePayload=d.acts.some(irrIsAct_)?{operatingMode:d.mode}:{};
     const r=await apiCall('start-sessions',Object.assign({ bedId:d.bedId, assignments, scheduledDate:d.date, overrideReason:(String(ui.mgrOvReason||'').trim()||undefined) }, modePayload, zoneOvPayload('bed:'+d.bedId)), 60000); ui.mgrOvReason='';
-    d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[] }; zoneOvDone('bed:'+d.bedId,d.result.failed); pselLoadFor(d.bedId);
+    d.result={ created:r.created||[], failed:r.failed||[], skipped:r.skipped||[], advisories:r.advisories||[] }; zoneOvDone('bed:'+d.bedId,d.result.failed); pselLoadFor(d.bedId);
     assignResultDialog_(d.result, d.bedId, 'task');
     /* keep only pairs that FAILED so the manager can adjust them; drop everything that went through or was already open */
     const bad={}; d.result.failed.forEach(f=>{ (bad[f.activity]=bad[f.activity]||[]).push(f.workerId); });
@@ -5941,7 +5959,8 @@ async function irrAssign(i){
   irr.sending=true; render();
   try{ const r=await apiCall('assign-irrigation',Object.assign({cohortId:it.cohortId,date:it.date,bedIds:s.beds,workerIds:s.workers,operatingMode:s.mode},irrZonePayload(key,s.beds)),60000);
     const hold=irrZoneTrack(key,s.beds,r);
-    toast((r.created?`Irrigation assigned: ${r.created} task${r.created===1?'':'s'}.`+(r.failed&&r.failed.length?` ${r.failed.length} failed.`:''):'Nothing was assigned'+(r.failed&&r.failed.length?` (${r.failed.length} failed).`:'.'))+(hold?' Some beds still need a zone override reason: add it on the card.':''),hold?6000:undefined);
+    const irrMsg=(r.created?`Irrigation assigned: ${r.created} task${r.created===1?'':'s'}.`+(r.failed&&r.failed.length?` ${r.failed.length} failed.`:''):'Nothing was assigned'+(r.failed&&r.failed.length?` (${r.failed.length} failed).`:'.'))+(hold?' Some beds still need a zone override reason: add it on the card.':''), irrAdv=advisoryLines_(advisoriesOf_(r));
+    if(irrAdv.length) assignDialog(r.created?('Irrigation assigned: '+r.created+' task'+(r.created===1?'':'s')):'Nothing was assigned',[irrMsg],{ tone:r.created?'ok':'bad', advisories:irrAdv }); else toast(irrMsg,hold?6000:undefined);
     irr.sending=false; await irrLoad(true);
   }catch(err){ irr.sending=false; const hold=irrZoneTrack(key,s.beds,null,err); toast(hold?'A bed has no verified irrigation zone. Add a reason on the card to assign it anyway.':(err.message||'Could not assign irrigation.'),hold?5000:undefined); render(); }
 }
@@ -5968,11 +5987,12 @@ async function irrAssignAll(){
   if(!irr.dayMode){ toast('Choose Mode A (Whole-Zone) or Mode B (Individual Bed) first.'); return; }
   const nb=jobs.reduce((n,j)=>n+j.beds.length,0);
   if(!confirm('Assign irrigation on '+irr.day+' for '+jobs.length+' cohort'+(jobs.length===1?'':'s')+' ('+nb+' bed'+(nb===1?'':'s')+')?')) return;
-  irr.sending=true; render(); let made=0, bad=0, hold=0;
+  irr.sending=true; render(); let made=0, bad=0, hold=0, advAll=[];
   for(const j of jobs){ const key=j.it.cohortId+'|'+j.it.date;
-    try{ const r=await apiCall('assign-irrigation',Object.assign({cohortId:j.it.cohortId,date:j.it.date,bedIds:j.beds,workerIds:irr.dayWorkers,operatingMode:irr.dayMode},irrZonePayload(key,j.beds)),60000); made+=r.created||0; bad+=(r.failed||[]).length; if(irrZoneTrack(key,j.beds,r)) hold++; }
+    try{ const r=await apiCall('assign-irrigation',Object.assign({cohortId:j.it.cohortId,date:j.it.date,bedIds:j.beds,workerIds:irr.dayWorkers,operatingMode:irr.dayMode},irrZonePayload(key,j.beds)),60000); made+=r.created||0; bad+=(r.failed||[]).length; advAll=advAll.concat(advisoriesOf_(r)); if(irrZoneTrack(key,j.beds,r)) hold++; }
     catch(e){ bad+=j.beds.length; if(irrZoneTrack(key,j.beds,null,e)) hold++; } }
-  irr.sending=false; toast('Irrigation assigned: '+made+' task'+(made===1?'':'s')+(bad?'. '+bad+' failed.':'.')+(hold?' '+hold+' cohort'+(hold===1?'':'s')+' need a zone override reason: add it on the card.':''),hold?6000:undefined); await irrLoad(true);
+  irr.sending=false; const allMsg='Irrigation assigned: '+made+' task'+(made===1?'':'s')+(bad?'. '+bad+' failed.':'.')+(hold?' '+hold+' cohort'+(hold===1?'':'s')+' need a zone override reason: add it on the card.':''), allAdv=advisoryLines_(advAll);
+  if(allAdv.length) assignDialog('Irrigation assigned: '+made+' task'+(made===1?'':'s'),[allMsg],{ tone:made?'ok':'bad', advisories:allAdv }); else toast(allMsg,hold?6000:undefined); await irrLoad(true);
 }
 function irrAllPanel(items){
   const its=items.filter(it=>irrItemOpen(it)&&it.beds.some(irrAssignable)); if(!its.length) return '';
