@@ -2789,6 +2789,24 @@ async function dpSubmit(){
   busyHide(); dpRefresh();
 }
 function setAwView(v){ ui.awView=v; render(); }
+/* Workers who already finished their part of a shared activity that still has open sessions on this bed: unverified log rows of the same
+   activity + cohort finished after the open sessions were dispatched. Shown inside the same dispatch group so the manager sees who is done. */
+function donePortionsFor(b,act,openList){
+  const since=openList.map(q=>new Date(q.assignedTime||q.startTime||'').getTime()).filter(t=>!isNaN(t));
+  const min=since.length?Math.min.apply(null,since):null, coh=new Set(openList.map(q=>q.cohortId).filter(Boolean));
+  return ((b&&b.activityLog)||[]).filter(r=>{
+    if(String(r.taskType||r.activityName||'').trim()!==String(act||'').trim()) return false;
+    if(String(r.reviewStatus||'').toUpperCase()==='VERIFIED') return false;
+    if(r.cohortId&&coh.size&&!coh.has(r.cohortId)) return false;
+    if(min!==null){ const e=new Date(r.endTime).getTime(); if(!isNaN(e)&&e<min-60000) return false; }
+    return true; });
+}
+function donePortionRowsHTML(b,list){
+  const done=donePortionsFor(b,list[0].activity,list);
+  return { n:done.length, html:done.map(r=>{
+    const chk=r.portionChecked||String(r.reviewStatus||'').toUpperCase()==='CHECKED';
+    return `<div class="dc-w" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(b.id)}')"><span>✓ ${esc(r.workerName||r.workerId||'')} <span class="qsub">· finished ${esc(fmtTs(r.endTime))}</span></span><span>${chk?'<span class="chip chip-ok">Completed and checked</span>':'<span class="chip chip-warn">Finished, awaiting check</span>'}</span></div>`; }).join('') };
+}
 function activeWorkSection(b,sess){
   const view=ui.awView||'activity';
   const seg=`<div class="seg" style="margin-bottom:8px;"><button class="${view==='activity'?'active':''}" onclick="setAwView('activity')">By activity</button><button class="${view==='worker'?'active':''}" onclick="setAwView('worker')">By worker</button></div>`;
@@ -2796,9 +2814,9 @@ function activeWorkSection(b,sess){
   if(!sess.length) body=`<div class="empty" style="padding:10px 0;">No task is assigned or running on this bed.</div>`;
   else if(view==='activity'){
     const g={}; sess.forEach(q=>{ (g[q.activity]=g[q.activity]||[]).push(q); });
-    body=Object.keys(g).map(a=>{ const l=g[a], live=l.some(q=>['ACTIVE','PAUSED','EXCEPTION'].includes(String(q.status||'').toUpperCase()));
-      return `<div class="dc-act"><div class="h"><span>${esc(actLabel(a,l[0]))}</span><span class="chip ${live?'chip-ok':'chip-warn'}">${live?'In progress':'Assigned'}</span></div>
-        ${l.map(q=>`<div class="dc-w"><span>✓ ${esc(q.workerName||q.workerId)}${schedLabel(q)||q.assignedTime?` <span class="qsub">· ${esc(schedLabel(q)||'')}${q.assignedTime?' dispatched '+esc(fmtTs(q.assignedTime)):''}</span>`:''}</span><span>${sessStatusChip(q)}
+    body=Object.keys(g).map(a=>{ const l=g[a], live=l.some(q=>['ACTIVE','PAUSED','EXCEPTION'].includes(String(q.status||'').toUpperCase())), dn=donePortionRowsHTML(b,l);
+      return `<div class="dc-act"><div class="h"><span>${esc(actLabel(a,l[0]))}</span><span class="chip ${live?'chip-ok':'chip-warn'}">${live?'In progress':'Assigned'}${dn.n?' · '+dn.n+' of '+(dn.n+l.length)+' finished':''}</span></div>
+        ${dn.html}${l.map(q=>`<div class="dc-w"><span>✓ ${esc(q.workerName||q.workerId)}${schedLabel(q)||q.assignedTime?` <span class="qsub">· ${esc(schedLabel(q)||'')}${q.assignedTime?' dispatched '+esc(fmtTs(q.assignedTime)):''}</span>`:''}</span><span>${sessStatusChip(q)}
           <button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'reassign'})">Reassign</button>${String(q.status||'').toUpperCase()==='ASSIGNED'?`<button class="dc-mini" onclick="clearAssigned('${esc(q.id)}')">Clear</button>`:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(q.id)}',mode:'close'})">Close &amp; new</button>`}</span></div>${fertDetailHTML(q.fertilizer,true)}`).join('')}</div>`; }).join('');
   } else {
     const ids=[...new Set(sess.map(q=>q.workerId))];
@@ -3927,10 +3945,12 @@ const vpPendTxt=st=>st==='ASSIGNED'?'assigned, not started':String(st||'').toLow
 function recentCompletionChip(r,bedId){
   if(r&&r.portionChecked&&!r._ov) return '<span class="chip chip-ok" title="The manager checked this worker\'s portion. Other workers on the task may still be open.">Completed and checked</span>';
   const act=String(r.taskType||r.activityName||r.activity||'').trim().toLowerCase();
-  if(VP_CREW_ACTS.includes(act)){
-    const others=plantingOpenSessions(bedId).filter(o=>!r.cohortId||!o.cohortId||o.cohortId===r.cohortId);
-    if(others.length) return '<span class="chip chip-neutral" title="Other workers assigned to this planting task are still open">Portion complete</span>';
-  }
+  const endMs=new Date(r.endTime).getTime();
+  const others=(state.sessions||[]).filter(o=>o.bedId===bedId&&String(o.activity||'').trim().toLowerCase()===act
+    &&!/^(COMPLETED|CANCELLED|CANCELED)/.test(String(o.status||'').toUpperCase())
+    &&(!r.cohortId||!o.cohortId||o.cohortId===r.cohortId)
+    &&(isNaN(endMs)||!o.assignedTime||isNaN(new Date(o.assignedTime).getTime())||new Date(o.assignedTime).getTime()<=endMs+60000));
+  if(others.length) return '<span class="chip chip-warn" title="Other workers assigned to this task are still open. The task is not done until everyone finishes.">Portion complete</span>';
   return '<span class="chip chip-neutral">Complete</span>';
 }
 function plantingCrewBox(bedId,cohortId,srv){
@@ -6219,7 +6239,10 @@ function bedTasksBlock(bedId,opts){
       ${re}
       ${opts.buttons?`<div style="margin-top:6px;"><button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'reassign'})">Reassign</button> ${String(s.status||'').toUpperCase()==='ASSIGNED'?`<button class="dc-mini" onclick="clearAssigned('${esc(s.id)}')">Clear</button>`:`<button class="dc-mini" onclick="openModal('reassign',{sessionId:'${esc(s.id)}',mode:'close'})">Close &amp; new</button>`}</div>`:''}</div>`; }).join('');
   const recent=(((state.todayById||{})[bedId]||{}).activityLog||[]).slice(0,3).map(r=>`<div class="row" style="cursor:pointer;" onclick="openActivityProfile('${esc(r.logId)}','${esc(bedId)}')"><span>${esc(actLabel(r.taskType||r.activityName||''))} \u00b7 ${esc(r.workerName||r.workerId||'')}</span><span>${recentCompletionChip(r,bedId)} ${esc(fmtTs(r.endTime))}</span></div>`).join('');
-  const body=`${sum?`<div class="qsub" style="margin:0 0 6px;">${esc(sum)}</div>`:''}${cards||`<div class="empty" style="padding:8px 0;">No task is assigned or running on this bed.</div>`}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}`;
+  const bedObj=((state.todayById||{})[bedId])||{id:bedId}, byAct={};
+  list.forEach(s=>{ (byAct[s.activity]=byAct[s.activity]||[]).push(s); });
+  const finished=Object.keys(byAct).map(a=>{ const d=donePortionRowsHTML(Object.assign({},bedObj,{id:bedId}),byAct[a]); return d.n?`<div class="qsub" style="margin:6px 0 2px;font-weight:700;">${esc(actLabel(a,byAct[a][0]))} \u00b7 finished portions</div>${d.html}`:''; }).join('');
+  const body=`${sum?`<div class="qsub" style="margin:0 0 6px;">${esc(sum)}</div>`:''}${cards||`<div class="empty" style="padding:8px 0;">No task is assigned or running on this bed.</div>`}${finished}${recent?`<div class="qsub" style="margin:8px 0 2px;font-weight:700;">Recently completed</div>${recent}`:''}`;
   return `<div id="bed-tasks"><h2 style="font-size:13px;margin:12px 0 6px;">Assigned &amp; active tasks${list.length?' ('+list.length+')':''}</h2>${body}</div>`;
 }
 /* ---- Bed activities panel (bed pop-up on the Bed Status Board) ----
