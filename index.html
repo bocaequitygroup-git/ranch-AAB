@@ -163,6 +163,7 @@ body{margin:0;background:var(--sand);color:var(--ink);font-family:'Archivo',syst
 .rbs-cb.on{background:var(--ok);border-color:var(--ok);color:#fff;} .rbs-cb .rb-ico{width:12px;height:12px;stroke-width:3;}
 .rbs-cb.tap{border-color:var(--warn);} .rbs-cb.tap.on{border-color:var(--forest);background:var(--forest);color:#fff;}
 .rbs-req.pick{cursor:pointer;} .rbs-req.pick:hover{background:#FFF8EE;} .rbs-req.pick.sel{background:color-mix(in srgb,var(--forest) 7%,var(--paper));} .rbs-req.pick:focus-visible{outline:2px solid var(--forest);outline-offset:-2px;}
+.rbs-req.auto{cursor:default;} .rbs-cb.auto{border-style:dashed;opacity:.55;background:none;}
 .rbs-selbar{display:flex;justify-content:flex-end;padding:4px 12px;border-bottom:1px solid var(--line);} .rbs-selbar .rbx-link{padding:0;}
 .rbs-note{margin:12px 14px 0;padding:0 0 10px;border-radius:10px;background:color-mix(in srgb,var(--forest) 6%,var(--paper));font-size:13px;color:var(--ink);} .rbs-note>div:last-child{padding:2px 12px 0;} .rbs-note .rbs-bh{background:none;}
 .rbs-actions{display:flex;gap:10px;padding:14px;} .rbs-actions button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px;border-radius:10px;font:inherit;font-size:14px;font-weight:700;cursor:pointer;}
@@ -6961,7 +6962,7 @@ function rbSidePanel(rows){
       if(can){ const on=!!sel[p.workerId];
         return `<div class="rbs-req pick ${on?'sel':''}" role="checkbox" aria-checked="${on}" tabindex="0" data-k="${esc(r.key)}" data-w="${esc(p.workerId)}" onclick="rbPcTog(this.dataset.k,this.dataset.w)" onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();rbPcTog(this.dataset.k,this.dataset.w);}"><span class="rbs-cb tap ${on?'on':''}">${on?rbIco('check'):''}</span><span>Check portion: ${nm}</span></div>`; }
       return `<div class="rbs-req ${done?'done':''}">${cb(done)}<span>Check portion: ${nm}</span>${hint?`<em>${hint}</em>`:''}</div>`;
-    }).join('')+`<div class="rbs-req ${ready?'':'off'}">${cb(false)}<span>Verify the activity</span></div>`;
+    }).join('')+`<div class="rbs-req auto ${ready?'':'off'}"><span class="rbs-cb auto"></span><span>Verify the activity</span><em>${ready?'Use Approve below':'Unlocks once every portion is checked'}</em></div>`;
     if(awaiting.length>1) req=`<div class="rbs-selbar"><button class="rbx-link" data-k="${esc(r.key)}" onclick="rbPcAll(this.dataset.k)">${allOn?'Clear selection':'Select all ('+awaiting.length+')'}</button></div>`+req;
     note=ready?'Every portion is checked. Approve to verify this activity. It does not release the bed.'
       :awaiting.length?'Tick the workers whose portions you have reviewed (or Select all), then press Check selected. Approve unlocks once every portion is checked.'
@@ -9616,6 +9617,7 @@ async function mockBackend(action, p){
     bbCount:['Counting beds…',null],
     bbRelease:['Releasing beds…','Beds released.'],
     rbReview:['Saving review…','Review recorded.'],
+    rbVerifyCrew:['Verifying activity…','Activity verified.'],
     doCreateActivity:['Creating activity…','Activity created.'],
     pvVerify:['Verifying activities…','Activities verified.'],
     saPreview:['Building preview…',null],
