@@ -882,9 +882,9 @@ function irrReadyOf_(bedId){ if(!IRRR.map) return null; return IRRR.map[String(b
 /* ['READY'|'AWAITING'|'NOT_READY'|'LOADING', short label, chip class, tooltip] */
 function irrReadyState_(bedId){
   const r=irrReadyOf_(bedId); if(!r) return ['LOADING','','',''];
-  if(r.zoneVerified) return ['READY','\u2713 Ready'+(r.checkDone?' \u00b7 ACT_013 done':'')+' \u00b7 '+String(r.zoneId||'').replace('IRR-',''),'chip-ok','Zone '+(r.zoneId||'')+' is verified'+(r.checkDone?' and the zone check (ACT_013) is complete':'')+'. Irrigation can be assigned normally.'];
+  if(r.zoneVerified) return ['READY','\u2713 Ready'+(r.checkDone?' \u00b7 ACT_013 done':'')+' \u00b7 '+String(r.zoneId||'').replace('IRR-',''),'chip-ok','Planned zone '+(r.zoneId||'')+'. Assignable now'+(r.checkDone?'; physically verified.':'; physical verification pending (advisory only). Commissioning: '+(r.commissioningStatus||'unknown')+'.')];
   if(r.checkDone||r.awaitingSignoff) return ['AWAITING',(r.awaitingSignoff?'ACT_013 done \u00b7 awaiting sign-off':'ACT_013 done \u00b7 zone not signed off'),'chip-warn','The zone check is complete but the zone is not signed off yet. Approve it under Zone sign-off, then assign irrigation normally.'];
-  return ['NOT_READY','Zone not verified','chip-neutral','No zone check (ACT_013) has been completed for this bed. Send one first, or assign anyway with a written reason.'];
+  return ['NOT_READY','Not assignable','chip-neutral',r.reason||'This bed cannot take an irrigation assignment yet.'];
 }
 function irrReadyChip_(bedId){ const s=irrReadyState_(bedId); if(s[0]==='LOADING'){ irrReadyLoad_(); return ''; } return `<span class="chip ${s[2]}" title="${esc(s[3])}">${esc(s[1])}</span>`; }
 /* Boxed note for single-bed screens (multi-assign card, single dispatch). */
@@ -3562,7 +3562,7 @@ function owReadyNote_(d){
   if(!irrIsAct_(d.activity)||!IRRR.map) return '';
   const st=d.beds.map(id=>[id,irrReadyState_(id)[0]]), notReady=st.filter(x=>x[1]!=='READY').map(x=>x[0]);
   if(!d.beds.length) return '';
-  return notReady.length?` <span style="color:var(--warn);font-weight:600;">${notReady.length} not ready (zone not verified): ${esc(notReady.slice(0,8).join(', '))}${notReady.length>8?'\u2026':''}.</span>`
+  return notReady.length?` <span style="color:var(--warn);font-weight:600;">${notReady.length} not ready: ${esc(notReady.slice(0,8).join(', '))}${notReady.length>8?'\u2026':''}.</span>`
     :` <span style="color:var(--ok,#2f7d4f);font-weight:600;">All ready.</span>`;
 }
 function owFootHTML(){
