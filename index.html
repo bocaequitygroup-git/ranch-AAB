@@ -5903,7 +5903,7 @@ function irrModeAGate_(bedIds){
     const r=IRRR.map[id];
     if(!r||!r.zoneId) return {ok:false,reason:'Bed '+id+' has no zone on file.'};
     if(prod.indexOf(r.zoneId)<0) return {ok:false,reason:'Bed '+id+' is in '+r.zoneId+', which is not a production crop zone.'};
-    if(!r.zoneReleased) return {ok:false,reason:'Zone '+r.zoneId+' is not released: no ACT_013 sign-off in IRRIGATION_ZONE_VERIFICATION_LOG.'};
+    if(!r.zoneReleased) return {ok:false,reason:'Zone '+r.zoneId+' is not released: not marked COMMISSIONED in IRRIGATION_MASTER.'};
   }
   return {ok:true,reason:''};
 }
