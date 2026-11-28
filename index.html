@@ -883,7 +883,7 @@ function irrReadyOf_(bedId){ if(!IRRR.map) return null; return IRRR.map[String(b
 function irrReadyState_(bedId){
   const r=irrReadyOf_(bedId); if(!r) return ['LOADING','','',''];
   if(r.zoneVerified) return ['READY','\u2713 Ready'+(r.checkDone?' \u00b7 ACT_013 done':'')+' \u00b7 '+String(r.zoneId||'').replace('IRR-',''),'chip-ok','Planned zone '+(r.zoneId||'')+'. Assignable now'+(r.checkDone?'; physically verified.':'; physical verification pending (advisory only). Commissioning: '+(r.commissioningStatus||'unknown')+'.')];
-  if(r.checkDone||r.awaitingSignoff) return ['AWAITING',(r.awaitingSignoff?'ACT_013 done \u00b7 awaiting sign-off':'ACT_013 done \u00b7 zone not signed off'),'chip-warn','The zone check is complete but the zone is not signed off yet. Approve it under Zone sign-off, then assign irrigation normally.'];
+  if(r.checkDone||r.awaitingSignoff) return ['AWAITING',(r.awaitingSignoff?'ACT_013 done \u00b7 awaiting sign-off':'ACT_013 done \u00b7 zone not signed off'),'chip-warn','The zone check is complete but the zone is not signed off yet. Irrigation assignment follows the planned zone, so you can assign irrigation normally.'];
   return ['NOT_READY','Not assignable','chip-neutral',r.reason||'This bed cannot take an irrigation assignment yet.'];
 }
 function irrReadyChip_(bedId){ const s=irrReadyState_(bedId); if(s[0]==='LOADING'){ irrReadyLoad_(); return ''; } return `<span class="chip ${s[2]}" title="${esc(s[3])}">${esc(s[1])}</span>`; }
@@ -1238,7 +1238,7 @@ async function mgrOvRetry(kind){
 }
 function zoneOvKey(kind){ try{ if(kind==='dp') return 'bed:'+((ui.dp&&ui.dp.bedId)||''); if(kind==='ma') return 'bed:'+(maD().bedId||''); }catch(e){} return kind==='ow'?'ow':''; }
 /* Plain-language zone box for a manager. Two routes, in order of preference:
- *  1. Confirm the zone first: send a zone check (ACT_013) to a worker; the manager approves it in Zone sign-off, then ACT_031 assigns normally.
+ *  1. Confirm the zone first: send a zone check (ACT_013) to a worker for the record; ACT_031 assigns from the planned zone.
  *  2. Assign now without a confirmed zone: needs a written reason, logged, bed stays unverified, zone stays blank. */
 function zoneIrrName_(n){ return /^ACT_031\b/i.test(String(n||'').trim())||/^Irrigation$/i.test(String(n||'').replace(/^ACT_\d+:\s*/,'').trim()); }
 function zoneCheckAct_(){ return (maList()||[]).find(a=>String(a.id||'').toUpperCase()==='ACT_013'||/^ACT_013\b/i.test(String(a.name||'')))||null; }
@@ -1270,7 +1270,7 @@ function zoneOvBox(failed,kind){
   const cur=(ui.zoneReasons||{})[key]||'';
   return `<div class="pw-box warn"><div class="pw-t">${esc(title)}</div><div class="pw-why">${esc(why)}</div>
     <div style="margin-top:10px;"><b>Option 1 (recommended): confirm the zone first.</b></div>
-    <div class="pw-why">Send a zone check (ACT_013) to a worker on this bed. They start it in the field app, trace the line, and record the zone. You approve it under Zone sign-off in the top bar. Then assign irrigation normally.</div>
+    <div class="pw-why">Send a zone check (ACT_013) to a worker on this bed. They start it in the field app, trace the line, and record the zone as an observation only. Irrigation assignment follows the planned zone.</div>
     ${canSwap?`<button class="btn btn-primary" style="width:auto;margin:6px 0 0;" onclick="zoneSwapToCheck_()">Use a zone check (ACT_013) instead</button>`:''}
     <div style="margin-top:12px;"><b>Option 2: assign now without a confirmed zone.</b></div>
     <div class="pw-why">Needs a written reason. It is logged under your name, the bed stays unverified, and its zone stays blank.</div>
@@ -3018,9 +3018,8 @@ function modalHTMLBase(){
   else if(ui.modal==='new-activity') inner=newActivityModal();
   else if(ui.modal==='activity-profile') inner=activityProfileModal();
   else if(ui.modal==='one-worker') inner=oneWorkerModal();
-  else if(ui.modal==='zone-trace') inner=zoneTraceModal();
   else if(ui.modal==='irr-review') inner=irrReviewModal();
-  return `<div class="overlay" onclick="ovBackdropClick(this,event)"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'||ui.modal==='zone-trace'||ui.modal==='irr-review'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
+  return `<div class="overlay" onclick="ovBackdropClick(this,event)"><div class="sheet${ui.modal==='queue'||ui.modal==='team'||ui.modal==='urgent'||ui.modal==='phassign'||ui.modal==='new-activity'||ui.modal==='activity-profile'||ui.modal==='one-worker'||ui.modal==='irr-review'?' wide':((ui.modal==='dispatch'&&!ui.modalDraft.fixedActivity))?' xwide':''}">${inner}</div></div>`;
 }
 /* Activity catalog — LIVE from ACTIVITY_REFERENCE (get-manager-today-view -> activityCatalog).
  * Groups come from Activity_Domain; only rows a manager can dispatch as a worker session are sent
@@ -6375,7 +6374,7 @@ function actCheckZoneCards(live,d){
   if(!chk&&!zone) return '';
   const q=chk?`<div class="dp-box" style="border-left:4px solid var(--forest);"><div class="qsub" style="margin:0 0 4px;font-weight:700;">Task queued</div><b>${esc(chk.name||'')}</b><div class="note" style="margin:4px 0 0;">Assigned to ${esc(chk.worker||'Not assigned')}</div></div>`:'';
   const z=zone?`<div class="dp-box" style="border-left:4px solid #1E6B2E;"><div class="qsub" style="margin:0 0 4px;font-weight:700;">Zone status: verified</div><b>${esc(zone)}</b><div class="note" style="margin:4px 0 0;">Confirmed by ACT_013 sign-off.</div></div>`
-    :`<div class="dp-box" style="border-left:4px solid #B7791F;background:#FFF8E6;"><div class="qsub" style="margin:0 0 4px;font-weight:700;">Zone status: unverified</div><b>Complete ACT_013, then approve the zone link</b><div class="note" style="margin:4px 0 0;">Awaiting the field check before zone trace verification can proceed (Zone sign-off).</div></div>`;
+    :`<div class="dp-box" style="border-left:4px solid #B7791F;background:#FFF8E6;"><div class="qsub" style="margin:0 0 4px;font-weight:700;">Zone status: unverified</div><b>Zone check (ACT_013) not recorded</b><div class="note" style="margin:4px 0 0;">The physical zone has not been observed yet. This is an observation only and does not hold assignment.</div></div>`;
   return `<div style="display:flex;flex-direction:column;gap:8px;margin:8px 0;">${q}${z}</div>`;
 }
 function bhRow(o){
@@ -6816,34 +6815,17 @@ function rbPickBlockForTab_(t){
   if(first){ rb.fBlock=first; rbSyncBlock(first); rb.sel={}; rb.selV={}; }
 }
 function rbTab(t){ rb.tab=t; rbResetView(); rb.autoPick=true; rbPickBlockForTab_(t); render(); rbLoad(false); if(t==='zone') ztEnsureReview_(); }
-/* ACT_013 zone traces inside Manager review: pending ones are processed here (same approve / reject as Zone sign-off), reviewed ones list below. */
+/* ACT_013 zone-trace history inside Manager review (read-only). */
 async function ztLoadHist_(){
   if(ZT_.hLoading) return; ZT_.hLoading=true; render();
   try{ const d=await apiCall('get-zone-trace-history',{}); ZT_.hist=Array.isArray(d)?d:[]; ZT_.hLoaded=true; }catch(e){ ZT_.hErr=e.message||'Could not load reviewed zone traces.'; ZT_.hLoaded=true; }
   ZT_.hLoading=false; render();
 }
-function ztEnsureReview_(){ if(!ZT_.loaded&&!ZT_.loading) ztLoad(); if(!ZT_.hLoaded&&!ZT_.hLoading) setTimeout(ztLoadHist_,0); }
-function ztRv_(v){ ZT_.rv=v; render(); }
+function ztEnsureReview_(){ if(!ZT_.hLoaded&&!ZT_.hLoading) setTimeout(ztLoadHist_,0); }
 function rbZoneBody(){
   if(!ZT_.hLoaded&&!ZT_.hLoading) setTimeout(ztLoadHist_,0);
-  const items=ZT_.items.filter(t=>!rb.fBlock||pvBlockOf(String(t.Bed_ID||''))===rb.fBlock), n=items.length, nAll=ZT_.items.length;
-  const hN=ZT_.hLoaded?ZT_.hist.length:'\u2026';
-  const rv=ZT_.rv||(n>0?'queue':'history');   /* nothing waiting: open on the audit history instead of an empty box */
-  const pill=(k,label)=>`<button class="${rv===k?'active':''}" onclick="ztRv_('${k}')">${label}</button>`;
-  const help=`<details class="zt-help"><summary title="How zone sign-off works">?</summary><div class="zt-pop">Physical zone traces recorded by workers with ACT_013. Approve sets the bed's irrigation zone (IRR-Z01 to IRR-Z07 only). A zone already on file is never overwritten; that is recorded as a conflict. Reject needs a reason. Every decision stays in History &amp; audit with who and when.</div></details>`;
-  const bar=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;"><div class="seg">${pill('queue','Sign-off queue ('+n+' pending)')}${pill('history','History &amp; audit ('+hN+' reviewed)')}</div><span style="margin-left:auto;">${help}</span></div>`;
-  let view;
-  if(rv==='queue'){
-    if(ZT_.loading&&!ZT_.loaded) view='<div class="note">Loading zone traces\u2026</div>';
-    else if(ZT_.error) view=`<div class="notice">${esc(ZT_.error)}</div>`;
-    else if(!n) view=rb.fBlock&&nAll?`<div class="zt-strip warn">No pending traces in ${esc(BLOCK_LABELS[rb.fBlock]||rb.fBlock)} \u00b7 ${nAll} waiting elsewhere <button class="dc-mini" onclick="rbSetF('fBlock','',true)">Show all blocks</button></div>`
-      :'<div class="zt-strip">\u2713 Sign-off queue clear \u00b7 0 pending traces</div>';
-    else view=items.map(ztCardHtml_).join('');
-  } else {
-    const strip=n?`<div class="zt-strip warn">${n} trace${n>1?'s':''} waiting for sign-off <button class="dc-mini" onclick="ztRv_('queue')">Open queue</button></div>`:'<div class="zt-strip">\u2713 Sign-off queue clear \u00b7 0 pending traces</div>';
-    view=strip+(ZT_.hErr?`<div class="notice">${esc(ZT_.hErr)}</div>`:ztHistHtml_());
-  }
-  return bar+view;
+  const note='<div class="note" style="margin-bottom:8px;">Read-only record of ACT_013 zone-trace observations that were reviewed. Nothing here changes a bed zone.</div>';
+  return note+(ZT_.hErr?`<div class="notice">${esc(ZT_.hErr)}</div>`:ztHistHtml_());
 }
 function rbSyncBlock(k){ if(k&&PLAN_BLOCKS.includes(k)&&bb.sel!==k){ bb.sel=k; bb.dry=null; bb.res=null; bb.confirm=false; } }
 function rbSetF(k,v,set){ rb[k]=set?v:(rb[k]===v?'':v); if(k==='fBlock') rbSyncBlock(rb.fBlock); rbResetView(); render(); }
@@ -7062,14 +7044,14 @@ function rbPanel(){
   if(IS_DEMO||rb.hide) return '';
   const d=rb.data;
   if(!d) return `<div class="card" style="margin:12px 0;"><div class="empty" style="padding:8px 0;">${rb.err?esc(rb.err):'Loading the review board\u2026'}</div></div>`;
-  const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>!r.pending).length, nZone=ztCount_(), total=pend('multi')+pend('single');   /* Zone sign-off keeps its own count (nZone, shown on its tab); it is not part of the review total */
+  const rows=rbRows(d), pend=t=>rows.filter(r=>r.tab===t&&r.pending).length, nHist=rows.filter(r=>!r.pending).length, nZone=ZT_.hLoaded?ZT_.hist.length:0, total=pend('multi')+pend('single');   /* nZone = reviewed zone traces in the history tab; not part of the review total */
   const v=rbView(rb.tab==='zone'?'single':rb.tab,rows);
-  const tabs=[['zone','Zone sign-off (ACT_013)',nZone,'chip-warn'],['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['history','Activity history',nHist,'chip-neutral']];
+  const tabs=[['zone','Zone trace history (ACT_013)',nZone,'chip-neutral'],['multi','Multi-worker approvals',pend('multi'),'chip-warn'],['single','Single-worker & maintenance',pend('single'),'chip-warn'],['history','Activity history',nHist,'chip-neutral']];
   /* Policy text (what Checked/Verified mean, what never changes) moves behind a "?" hint; the visible line is just the
    * current scope (date window + block filter), so the table starts higher on the screen. */
   const policy={ multi:"Each worker's finished portion is checked as they finish; workers still assigned or working keep their current status. Verify the activity once every portion is complete and checked.",
     single:'Routine work done by one worker. Checking only logs your review; it never changes a bed, cohort, schedule or assignment.',
-    zone:'Worker zone traces awaiting your decision.',
+    zone:'Reviewed ACT_013 zone-trace observations (history only).',
     history:'Every checked and verified item, up to '+RB_HISTORY_DAYS+' days back (the most recent '+200+' are loaded). Loaded only while this tab is open.' }[rb.tab];
   const scopeBits=[];
   if(rb.tab!=='history'&&rb.tab!=='zone') scopeBits.push(rb.dFrom||rb.dTo?'Showing the dates you picked.':'Showing what is waiting plus work checked in the last '+RB_ACTIVE_DAYS+' days.');
@@ -7347,11 +7329,11 @@ function bbScreen(){
     .filter(x=>x[0]!=='review'||(!IS_DEMO&&!rb.hide));
   if(!SECS.some(x=>x[0]===bb.sec)) bb.sec='overview';
   /* Sidebar view only (proposed UI): colored rows with counts. Same sections and click handlers as before (bbSec). */
-  const showRev=!IS_DEMO&&!rb.hide, zc=(showRev&&typeof ztCount_==='function')?ztCount_():0, rdyN=pvReadyBeds().length;
+  const showRev=!IS_DEMO&&!rb.hide, zc=showRev?rvCount_():0, rdyN=pvReadyBeds().length;
   const rowBtn=(k,label,cnt,bg)=>`<button class="${bb.sec===k?'on':''}" aria-current="${bb.sec===k?'page':'false'}" onclick="bbSec('${k}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 6px;padding:10px 12px;border:1px solid ${bb.sec===k?'var(--forest)':'var(--line)'};border-radius:8px;background:${bg};text-align:left;cursor:pointer;font-weight:600;"><span>${esc(label)}</span>${cnt?`<span class="chip chip-warn">${cnt}</span>`:''}</button>`;
   const navBtns=[rowBtn('overview','Block map',0,'#fff'),
     rowBtn('verify','Bed Release Approvals',rdyN,'#FBF1D3'),
-    ...(showRev?[rowBtn('review','Zone Trace Approvals',zc,'#EEF0EC')]:[]),
+    ...(showRev?[rowBtn('review','Manager review',zc,'#EEF0EC')]:[]),
     rowBtn('tasks','Open Tasks',nTasks,'#FBF1D3'),
     rowBtn('release','Start of operations',0,'#fff')].join('');
   /* left list = one card per block (like the crop cards on Bed layout); the map in the middle shows ONE block at a time */
@@ -7638,32 +7620,15 @@ function urgResultHTML(){
   const notes=(r.notes||[]).length?`<div class="note">${r.notes.map(esc).join('<br>')}</div>`:'';
   return bar+body+notes;
 }
-/* ================= ACT_013 zone-trace sign-off (manager queue) =================
-   Lists worker zone traces still waiting for sign-off (get-zone-trace-queue). Approve calls verify-zone-trace with a zone chosen
-   from the fixed IRR-Z01..IRR-Z07 list (no free text). The server never overwrites a zone already on file; that refusal is shown
-   here as a conflict. Reject calls reject-zone-trace with a written reason. Nothing here touches commissioning flags, the
-   ZONE_UNVERIFIED override log, or BED_MASTER directly. */
-const ZT_ZONES_=['IRR-Z01','IRR-Z02','IRR-Z03','IRR-Z04','IRR-Z05','IRR-Z06','IRR-Z07'];
-const ZT_={ loaded:false, loading:false, error:'', items:[], drafts:{}, tab:'pending', hist:[], hLoaded:false, hLoading:false, hStatus:'', hQuery:'' };
-/* The zone dropdown starts on the zone the worker recorded (Observed_Zone_Canonical), so the manager confirms instead of re-typing it.
-   Only a recognized IRR-Z01..IRR-Z07 value is preselected; an unrecognized reading leaves it blank for the manager to choose.
-   This runs once per trace: after that the manager's own choice (including "Choose a zone...") is kept. */
-function ztD_(id){
-  if(!ZT_.drafts[id]){
-    const t=ZT_.items.find(x=>String(x.Trace_ID)===String(id));
-    const obs=t?String(t.Observed_Zone_Canonical||'').trim().toUpperCase():'';
-    ZT_.drafts[id]={zone:ZT_ZONES_.indexOf(obs)>=0?obs:'',busy:false,err:'',conflict:'',rejecting:false,reason:''};
-  }
-  return ZT_.drafts[id];
-}
-function ztDropItem_(id){ ZT_.items=ZT_.items.filter(x=>String(x.Trace_ID)!==String(id)); delete ZT_.drafts[id]; document.title=(ZT_.items.length?'('+ZT_.items.length+') ':'')+(typeof ZT_TITLE0_!=='undefined'?ZT_TITLE0_:document.title); }
+/* ================= ACT_013 zone-trace observation history (read-only) =================
+   The Zone sign-off screen and its queue / approve / reject routes were retired. ACT_013 itself is unchanged; reviewed zone
+   traces stay on file and are listed in Manager review > Zone trace history (get-zone-trace-history). */
+const ZT_={ error:'', hist:[], hLoaded:false, hLoading:false, hErr:'', hStatus:'', hQuery:'' };
 /* ================= SHARED MANAGER TOP BAR =================
    One menu for every manager screen (Ranch Layout, Daily Board, Season Planning, Operation Planner, Labor hours) so no screen is
-   missing a destination. The current screen is highlighted. Zone sign-off carries a live count of ACT_013 traces waiting for the
-   manager and turns red; a banner repeats it under the bar, because an unsigned zone holds irrigation on that bed. */
+   missing a destination. The current screen is highlighted. */
 function mgrCurrent_(){ return ui.screen==='planning' ? (ui.pMode==='operation'?'operation':(ui.pMode==='bedboard'&&bb.sec==='review'?'review':'planning')) : ui.screen; }
 /* Manager review: ordinary activity oversight only = checks, verifications and multi-worker approvals from the review board.
- * Pending ACT_013 zone traces are NOT counted here: Zone sign-off owns that badge and warning (ztCount_ / ztBanner_), so one trace never raises two alarms.
  * Finished ACT_013 sessions still show in Activity history. */
 function rvCount_(){ const d=rb.data; return (!IS_DEMO&&!rb.hide&&d)?((d.toCheck||[]).length+(d.toVerify||[]).length+rbCrewList(d).length):0; }
 /* One jump to the Manager review section of the Bed status board, from any screen. tab: 'zone' opens the ACT_013 zone-trace tab. */
@@ -7684,67 +7649,21 @@ function mgrRefreshBtn_(){
   if(s==='labor') return `<button onclick="lbReload()" title="Reload labor hours">↻ Refresh</button>`;
   return `<button ${ui.loading?'disabled':''} onclick="loadToday()" title="Reload live data">${ui.loading?'Refreshing…':'↻ Refresh'}</button>`;
 }
-function ztCount_(){ return ZT_.loaded?ZT_.items.length:0; }
 function mgrTopbar_(brand, sub, extra){
-  const cur=mgrCurrent_(), n=ztCount_();
-  const nav=[['ranch','Ranch Layout','goRanch()'],['board','Daily Board','goBoard()'],['review','Manager review','goManagerReview()'],['zone','Zone sign-off','openZoneTrace()'],
+  const cur=mgrCurrent_();
+  const nav=[['ranch','Ranch Layout','goRanch()'],['board','Daily Board','goBoard()'],['review','Manager review','goManagerReview()'],
     ...(zoneOvCan()?[['irr','Irrigation runs','openIrrReview()']]:[]),
     ['planning','Season Planning','goPlanning()'],['operation','Operation Planner',"goPlanning();setPMode('operation')"],
     ['team','Team','openTeam()'],['labor','Labor hours','openLabor()']];
   const btns=nav.map(function(x){
-    const on=x[0]===cur, z=x[0]==='zone', rv=x[0]==='review', rn=rvCount_();
-    return `<button class="${on?'nav-on':''}${z&&n?' zt-alert':''}" ${on?'aria-current="page"':''} onclick="${x[2]}"${z?` title="${n?n+' zone trace(s) waiting for your sign-off':'No zone traces waiting'}"`:''}>${x[1]}${z&&n?`<span class="zt-badge">${n}</span>`:''}${rv&&rn?`<span class="zt-badge">${rn}</span>`:''}</button>`;
+    const on=x[0]===cur, rv=x[0]==='review', rn=rvCount_();
+    return `<button class="${on?'nav-on':''}" ${on?'aria-current="page"':''} onclick="${x[2]}">${x[1]}${rv&&rn?`<span class="zt-badge">${rn}</span>`:''}</button>`;
   }).join('');
   return `<div class="topbar"><div><div class="brand">${brand}</div><div class="sub">${sub}</div></div>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span>${mgrRefreshBtn_()}${extra||''}${btns}<button onclick="logout()">Log out</button></div></div>${ztBanner_()}${rvBanner_()}`;
-}
-function ztBanner_(){
-  const n=ztCount_(); if(!n||ui.modal==='zone-trace') return '';
-  return `<div class="zt-banner" role="alert"><span>⚠ ${n} irrigation zone trace${n>1?'s are':' is'} waiting for your sign-off. Irrigation assignment on ${n>1?'those beds is':'that bed is'} held until you approve.</span><button onclick="openZoneTrace()">Review now</button></div>`;
-}
-/* Background check of the sign-off queue (read-only get-zone-trace-queue). Updates the badge / banner / tab title, and shows a
-   toast when a NEW trace arrives. Repaints only when the queue changed and the manager is not typing or mid-action. */
-const ZT_POLL_MS=30000, ZT_TITLE0_=document.title;
-function ztPoll_(){
-  if(!state.token||ui.screen==='login'||ZT_.loading||ZT_.polling) return;
-  ZT_.polling=true; ZT_.last=Date.now();
-  apiCall('get-zone-trace-queue',{}).then(function(d){
-    const list=Array.isArray(d)?d:[], oldIds=ZT_.items.map(function(t){return String(t.Trace_ID);}), first=!ZT_.loaded;
-    const fresh=list.filter(function(t){return oldIds.indexOf(String(t.Trace_ID))<0;});
-    const changed=first||fresh.length>0||list.length!==ZT_.items.length;
-    ZT_.items=list; ZT_.loaded=true;
-    document.title=(list.length?'('+list.length+') ':'')+ZT_TITLE0_;
-    if(!changed) return;
-    if(!first&&fresh.length) toast('New zone trace waiting for sign-off: bed '+(fresh[0].Bed_ID||'')+(fresh.length>1?' and '+(fresh.length-1)+' more':'')+'.',9000);
-    else if(!ZT_.anyBusy_()){ render(); }
-  }).catch(function(){}).then(function(){ ZT_.polling=false; });
-}
-ZT_.anyBusy_=function(){
-  const a=document.activeElement, typing=a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
-  const busy=Object.keys(ZT_.drafts).some(function(k){return ZT_.drafts[k].busy;});
-  return typing||busy||(ui.modal&&ui.modal!=='zone-trace')||ui.loading;
-};
-setInterval(function(){ if(document.visibilityState==='hidden'||ui.loading||_loadRun) return; if(Date.now()-(ZT_.last||0)>=(ZT_.loaded?ZT_POLL_MS:0)) ztPoll_(); },3000);
-document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible') ztPoll_(); });
-async function openZoneTrace(){ openModal('zone-trace',{}); await ztLoad(); }
-async function ztLoad(){
-  ZT_.loading=true; ZT_.error=''; if(ui.modal==='zone-trace') render();
-  try{ const d=await apiCall('get-zone-trace-queue',{}); ZT_.items=Array.isArray(d)?d:[]; }
-  catch(e){ ZT_.error=e.message||'Could not load the zone-trace queue.'; }
-  ZT_.loading=false; ZT_.loaded=true;
-  if(ui.modal==='zone-trace'||(ui.screen==='planning'&&bb.sec==='review')) render();
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="conn" id="conn" data-s="idle"></span>${mgrRefreshBtn_()}${extra||''}${btns}<button onclick="logout()">Log out</button></div></div>${rvBanner_()}`;
 }
 /* History / audit log: every reviewed trace stays on file (get-zone-trace-history). */
 const ZT_LABEL_={VERIFIED:'Approved',REJECTED:'Rejected',CONFLICT:'Conflict',UNRESOLVED:'Inconclusive'}, ZT_CHIP_={VERIFIED:'chip-ok',REJECTED:'chip-danger',CONFLICT:'chip-warn',UNRESOLVED:'chip-neutral'};
-async function ztSetTab_(t){
-  ZT_.tab=t; render();
-  if(t==='history'&&!ZT_.hLoaded){
-    ZT_.hLoading=true; render();
-    try{ const d=await apiCall('get-zone-trace-history',{}); ZT_.hist=Array.isArray(d)?d:[]; ZT_.hLoaded=true; ZT_.error=''; }
-    catch(e){ ZT_.error=e.message||'Could not load the zone-trace history.'; }
-    ZT_.hLoading=false; render();
-  }
-}
 /* display name next to the ID wherever the app knows it: "Linda (linda)" */
 function ztName_(id){
   id=String(id||'').trim(); if(!id) return '\u2014';
@@ -8070,73 +7989,6 @@ function irrReviewModal(){
     <input type="search" placeholder="Search bed, cohort, crop or worker" value="${esc(IR2.q)}" oninput="IR2.q=this.value;ir2Paint_()"></div>`;
   const drawer=IR2.open?ir2DrawerHtml_(IR2.open):'';
   return hd+err+ir2SeasonHtml_()+ir2Kpi_()+filters+`<div id="irr-table">${ir2TableHtml_()}</div>`+drawer;
-}
-function zoneTraceModal(){
-  const intro=`<p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Zone traces that workers recorded with ACT_013 wait here. Signing off sets that bed's irrigation zone, which releases the zone lock for that bed only. The zone the worker recorded is already selected; change it only if you disagree, and it must be one of the fixed zones. A bed that already has a zone on file is never overwritten; that case is shown as a conflict. Rejecting closes a trace and changes nothing.</p>`;
-  let body;
-  if(ZT_.tab==='history') body=ZT_.error?`<div class="notice">${esc(ZT_.error)}</div>`:ztHistHtml_();
-  else if(ZT_.loading&&!ZT_.loaded) body=`<div class="note">Loading zone traces…</div>`;
-  else if(ZT_.error) body=`<div class="notice">${esc(ZT_.error)}</div>`;
-  else if(!ZT_.items.length) body=`<div class="empty">No zone traces are waiting for sign-off.</div>`;
-  else body=ZT_.items.map(ztCardHtml_).join('');
-  const tabs=`<div class="seg" style="margin-bottom:10px;"><button class="${ZT_.tab==='pending'?'active':''}" onclick="ztSetTab_('pending')">Pending sign-off${ZT_.loaded&&ZT_.items.length?'<span class="n">'+ZT_.items.length+'</span>':''}</button><button class="${ZT_.tab==='history'?'active':''}" onclick="ztSetTab_('history')">History / audit log</button></div>`;
-  return `<h2 style="font-size:15px;">Irrigation zone sign-off</h2>${intro}${tabs}
-  <div style="display:flex;gap:8px;margin-bottom:10px;"><button class="btn btn-outline" style="width:auto;" ${ZT_.loading?'disabled':''} onclick="ZT_.hLoaded=false;ztLoad().then(function(){if(ZT_.tab==='history')ztSetTab_('history');})">${ZT_.loading?'Refreshing…':'Refresh'}</button><button class="btn btn-ghost" style="width:auto;" onclick="closeModal()">Close</button></div>
-  ${body}`;
-}
-function ztCardHtml_(t){
-  const id=String(t.Trace_ID||''), d=ztD_(id), eid=esc(id), bed=String(t.Bed_ID||'');
-  const obs=String(t.Observed_Zone_Canonical||'').trim(), raw=String(t.Observed_Zone_Raw||'').trim(), onFile=String(t.Zone_On_File||'').trim();
-  const mismatch=!!(d.zone&&obs&&d.zone!==obs);
-  const conflict=onFile&&(!obs||onFile.toUpperCase()!==obs.toUpperCase());
-  const fileBadge=onFile?`<span class="chip ${conflict?'chip-warn':'chip-info'}" title="${conflict?'A different zone is already on file. Approving this will be refused as a conflict.':'The zone on file matches this trace; approving confirms it.'}">${conflict?'Conflict: ':'On file: '}${esc(onFile)}</span>`:'';
-  let h=`<div class="card" style="margin-bottom:8px;padding:10px 12px;">
-    <div class="row" style="align-items:center;"><span style="font-weight:800;">${esc(bed)} <span class="sub">\u00b7 cohort ${esc(t.Cohort_ID||'\u2014')}</span></span><span>${fileBadge}</span></div>
-    <div class="sub">${ztName_(t.Worker_ID)}${t.Timestamp?' \u00b7 '+ztWhen_(t.Timestamp):''}</div>
-    <div class="sub"><b>Proposed:</b> ${obs?esc(obs):(raw?'&ldquo;'+esc(raw)+'&rdquo; (not a recognized zone)':'nothing recognized')}${t.Line_Notes?` \u00b7 <b>Notes:</b> ${esc(t.Line_Notes)}`:''}</div>`;
-  if(d.conflict) h+=`<div class="pw-box warn" style="margin-top:6px;"><div class="pw-t">Not signed off</div><div>${esc(d.conflict)}</div></div>`;
-  if(!d.rejecting){
-    h+=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;"><select style="flex:1;min-width:150px;" aria-label="Zone to sign off" onchange="ztZoneSet_('${eid}',this.value)"><option value="">Choose a zone\u2026</option>${ZT_ZONES_.map(z=>`<option value="${z}" ${d.zone===z?'selected':''}>${z}</option>`).join('')}</select>
-      <button class="btn btn-primary" style="width:auto;margin:0;" ${d.busy||!d.zone?'disabled':''} onclick="ztApprove('${eid}')">${d.busy?'Signing off\u2026':'Approve'}</button><button class="btn btn-outline" style="width:auto;margin:0;" ${d.busy?'disabled':''} onclick="ztRejectOpen('${eid}')">Reject</button></div>`;
-    if(mismatch) h+=`<div class="sub" style="color:var(--warn);margin-top:4px;">Worker proposed ${esc(obs)}; you are applying ${esc(d.zone)} (recorded as an override).</div>`;
-    if(d.err) h+=`<div class="notice" style="margin-top:6px;">${esc(d.err)}</div>`;
-  } else {
-    h+=`<textarea rows="2" maxlength="300" placeholder="Why is this trace being rejected? (required)" style="margin-top:8px;" oninput="ztD_('${eid}').reason=this.value">${esc(d.reason)}</textarea>`;
-    if(d.err) h+=`<div class="notice" style="margin-top:6px;">${esc(d.err)}</div>`;
-    h+=`<div style="display:flex;gap:8px;margin-top:6px;"><button class="btn btn-primary" style="width:auto;margin:0;" ${d.busy?'disabled':''} onclick="ztReject('${eid}')">${d.busy?'Rejecting\u2026':'Confirm reject'}</button><button class="btn btn-ghost" style="width:auto;margin:0;" ${d.busy?'disabled':''} onclick="ztRejectCancel('${eid}')">Cancel</button></div>`;
-  }
-  return h+`</div>`;
-}
-function ztZoneSet_(id,v){ const d=ztD_(id); d.zone=v; d.err=''; render(); }
-async function ztApprove(id){
-  const d=ztD_(id), t=ZT_.items.find(x=>String(x.Trace_ID)===String(id));
-  if(d.busy||!t) return;
-  if(ZT_ZONES_.indexOf(d.zone)<0){ d.err='Choose one of IRR-Z01 to IRR-Z07.'; render(); return; }
-  d.busy=true; d.err=''; d.conflict=''; render();
-  try{
-    await apiCall('verify-zone-trace',{traceId:id,zone:d.zone});
-    ZT_.hLoaded=false; ztDropItem_(id);
-    toast('Bed '+(t.Bed_ID||'')+' signed off to '+d.zone+'.');
-  }catch(e){
-    d.busy=false;
-    if(e.code==='ZONE_CONFLICT_WITH_RECORD'||e.code==='TRACE_CONFLICT'){ ZT_.hLoaded=false; ztDropItem_(id); toast('Conflict on bed '+(t.Bed_ID||'')+': '+(e.message||'a different zone is already on file')+' Recorded in History.',9000); render(); return; }
-    if(e.code==='ALREADY_VERIFIED') d.conflict=e.message||'This trace was already signed off.';
-    else d.err=e.message||'Could not sign off this trace.';
-    render();
-  }
-}
-function ztRejectOpen(id){ const d=ztD_(id); d.rejecting=true; d.reason=''; d.err=''; render(); }
-function ztRejectCancel(id){ const d=ztD_(id); d.rejecting=false; d.reason=''; d.err=''; render(); }
-async function ztReject(id){
-  const d=ztD_(id), reason=String(d.reason||'').trim();
-  if(d.busy) return;
-  if(!reason){ d.err='Enter why this trace is being rejected.'; render(); return; }
-  d.busy=true; d.err=''; render();
-  try{
-    await apiCall('reject-zone-trace',{traceId:id,reason:reason});
-    ZT_.hLoaded=false; ztDropItem_(id);
-    toast('Trace rejected. The bed zone was not changed.');
-  }catch(e){ d.busy=false; d.err=e.message||'Could not reject this trace.'; render(); }
 }
 function urgentModal(){
   const r=urg.res, canCreate=r&&r.dryRun&&r.ok&&r.summary&&r.summary.placed>0&&!urg.done&&(!r.summary.outOfWindow||urg.confirmOut);
